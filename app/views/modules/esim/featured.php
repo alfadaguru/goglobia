@@ -51,7 +51,19 @@ $cur = strtoupper($_SESSION['app_currency'] ?? 'USD');
             <div id="esim-featured-track" class="overflow-x-auto pb-2" x-ref="esimTrack" @scroll="syncScroll()">
                 <div class="flex gap-3 min-w-max">
                     <template x-for="item in items" :key="item.id">
-                        <a :href="item.url" class="group w-[250px] bg-white rounded-xl border border-gray-200 p-3 hover:border-blue-400 hover:shadow-md transition-all duration-300">
+                        <a :href="item.url" class="relative group w-[250px] bg-white rounded-xl border border-gray-200 p-3 hover:border-blue-400 hover:shadow-md transition-all duration-300">
+                            <button type="button" data-fav-toggle
+                                    data-fav-module="esim"
+                                    :data-fav-item="item.id"
+                                    :data-fav-title="item.title"
+                                    :data-fav-url="item.url"
+                                    :data-fav-image="item.flag"
+                                    data-fav-saved="0" aria-pressed="false"
+                                    @click.prevent.stop
+                                    class="absolute top-3 right-3 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center text-gray-700 hover:text-red-600"
+                                    aria-label="Save to favourites">
+                                <span class="material-symbols-outlined text-[20px]" data-fav-icon style="font-variation-settings:'FILL' 0;">favorite</span>
+                            </button>
                             <div class="flex items-start justify-between gap-2 mb-2">
                                 <span class="text-[11px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full font-semibold">Country</span>
                                 <span class="text-[10px] text-slate-500" x-text="item.country_iso"></span>

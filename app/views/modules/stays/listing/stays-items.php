@@ -145,6 +145,21 @@ PERFORMANCE:
                         `}
                     </a>
 
+                    <!-- Favourite (wishlist) heart -->
+                    <button type="button" data-fav-toggle
+                            data-fav-module="stays"
+                            data-fav-item="${h.id || h.original_id || h.hotel_id || ''}"
+                            data-fav-title="${(h.name || '').replace(/"/g, '&quot;')}"
+                            data-fav-url="${(h.original_data?.redirect || hotelUrl).replace(/"/g, '&quot;')}"
+                            data-fav-image="${(h.image || '').replace(/"/g, '&quot;')}"
+                            data-fav-price="${String(h.price_per_night || h.price || '').replace(/"/g, '&quot;')}"
+                            data-fav-currency="${String(h.currency || '').replace(/"/g, '&quot;')}"
+                            data-fav-saved="0" aria-pressed="false"
+                            class="absolute top-3 right-3 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center text-gray-700 hover:text-red-600"
+                            aria-label="Save to favourites">
+                        <span class="material-symbols-outlined text-[20px]" data-fav-icon style="font-variation-settings:'FILL' 0;">favorite</span>
+                    </button>
+
                     <!-- SLIDER BUTTONS -->
                     ${hasMultipleImages ? `
                         <!-- Left Arrow - Black Transparent Background -->
@@ -179,9 +194,9 @@ PERFORMANCE:
                         </div>
                     ` : ''}
 
-                    <!-- Supplier Badge -->
+                    <!-- Supplier Badge (admin-only). Shifted below the favourite heart (top-3 right-3) to avoid overlap. -->
                     <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] == 'admin') { ?>
-                        <div class="absolute top-2 right-2 bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold uppercase">
+                        <div class="absolute top-14 right-2 bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold uppercase">
                             ${h.supplier}
                         </div>
                     <?php } ?>

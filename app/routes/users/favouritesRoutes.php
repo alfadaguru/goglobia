@@ -23,8 +23,10 @@ $router->get('/favourites', function () use ($SECURE,$db) {
     // Get user data and filter
     $user_id = $_SESSION['user_id'];
 
-    // Get user data for sidebar
-    $user = $db->get('favourites', '*', ['user_id' => $user_id]);
+    // Get the USER row for the sidebar (was wrongly reading the `favourites`
+    // table into $user — a leftover bug; the saved favourites are loaded inside
+    // the view from the canonical `favourites` table).
+    $user = $db->get('users', '*', ['user_id' => $user_id]);
 
     // META DATA
     $title = "My Favourites";

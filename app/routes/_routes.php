@@ -463,6 +463,8 @@ require_once 'app/routes/crons/supplierEarningsRoutes.php'; // clearance sweep: 
 require_once 'app/routes/crons/campaignsDispatchRoutes.php'; // scheduled email campaign dispatcher
 require_once 'app/routes/crons/airaloSyncRoutes.php'; // Airalo eSIM country catalogue sync (/cron/airalo-sync)
 require_once 'app/routes/crons/bmStrandedIssueRoutes.php'; // BM/agent paid-but-unissued auto-recovery (/cron/bm-stranded-issue)
+require_once 'app/routes/crons/refundRetryRoutes.php'; // retry failed auto-refunds (paid-but-unissued, Part 1 HIGH) — /refund_retry_sweep
+require_once 'app/routes/crons/abandonedBookingSweepRoutes.php'; // generic expiry for abandoned unpaid card-checkout bookings (Part 1 MEDIUM) — /abandoned_booking_sweep
 require_once 'app/routes/crons/giaPaymentsRoutes.php'; // GIA per-booking payment reminders + expiry sweep
 require_once 'app/routes/crons/giaNurtureRoutes.php'; // GIA quiet-lead nurture (ad campaigns) — /gia_nurture_sweep
 require_once 'app/routes/crons/flightRemindersRoutes.php'; // flight travel reminders (3 pre + 1 post) email+WhatsApp

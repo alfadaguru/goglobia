@@ -80,6 +80,7 @@ require_once 'app/lib/admin_rbac.php'; // Employee RBAC consolidation (S1) — e
 require_once 'app/lib/agent_portal.php'; // Agent ERP portal — AGENT_OR_STAFF_AUTH + agent_can + schema (P0 wiring was missing)
 require_once 'app/lib/wallet.php';
 require_once 'app/lib/paylater.php';
+require_once 'app/lib/flight_hold.php'; // supplier-agnostic Book-on-Hold layer (Tiqwa adapter)
 require_once 'app/lib/paysmallsmall.php';
 require_once 'app/lib/installments.php';
 require_once 'app/lib/referrals.php';
@@ -601,6 +602,10 @@ try {
     // Per-user promo redemption ledger (enforces per_user_limit) — idempotent.
     if (function_exists('ensurePromoUsageSchema')) {
         ensurePromoUsageSchema($db);
+    }
+    // Favourites/wishlist (adds module/item_id + unique so items can be saved) — idempotent.
+    if (function_exists('ensureFavouritesSchema')) {
+        ensureFavouritesSchema($db);
     }
     // Newsletter subscribers (double-opt-in capture) — idempotent.
     if (function_exists('ensureNewsletterSchema')) {

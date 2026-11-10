@@ -1212,7 +1212,7 @@ INSERT INTO `blog_categories` (`id`, `cat_name`, `cat_slug`, `status`, `created_
 CREATE TABLE `bookings` (
   `id` int(11) NOT NULL,
   `invoice_id` varchar(255) NOT NULL,
-  `booking_status` enum('confirmed','pending','cancelled') NOT NULL DEFAULT 'pending',
+  `booking_status` enum('held','confirmed','pending','cancelled') NOT NULL DEFAULT 'pending',
   `payment_status` enum('paid','unpaid','refunded','partially_paid','awaiting_verification') NOT NULL DEFAULT 'unpaid',
   `issue_claimed_at` datetime DEFAULT NULL,
   `issue_loopback_at` datetime DEFAULT NULL,
@@ -1274,7 +1274,8 @@ CREATE TABLE `bookings` (
   `cancelled_at` datetime DEFAULT NULL,
   `payment_due_at` datetime DEFAULT NULL,
   `pay_later_status` varchar(24) DEFAULT NULL,
-  `pay_later_reminder_at` datetime DEFAULT NULL
+  `pay_later_reminder_at` datetime DEFAULT NULL,
+  `hold_expires_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 
 -- --------------------------------------------------------
@@ -28074,6 +28075,7 @@ CREATE TABLE `modules` (
   `ai_enabled` tinyint(1) NOT NULL DEFAULT 0,
   `fare_timer_enabled` tinyint(1) NOT NULL DEFAULT 0,
   `fare_timer_minutes` int(11) NOT NULL DEFAULT 15,
+  `hold_enabled` tinyint(1) NOT NULL DEFAULT 0,
   `booking_class` enum('real','affiliate','own','stub','') NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 

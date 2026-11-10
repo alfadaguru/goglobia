@@ -196,6 +196,8 @@ if ($user_id) {
                 $statusClass = 'bg-slate-100 text-slate-800 border-slate-300 uppercase text-xs font-semibold border w-full text-center';
                 if ($row['booking_status'] === 'confirmed') {
                     $statusClass = 'bg-green-100 text-green-800 border-green-300 uppercase text-xs font-semibold border w-full text-center';
+                } elseif ($row['booking_status'] === 'held') {
+                    $statusClass = 'bg-amber-100 text-amber-800 border-amber-300 uppercase text-xs font-semibold border w-full text-center';
                 } elseif ($row['booking_status'] === 'pending') {
                     $statusClass = 'bg-slate-100 text-slate-800 border-slate-300 uppercase text-xs font-semibold border w-full text-center';
                 } elseif ($row['booking_status'] === 'cancelled') {

@@ -163,38 +163,63 @@ $enabledModulesMap = array_flip($enabledModules);
          // ALWAYS FILTER BY: user_id (SHOW ONLY THIS USER'S BOOKINGS)
          // CONDITIONALLY ADD: module_type (IF SPECIFIC MODULE SELECTED)
          // ============================================================================
-         $whereCondition = ['user_id' => $_SESSION['user_id']];
+         // Canonical table is `favourites` (British). Each row carries module +
+         // item_id + a `data` JSON blob (title/url/image/price/currency).
+         $favWhere = ['user_id' => $_SESSION['user_id'], 'ORDER' => ['id' => 'DESC']];
          if ($currentFilter !== 'all') {
-            $whereCondition['module_type'] = $currentFilter;
+            $favWhere['module'] = $currentFilter;
          }
-
-         echo crud()->table('favorites')
-            ->where($whereCondition)
-            ->title(T::favorites)
-            ->label([
-               'module_type' => T::module,
-               'created_at' => T::date,
-            ])
-            ->order('id', 'DESC')
-            ->actions([
-               'add' => false,
-               'view' => false,
-               'edit' => false,
-               'delete' => true,
-               'status' => false,
-               'search' => true,
-               'bulk_delete' => false,
-            ])
-            ->row([
-               'module_type' => '<span class="capitalize">{{module_type}}</span>',
-               'created_at' => function ($row) {
-                  return date('M d, Y', strtotime($row['created_at']));
-               },
-            ])
-            ->col_width('module_type', '100px')
-            ->col_width('created_at', '120px')
-            ->render();
+         $favRows = $db->select('favourites', '*', $favWhere);
+         if (!is_array($favRows)) { $favRows = []; }
          ?>
+
+         <?php if (empty($favRows)): ?>
+            <div class="flex flex-col items-center justify-center py-16 text-center">
+               <span class="material-symbols-outlined text-5xl text-gray-300 mb-3">favorite</span>
+               <p class="text-gray-600 font-medium"><?= T::no_favourites ?? 'No favourites yet' ?></p>
+               <p class="text-gray-400 text-sm mt-1"><?= T::no_favourites_hint ?? 'Tap the heart on any flight, stay, tour or deal to save it here.' ?></p>
+            </div>
+         <?php else: ?>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" id="favGrid">
+               <?php foreach ($favRows as $fav):
+                  $d = json_decode((string) ($fav['data'] ?? ''), true);
+                  if (!is_array($d)) { $d = []; }
+                  $title = $d['title'] ?? ucfirst((string) ($fav['module'] ?? 'Item'));
+                  $url   = $d['url'] ?? '';
+                  $image = $d['image'] ?? '';
+                  $price = $d['price'] ?? '';
+                  $cur   = $d['currency'] ?? '';
+               ?>
+               <div class="relative rounded-xl border border-gray-200 bg-white overflow-hidden" data-fav-card="<?= (int) $fav['id'] ?>">
+                  <?php if ($image): ?>
+                     <img src="<?= htmlspecialchars($image) ?>" alt="<?= htmlspecialchars($title) ?>" class="w-full h-32 object-cover" loading="lazy">
+                  <?php endif; ?>
+                  <div class="p-3">
+                     <span class="inline-block text-[10px] uppercase tracking-wide font-semibold text-gray-500 mb-1"><?= htmlspecialchars((string) ($fav['module'] ?? '')) ?></span>
+                     <p class="font-medium text-gray-900 text-sm line-clamp-2"><?= htmlspecialchars($title) ?></p>
+                     <?php if ($price !== ''): ?>
+                        <p class="text-sm font-semibold text-gray-900 mt-1"><?= htmlspecialchars((string) $cur) ?> <?= htmlspecialchars((string) $price) ?></p>
+                     <?php endif; ?>
+                     <div class="flex items-center gap-2 mt-3">
+                        <?php if ($url): ?>
+                           <a href="<?= htmlspecialchars($url) ?>" class="text-xs font-medium text-blue-600 hover:underline"><?= T::view ?? 'View' ?></a>
+                        <?php endif; ?>
+                        <button type="button"
+                           class="ml-auto inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 is-faved"
+                           data-fav-toggle
+                           data-fav-module="<?= htmlspecialchars((string) ($fav['module'] ?? '')) ?>"
+                           data-fav-item="<?= htmlspecialchars((string) ($fav['item_id'] ?? '')) ?>"
+                           data-fav-saved="1" aria-pressed="true"
+                           onclick="var c=this.closest('[data-fav-card]'); setTimeout(function(){ if(c && c.querySelector('[data-fav-saved=\'0\']')) c.remove(); }, 400);">
+                           <span class="material-symbols-outlined text-base" data-fav-icon style="font-variation-settings:'FILL' 1;">favorite</span>
+                           <?= T::remove ?? 'Remove' ?>
+                        </button>
+                     </div>
+                  </div>
+               </div>
+               <?php endforeach; ?>
+            </div>
+         <?php endif; ?>
 
       </div>
    </div>

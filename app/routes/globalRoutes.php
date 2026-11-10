@@ -395,6 +395,59 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
         }
     }
 
+    // (e) BUG 1a FIX (2026-11-10): FLIGHT fare freshness at pay-time — on the LIVE
+    // web path. A supplier search trace (e.g. Adivaha) hard-expires ~15 min after
+    // search with NO token refresh; if the customer reaches pay late, the /book at
+    // issue returns HTTP 400 "search is older than 15 minutes" → charged, no ticket
+    // (observed live, invoice 85244545). The equivalent guard existed only inside
+    // process_payment() (DEAD on this web path, see the header note above), so it
+    // never ran. Re-validate the offer HERE, before minting the token:
+    //   • DEFINITIVELY EXPIRED / invalid offer → BLOCK (do not charge; ask to re-search).
+    //   • Price rose beyond 2% → BLOCK for review (never silently re-charge).
+    //   • Transient/network error, or valid → FAIL-OPEN (never block a legit payment).
+    // DB-gated via settings.flight_repay_revalidate (default ON). Own-inventory
+    // 'flights' (no supplier/revalidate.php) is skipped.
+    if (strtolower((string) ($booking['module_type'] ?? '')) === 'flights'
+        && function_exists('flightCallSupplierRevalidate')) {
+        try {
+            $__frEnabled = $db->get('settings', 'flight_repay_revalidate', ['id' => 1]);
+            $__frEnabled = ($__frEnabled === null || $__frEnabled === '') ? '1' : (string) $__frEnabled;
+            $__frSupplier = strtolower(trim((string) ($booking['module'] ?? '')));
+            $__frFile = dirname(__DIR__, 2) . '/modules/flights/' . $__frSupplier . '/revalidate.php';
+            if ($__frEnabled === '1' && $__frSupplier !== '' && $__frSupplier !== 'flights' && is_file($__frFile)) {
+                $__frBd    = json_decode((string) ($booking['booking_data'] ?? '[]'), true) ?: [];
+                $__frFd    = is_array($__frBd['flight_data'] ?? null) ? $__frBd['flight_data'] : [];
+                $__frSp    = is_array($__frBd['search_params'] ?? null) ? $__frBd['search_params']
+                           : (is_array($__frBd['flight_data']['search_params'] ?? null) ? $__frBd['flight_data']['search_params'] : []);
+                $__frOld   = (float) ($booking['price_original'] ?? 0);
+                $__frCur   = strtoupper((string) ($booking['currency_original'] ?? $booking['currency_markup'] ?? 'USD'));
+                if (!empty($__frFd)) {
+                    $__rv     = flightCallSupplierRevalidate($db, $__frFd, $__frSupplier, $__frOld, $__frCur, $__frSp, 8);
+                    $__rvData = is_array($__rv['data'] ?? null) ? $__rv['data'] : [];
+                    $__rvExp  = !empty($__rv['expired']) || !empty($__rvData['expired']);
+                    $__rvInv  = array_key_exists('is_valid', $__rvData) && $__rvData['is_valid'] === false;
+                    // DEFINITIVE expiry/invalid → block (do NOT charge a dead fare).
+                    if (is_array($__rv) && empty($__rv['status']) && ($__rvExp || $__rvInv)) {
+                        error_log('/payment/process FLIGHT OFFER EXPIRED — blocked (search stale) | invoice=' . $invoiceId . ' supplier=' . $__frSupplier);
+                        $__payBlock('This fare has expired (flight fares are held for about 15 minutes). Please search again to see current prices — your card has not been charged.');
+                    }
+                    // Price rose beyond tolerance → block for review (never silent re-charge).
+                    if (is_array($__rv) && !empty($__rv['status']) && !empty($__rvData['price_changed'])) {
+                        $__frNew = (float) ($__rvData['new_price'] ?? 0);
+                        if ($__frOld > 0 && $__frNew > 0 && (($__frNew - $__frOld) / $__frOld) * 100.0 > 2.0) {
+                            error_log('/payment/process FLIGHT FARE CHANGED — blocked for review | invoice=' . $invoiceId . ' old=' . $__frOld . ' new=' . $__frNew . ' ' . $__frCur);
+                            $__payBlock('The fare for this flight has changed since you booked. Please review the updated price and book again — your card has not been charged.');
+                        }
+                    }
+                    // else: transient error or valid offer → FAIL-OPEN (fall through, charge).
+                }
+            }
+        } catch (\Throwable $__e) {
+            // FAIL-OPEN: a revalidate error must never block a legitimate payment.
+            error_log('/payment/process flight-revalidate (fail-open) ' . $invoiceId . ': ' . $__e->getMessage());
+        }
+    }
+
     // Mozio hosted_checkout: never charge a site gateway (would double-bill).
     if (strtolower((string)($booking['module_type'] ?? '')) === 'cars' && strtolower((string)($booking['module'] ?? '')) === 'mozio') {
         require_once 'modules/cars/mozio/lib.php';
@@ -670,6 +723,33 @@ $router->get('/invoice/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE, $db)
     // Redirect to module-specific invoice route
     $moduleType = $booking['module_type'] ?? 'stays';
     header('Location: ' . root . 'invoice/' . $moduleType . '/' . $invoiceId . (isset($_SERVER['QUERY_STRING']) && $_SERVER['QUERY_STRING'] ? '?' . $_SERVER['QUERY_STRING'] : ''));
+    exit;
+});
+
+// ADD TO CALENDAR — per-booking .ics download (D3 gap fix). Owner-gated like the
+// invoice page; builds a VCALENDAR event from the booking's stored travel dates.
+$router->get('/booking/([a-zA-Z0-9]+)/calendar\.ics', function ($invoiceId) use ($SECURE, $db) {
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+    if (!$booking) {
+        http_response_code(404);
+        exit;
+    }
+    // Only the owner / creating guest session / admin may download it.
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    }
+
+    $ics = function_exists('bookingIcsBody') ? bookingIcsBody($booking, (string) $invoiceId) : '';
+    if ($ics === '') {
+        // No usable travel date on this booking — nothing to add to a calendar.
+        http_response_code(204);
+        exit;
+    }
+
+    header('Content-Type: text/calendar; charset=utf-8');
+    header('Content-Disposition: attachment; filename="booking-' . preg_replace('/[^A-Za-z0-9]/', '', (string) $invoiceId) . '.ics"');
+    header('Cache-Control: private, no-store');
+    echo $ics;
     exit;
 });
 

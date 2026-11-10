@@ -314,3 +314,111 @@ $router->post('flights/tiqwa/creds', function () use ($db) {
     $response['metadata']['response_time'] = round((microtime(true) - $start) * 1000, 2);
     echo json_encode($response);
 });
+
+// ---------------------------------------------------------------------------
+// SHARED PASSENGER BUILDER — used by BOTH the pay-then-issue path (actions/
+// issue.php) and the Book-on-Hold reserve path (reserve.php) so the Tiqwa
+// `passengers[]` payload is built in exactly ONE place (no divergence between
+// reserve and issue). All guarded, so a module that already defined these
+// (issue.php historically did) keeps its copy; load order (creds.php first)
+// means these win.
+// ---------------------------------------------------------------------------
+if (!function_exists('tiqwa_pax_type')) {
+    /** Map a draft pax key (adult_1 / child_2 / infant_1) to Tiqwa's type. */
+    function tiqwa_pax_type(string $paxKey): string
+    {
+        if (strpos($paxKey, 'child') === 0) return 'child';
+        if (strpos($paxKey, 'infant') === 0) return 'infant';
+        return 'adult';
+    }
+}
+
+if (!function_exists('tiqwa_iso2')) {
+    /** Best-effort ISO-3166 alpha-2 for a country value (code or name). */
+    function tiqwa_iso2($value, $db)
+    {
+        $value = trim((string) $value);
+        if ($value === '') return '';
+        if (strlen($value) === 2 && !is_numeric($value)) return strtoupper($value);
+        if (function_exists('resolveCountryIso')) {
+            $byPhone = resolveCountryIso($value, $db);
+            if ($byPhone !== '') return $byPhone;
+        }
+        try {
+            $row = $db->get('countries', ['iso'], ['name' => $value]);
+            if (!empty($row['iso'])) return strtoupper($row['iso']);
+            $row = $db->get('countries', ['iso'], ['nicename' => $value]);
+            if (!empty($row['iso'])) return strtoupper($row['iso']);
+        } catch (\Throwable $e) {}
+        return '';
+    }
+}
+
+if (!function_exists('tiqwa_build_pax')) {
+    /**
+     * Build the Tiqwa `passengers[]` array from a booking's stored travellers.
+     * Returns [] if there are no valid passengers. Identical logic to what
+     * actions/issue.php used inline — extracted so reserve + issue never drift.
+     */
+    function tiqwa_build_pax($db, array $booking): array
+    {
+        $travellers = json_decode((string) ($booking['travellers'] ?? ''), true);
+        if (!is_array($travellers)) { $travellers = []; }
+
+        $contactEmail = trim((string) ($booking['email'] ?? ''));
+        $contactPhone = trim((string) ($booking['phone'] ?? ''));
+
+        $pax = [];
+        foreach ($travellers as $paxKey => $p) {
+            if (!is_array($p) || !preg_match('/^(adult|child|infant)_\d+$/', (string) $paxKey)) continue;
+            $ptype = tiqwa_pax_type((string) $paxKey);
+
+            $dob = '';
+            $isoDob = trim((string) ($p['dob'] ?? $p['date_of_birth'] ?? ''));
+            if ($isoDob !== '' && preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $isoDob, $m)) {
+                $dob = $m[1] . '-' . $m[2] . '-' . $m[3];
+            } elseif (!empty($p['dob_year']) && !empty($p['dob_month']) && !empty($p['dob_day'])) {
+                $dob = $p['dob_year'] . '-' . str_pad((string) $p['dob_month'], 2, '0', STR_PAD_LEFT) . '-' . str_pad((string) $p['dob_day'], 2, '0', STR_PAD_LEFT);
+            }
+
+            $title = strtolower(trim((string) ($p['title'] ?? 'mr')));
+            if (!in_array($title, ['mr', 'miss', 'mrs', 'ms'], true)) $title = 'mr';
+            $gender = strtolower(trim((string) ($p['gender'] ?? '')));
+            if (in_array($gender, ['m', 'male'], true)) $gender = 'male';
+            elseif (in_array($gender, ['f', 'female'], true)) $gender = 'female';
+            else $gender = in_array($title, ['mrs', 'ms', 'miss'], true) ? 'female' : 'male';
+
+            $entry = [
+                'passenger_type' => $ptype,
+                'first_name'     => (string) ($p['first_name'] ?? ''),
+                'last_name'      => (string) ($p['last_name'] ?? ''),
+                'gender'         => $gender,
+                'title'          => $title,
+                'email'          => trim((string) ($p['email'] ?? '')) ?: $contactEmail,
+                'phone_number'   => trim((string) ($p['phone'] ?? $p['phone_number'] ?? '')) ?: $contactPhone,
+            ];
+            if ($dob !== '') $entry['dob'] = $dob;
+
+            $passportNo  = trim((string) ($p['passport_no'] ?? $p['passport'] ?? $p['passport_number'] ?? ''));
+            $passportExp = trim((string) ($p['passport_exp'] ?? $p['passport_expiry'] ?? ''));
+            if ($passportExp === '' && !empty($p['passport_expiry_year']) && !empty($p['passport_expiry_month']) && !empty($p['passport_expiry_day'])) {
+                $passportExp = $p['passport_expiry_year'] . '-' . str_pad((string) $p['passport_expiry_month'], 2, '0', STR_PAD_LEFT) . '-' . str_pad((string) $p['passport_expiry_day'], 2, '0', STR_PAD_LEFT);
+            }
+            if ($passportNo !== '') {
+                $entry['documents'] = [
+                    'number'              => $passportNo,
+                    'document_type'       => 'passport',
+                    'holder'              => true,
+                    'issuing_country'     => tiqwa_iso2($p['passport_issuing_country'] ?? ($p['issuing_country'] ?? ($booking['country'] ?? '')), $db),
+                    'nationality_country' => tiqwa_iso2($p['nationality'] ?? ($booking['country'] ?? ''), $db),
+                ];
+                if ($passportExp !== '') $entry['documents']['expiry_date'] = date('Y-m-d', strtotime($passportExp));
+                $passIss = trim((string) ($p['passport_issue'] ?? $p['passport_issue_date'] ?? ''));
+                if ($passIss !== '') $entry['documents']['issuing_date'] = date('Y-m-d', strtotime($passIss));
+            }
+
+            $pax[] = $entry;
+        }
+        return $pax;
+    }
+}

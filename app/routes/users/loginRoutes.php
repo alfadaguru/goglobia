@@ -460,6 +460,14 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
         // must set user_logged_in to keep the auth class / checkUser() in step.
         $_SESSION['user_logged_in'] = true;
 
+        // D2 gap fix: quick-login is the checkout "sign in to attach my booking"
+        // path. Durably re-parent the guest bookings made in this session to the
+        // now-logged-in user (not just session-scoped owned_invoices). Shared
+        // helper (login_session.php), so all login paths behave identically.
+        if (function_exists('claimGuestBookingsForUser')) {
+            claimGuestBookingsForUser($db, $user);
+        }
+
         if ($user['role'] === 'admin') {
             $_SESSION['admin_logged_in'] = true;
         }

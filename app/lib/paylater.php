@@ -144,6 +144,59 @@ if (!function_exists('pay_later_sweep')) {
                 $inv = (string) $b['invoice_id'];
                 $dueTs = strtotime((string) $b['payment_due_at']);
                 if ($dueTs === false) { continue; }
+
+                // ---- BOOK-ON-HOLD branch (D-items 11-16) ----
+                // A 'held' booking is a supplier reservation with no payment. When
+                // its deadline passes unpaid, cancel it unconditionally (it does NOT
+                // depend on a pay_later rule): tell the supplier to release the
+                // reservation, release any local inventory, notify, mark cancelled.
+                if (strtolower((string) ($b['booking_status'] ?? '')) === 'held') {
+                    if ($now >= $dueTs) {
+                        // TOCTOU GUARD (audit HIGH, 2026-11-10): the row $b is from the
+                        // batch SELECT and may be seconds/minutes stale. A customer can
+                        // pay right at the deadline — between the SELECT and here the
+                        // booking becomes paid+confirmed and the ticket issues. Do NOT
+                        // cancel on the stale read. Instead do a STATE-SCOPED cancel that
+                        // only fires while the row is STILL held+unpaid, and gate every
+                        // side-effect (supplier release, email, inventory) on it having
+                        // actually flipped a row — mirroring abandoned_booking_sweep.
+                        $claimed = $db->query(
+                            "UPDATE bookings
+                               SET booking_status = 'cancelled',
+                                   pay_later_status = 'cancelled',
+                                   cancelled_at = :ca,
+                                   cancellation_response = :cr
+                             WHERE invoice_id = :inv
+                               AND booking_status = 'held'
+                               AND payment_status = 'unpaid'",
+                            [
+                                ':ca'  => $nowStr,
+                                ':cr'  => 'Hold expired: payment not received by ' . $b['payment_due_at'],
+                                ':inv' => $inv,
+                            ]
+                        );
+                        $didCancel = $claimed && $claimed->rowCount() > 0;
+
+                        if ($didCancel) {
+                            // Only now (we truly cancelled an unpaid held booking) run the
+                            // irreversible/outward side-effects.
+                            if (function_exists('flight_hold_release_supplier')) {
+                                try { flight_hold_release_supplier($db, $inv); } catch (\Throwable $e) { error_log('hold release ' . $inv . ': ' . $e->getMessage()); }
+                            }
+                            pay_later_release_inventory($db, $b);
+                            pay_later_notify($db, $b, 'pay_later_cancelled',
+                                'Your held booking expired — payment not received',
+                                "Hello,\n\nWe did not receive payment for your held booking {$inv} by the deadline ({$b['payment_due_at']}), so the hold has been released. You're welcome to book again.\n");
+                            $out['cancelled']++;
+                        }
+                        // else: the customer paid in the race window — leave the now
+                        // paid/confirmed booking exactly as the payment path set it.
+                    }
+                    // Held bookings skip the pay-later reminder machinery below
+                    // (the hold has its own on-page countdown).
+                    continue;
+                }
+
                 $rule = pay_later_rule_for($db, (string) ($b['module_type'] ?? ''), (string) ($b['module'] ?? ''));
                 if (!$rule) { continue; }
 
@@ -151,20 +204,36 @@ if (!function_exists('pay_later_sweep')) {
                 if ($now >= $dueTs) {
                     $policy = (string) ($rule['deadline_policy'] ?? 'flag');
                     if ($policy === 'auto_cancel') {
-                        $db->update('bookings', [
-                            'booking_status'   => 'cancelled',
-                            'pay_later_status' => 'cancelled',
-                            'cancelled_at'     => $nowStr,
-                            'cancellation_response' => 'Auto-cancelled: Pay-Later payment not received by ' . $b['payment_due_at'],
-                        ], ['invoice_id' => $inv]);
-                        // Optional inventory release hook (umrah holds, etc.).
-                        if ((int) ($rule['release_inventory'] ?? 1) === 1) {
-                            pay_later_release_inventory($db, $b);
+                        // TOCTOU GUARD (audit, 2026-11-10): $b is a stale batch read. A
+                        // customer can pay right at the deadline. State-scope the cancel
+                        // to still-unpaid rows and gate side-effects on it actually
+                        // flipping a row, so a just-paid booking is never cancelled or
+                        // sent a false "cancelled" email. (Same fix as the held-branch.)
+                        $claimed = $db->query(
+                            "UPDATE bookings
+                               SET booking_status = 'cancelled',
+                                   pay_later_status = 'cancelled',
+                                   cancelled_at = :ca,
+                                   cancellation_response = :cr
+                             WHERE invoice_id = :inv
+                               AND payment_status = 'unpaid'
+                               AND booking_status NOT IN ('cancelled','confirmed')",
+                            [
+                                ':ca'  => $nowStr,
+                                ':cr'  => 'Auto-cancelled: Pay-Later payment not received by ' . $b['payment_due_at'],
+                                ':inv' => $inv,
+                            ]
+                        );
+                        if ($claimed && $claimed->rowCount() > 0) {
+                            // Optional inventory release hook (umrah holds, etc.).
+                            if ((int) ($rule['release_inventory'] ?? 1) === 1) {
+                                pay_later_release_inventory($db, $b);
+                            }
+                            pay_later_notify($db, $b, 'pay_later_cancelled',
+                                'Your reservation was cancelled — payment not received',
+                                "Assalamu Alaikum,\n\nWe did not receive payment for booking {$inv} by the deadline ({$b['payment_due_at']}), so the reservation has been cancelled. You're welcome to book again.\n");
+                            $out['cancelled']++;
                         }
-                        pay_later_notify($db, $b, 'pay_later_cancelled',
-                            'Your reservation was cancelled — payment not received',
-                            "Assalamu Alaikum,\n\nWe did not receive payment for booking {$inv} by the deadline ({$b['payment_due_at']}), so the reservation has been cancelled. You're welcome to book again.\n");
-                        $out['cancelled']++;
                     } else {
                         // flag-only: mark overdue (once) + alert staff.
                         if (($b['pay_later_status'] ?? '') !== 'overdue') {

@@ -463,7 +463,145 @@ if (!function_exists('cards_charge')) {
     }
 }
 
+if (!function_exists('cards_charge_booking')) {
+    /**
+     * Charge a saved card to pay a BOOKING (not a wallet top-up). Unlike
+     * cards_charge(), this does NOT settle anything itself — it only moves the money
+     * at the provider and returns the provider reference. The caller then routes the
+     * browser to the normal payment callback (invoice/{type}/{id}?token=..&
+     * payment_status=success&transaction_id={ref}), so the booking is settled by the
+     * SAME confirm-before-issue path every gateway uses (handle_payment_callback ->
+     * verify_gateway_payment). This keeps settlement in one place (no duplication) and
+     * preserves the issue/auto-refund guards.
+     *
+     * The charge is bound to the invoice:
+     *   - Stripe:   PaymentIntent with metadata.invoice_id (verify re-checks it).
+     *   - Paystack: charge_authorization with reference derived from the booking token
+     *               (verify re-checks the transaction by reference).
+     *
+     * @param array  $booking  the bookings row (needs invoice_id, price_markup, currency_markup, email)
+     * @param string $payToken the payment token minted by create_payment_token($booking,$gateway)
+     * @param string $attemptId optional per-click id for provider idempotency
+     * @return array{ok:bool,requires_action?:bool,client_secret?:string,reference?:string,provider?:string,message?:string}
+     */
+    function cards_charge_booking($db, int $cardId, string $userId, array $booking, string $payToken, string $attemptId = ''): array
+    {
+        $card = cards_get_owned($db, $cardId, $userId);
+        if (!$card) { return ['ok' => false, 'message' => 'Card not found']; }
+
+        $amount = round((float) ($booking['price_markup'] ?? 0), 2);
+        if ($amount <= 0) { return ['ok' => false, 'message' => 'Invalid amount']; }
+        $currency = strtoupper((string) ($booking['currency_markup'] ?? ''));
+        $cardCurrency = strtoupper((string) $card['currency']);
+        // The card must match the booking currency (NGN card -> NGN booking, etc).
+        if ($currency !== '' && $cardCurrency !== '' && $currency !== $cardCurrency) {
+            return ['ok' => false, 'message' => 'This card cannot pay a ' . $currency . ' booking.'];
+        }
+        if ($currency === '') { $currency = $cardCurrency ?: 'USD'; }
+        $provider = (string) $card['provider'];
+        $invoiceId = (string) ($booking['invoice_id'] ?? '');
+        if ($invoiceId === '') { return ['ok' => false, 'message' => 'Missing invoice' ]; }
+
+        // Resolve the gateway (with per-service key overrides) for this card.
+        $gw = $db->get('payment_gateways', '*', ['id' => (int) ($card['gateway_id'] ?? 0)])
+            ?: cards_gateway_for_currency($db, $currency);
+        $secret = $gw ? cards_secret_key($gw) : '';
+        if ($secret === '') { return ['ok' => false, 'message' => 'Payment gateway not configured']; }
+
+        $minor = (int) round($amount * 100);
+        $attemptId = preg_replace('/[^A-Za-z0-9_-]/', '', $attemptId);
+        // Deterministic per-booking idempotency: one in-flight charge per (card,invoice,amount).
+        $idemSuffix = $attemptId !== '' ? $attemptId : (string) (int) floor(time() / 60);
+        $idemKey = 'CARDBK-' . $userId . '-' . $cardId . '-' . $invoiceId . '-' . $minor . '-' . $idemSuffix;
+
+        // Short advisory lock so a rapid double-click can't fire two provider charges.
+        $lockName = 'cardbk_' . $userId . '_' . $cardId . '_' . substr(md5($invoiceId), 0, 12);
+        $gotLock = null;
+        try {
+            $lk = $db->query('SELECT GET_LOCK(:n, 0) AS g', [':n' => $lockName]);
+            $gotLock = $lk ? $lk->fetch(\PDO::FETCH_ASSOC) : null;
+            if (!$gotLock || (int) ($gotLock['g'] ?? 0) !== 1) {
+                return ['ok' => false, 'message' => 'A payment for this booking is already in progress. Please wait a moment.'];
+            }
+        } catch (\Throwable $e) {
+            error_log('cards_charge_booking GET_LOCK unavailable: ' . $e->getMessage());
+            $gotLock = null;
+        }
+        $releaseLock = function () use ($db, $lockName, &$gotLock) {
+            if ($gotLock && (int) ($gotLock['g'] ?? 0) === 1) {
+                try { $db->query('SELECT RELEASE_LOCK(:n)', [':n' => $lockName]); } catch (\Throwable $e) {}
+                $gotLock = null;
+            }
+        };
+        register_shutdown_function($releaseLock);
+
+        if ($provider === 'stripe') {
+            $r = cards_http('POST', 'https://api.stripe.com/v1/payment_intents', $secret, [
+                'amount'         => $minor,
+                'currency'       => strtolower($currency),
+                'customer'       => (string) ($card['provider_customer'] ?? ''),
+                'payment_method' => (string) $card['token'],
+                'off_session'    => 'true',
+                'confirm'        => 'true',
+                // Bind to the invoice so verify_gateway_payment can confirm it.
+                'metadata[invoice_id]' => $invoiceId,
+                'metadata[user_id]'    => $userId,
+                'description'          => 'Booking for Invoice ' . $invoiceId,
+            ], 'stripe', ['Idempotency-Key: ' . $idemKey]);
+            $j = $r['json'] ?? [];
+            $status = (string) ($j['status'] ?? '');
+            $piId   = (string) ($j['id'] ?? '');
+            if ($status === 'requires_action' || $status === 'requires_confirmation') {
+                return [
+                    'ok' => false, 'requires_action' => true, 'provider' => 'stripe',
+                    'client_secret' => (string) ($j['client_secret'] ?? ''),
+                    'reference' => $piId,
+                    'message' => 'This card needs extra verification.',
+                ];
+            }
+            if ($status !== 'succeeded') {
+                $msg = (string) ($j['error']['message'] ?? $j['last_payment_error']['message'] ?? 'Card was declined');
+                error_log('cards_charge_booking stripe: http=' . $r['http'] . ' status=' . $status . ' ' . substr($msg, 0, 160));
+                return ['ok' => false, 'message' => $msg];
+            }
+            // Money taken. Settlement happens in the callback (verify reads pi_).
+            return ['ok' => true, 'provider' => 'stripe', 'reference' => $piId];
+        }
+
+        if ($provider === 'paystack') {
+            $email = (string) ($db->get('users', 'email', ['user_id' => $userId]) ?: ($booking['email'] ?? ''));
+            // Reference MUST use the invoice-bound format the Paystack verify case
+            // requires: it rejects any reference that does not start with
+            // 'PSK-{invoice_id}-' (payment-gateway.php verify_gateway_payment,
+            // "reference not bound to invoice"). So we mint PSK-{invoice}-{suffix}
+            // here — unique per charge, re-verifiable, and accepted by the existing
+            // confirm-before-issue callback with NO spine change.
+            $ref = 'PSK-' . $invoiceId . '-' . $idemSuffix;
+            $r = cards_http('POST', 'https://api.paystack.co/transaction/charge_authorization', $secret, [
+                'authorization_code' => (string) $card['token'],
+                'email'     => $email,
+                'amount'    => $minor,
+                'currency'  => $currency,
+                'reference' => $ref,
+                'metadata'  => ['invoice_id' => $invoiceId],
+            ], 'paystack');
+            $j = $r['json'] ?? [];
+            $ok  = !empty($j['status']) && strtolower((string) ($j['data']['status'] ?? '')) === 'success';
+            $retRef = (string) ($j['data']['reference'] ?? $ref);
+            if (!$ok || $retRef === '') {
+                $msg = (string) ($j['data']['gateway_response'] ?? $j['message'] ?? 'Card was declined');
+                error_log('cards_charge_booking paystack: http=' . $r['http'] . ' ' . substr($msg, 0, 160));
+                return ['ok' => false, 'message' => $msg];
+            }
+            return ['ok' => true, 'provider' => 'paystack', 'reference' => $retRef];
+        }
+
+        return ['ok' => false, 'message' => 'Unsupported card provider'];
+    }
+}
+
 if (!function_exists('cards_settle_topup')) {
+    /**
     /**
      * Turn a confirmed provider charge into a wallet credit through the spine.
      * Idempotent on $idem: a repeat with the same provider reference returns the

@@ -82,6 +82,27 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 <span class="text-sm font-semibold text-orange-700"><?= ucfirst($booking['booking_status']) ?></span>
             </div>
 
+            <?php
+            // BOOK-ON-HOLD notice: when the booking is held, show the pay-by deadline
+            // prominently so the customer knows to pay before the airline releases it.
+            if (strtolower((string) ($booking['booking_status'] ?? '')) === 'held'
+                && !empty($booking['hold_expires_at'])
+                && strtotime((string) $booking['hold_expires_at']) !== false):
+                $__holdTs = strtotime((string) $booking['hold_expires_at']);
+            ?>
+            <div class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-300 mt-1">
+                <span class="material-symbols-outlined text-amber-600 text-[18px]">schedule</span>
+                <div>
+                    <p class="text-sm font-semibold text-amber-800"><?= T::on_hold_pay_by ?? 'On hold — pay to confirm' ?></p>
+                    <p class="text-xs text-amber-700 mt-0.5">
+                        <?= T::pay_before ?? 'Please pay before' ?>
+                        <strong><?= date('d M Y, H:i', $__holdTs) ?></strong>
+                        <?= T::or_reservation_released ?? 'or the airline will release this reservation.' ?>
+                    </p>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Payment Status -->
             <div class="flex justify-between items-center p-3 rounded-lg <?= $booking['payment_status'] === 'paid' ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200' ?>">
                 <div class="flex items-center gap-2">
@@ -235,6 +256,58 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             <span class="material-symbols-outlined text-[18px]" id="paymentBtnIcon">payment</span>
             <span id="paymentBtnText"><?= T::make_payment ?></span>
         </button>
+
+        <?php
+        // ── PAY WITH A SAVED CARD (card-on-file at checkout) ──────────────────
+        // Logged-in customers can pay this booking in one tap with a card already
+        // on file. Only cards in the BOOKING's currency are shown (an NGN card pays
+        // an NGN booking via Paystack, a USD card via Stripe) — the charge settles
+        // the booking through the normal confirm-before-issue callback. Not shown
+        // to guests, to agents (wallet-only), or when the booking is already paid.
+        $__savedCards = [];
+        $__isCustomer = isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])
+            && strtolower((string) ($_SESSION['user_role'] ?? '')) !== 'agent';
+        if ($__isCustomer
+            && $showInvoicePayment
+            && ($booking['payment_status'] ?? '') !== 'paid'
+            && function_exists('cards_list')) {
+            $__bkCur = strtoupper((string) $bookingCurrencyCode);
+            foreach (cards_list($db, (string) $_SESSION['user_id']) as $__c) {
+                if (strtoupper((string) ($__c['currency'] ?? '')) === $__bkCur && empty($__c['expired'])) {
+                    $__savedCards[] = $__c;
+                }
+            }
+        }
+        if (!empty($__savedCards)):
+        ?>
+        <div id="savedCardPay" class="mt-3 card p-4 border border-slate-200 dark:border-slate-700">
+            <h4 class="font-semibold text-sm text-slate-800 dark:text-slate-100 mb-3 flex items-center gap-2">
+                <span class="material-symbols-outlined text-[18px]">credit_card</span>
+                <span>Pay with a saved card</span>
+            </h4>
+            <div class="space-y-2">
+                <?php foreach ($__savedCards as $__c): ?>
+                    <button type="button"
+                            class="saved-card-pay w-full text-left border rounded-lg p-3 flex items-center justify-between hover:border-blue-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            data-card-id="<?= (int) $__c['id'] ?>">
+                        <span class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-[18px] text-slate-500">credit_card</span>
+                            <span class="text-sm text-slate-800 dark:text-slate-100">
+                                <?= htmlspecialchars(ucfirst((string) ($__c['brand'] ?? 'Card'))) ?> ···· <?= htmlspecialchars((string) ($__c['last4'] ?? '')) ?>
+                                <?php if (!empty($__c['exp'])): ?><span class="text-xs text-slate-400">(<?= htmlspecialchars((string) $__c['exp']) ?>)</span><?php endif; ?>
+                                <?php if (!empty($__c['is_default'])): ?><span class="text-[10px] ml-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Default</span><?php endif; ?>
+                            </span>
+                        </span>
+                        <span class="material-symbols-outlined text-[18px] text-blue-600 saved-card-spin" style="display:none;">progress_activity</span>
+                        <span class="material-symbols-outlined text-[18px] text-slate-400 saved-card-go">arrow_forward</span>
+                    </button>
+                <?php endforeach; ?>
+            </div>
+            <div id="savedCardError" role="alert" class="mt-2 text-xs text-red-600" style="display:none;"></div>
+            <p class="text-[11px] text-slate-400 mt-2">Charged securely in <?= htmlspecialchars(strtoupper((string) $bookingCurrencyCode)) ?>. You may be asked to verify with your bank.</p>
+        </div>
+        <script src="https://js.stripe.com/v3/"></script>
+        <?php endif; ?>
 
         <script>
         // Gateway data from PHP
@@ -545,6 +618,68 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             });
         }
 
+        // ── SAVED-CARD-AT-CHECKOUT: one-tap pay a booking with a card on file ──
+        // Posts to /api/cards/{id}/pay-booking (login+CSRF+IDOR). On success the
+        // server returns a redirect to the invoice callback (which verifies the
+        // charge and settles the booking — confirm-before-issue). On 3-DS it hands
+        // back a client_secret; we confirm with Stripe.js then call /complete.
+        (function () {
+            var buttons = document.querySelectorAll('.saved-card-pay');
+            if (!buttons.length) { return; }
+            var errBox = document.getElementById('savedCardError');
+            var csrf = <?= json_encode(CSRF::getToken()) ?>;
+            var invId = <?= json_encode((string) $invoiceId) ?>;
+
+            function showErr(m) { if (errBox) { errBox.style.display = 'block'; errBox.textContent = m || 'Payment could not be completed.'; } }
+            function setBusy(btn, b) {
+                btn.disabled = b;
+                var sp = btn.querySelector('.saved-card-spin');
+                var go = btn.querySelector('.saved-card-go');
+                if (sp) sp.style.display = b ? 'inline-block' : 'none';
+                if (go) go.style.display = b ? 'none' : 'inline-block';
+                if (sp && b) sp.classList.add('animate-spin');
+            }
+            function post(url, body) {
+                return fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf },
+                    body: JSON.stringify(body)
+                }).then(function (r) { return r.json(); });
+            }
+            buttons.forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    if (errBox) errBox.style.display = 'none';
+                    var cardId = btn.getAttribute('data-card-id');
+                    var attemptId = 'sc-' + cardId + '-' + Date.now();
+                    setBusy(btn, true);
+                    post('<?= root ?>api/cards/' + cardId + '/pay-booking', { invoice_id: invId, attempt_id: attemptId, csrf_token: csrf })
+                        .then(function (d) {
+                            if (d && d.success && d.redirect) { window.location.href = d.redirect; return; }
+                            if (d && d.requires_action && d.client_secret) {
+                                if (typeof Stripe === 'undefined') { setBusy(btn, false); showErr('Could not load the secure verification. Please try another method.'); return; }
+                                // 3-DS: confirm the PaymentIntent in-page with the account's
+                                // publishable key (returned by the route), then settle via /complete.
+                                var pk = d.publishable_key || '';
+                                if (!pk) { setBusy(btn, false); showErr('This card needs bank verification — please use the card form instead.'); return; }
+                                var stripe = Stripe(pk);
+                                stripe.confirmCardPayment(d.client_secret).then(function (res) {
+                                    if (res.error) { setBusy(btn, false); showErr(res.error.message); return; }
+                                    post('<?= root ?>api/cards/' + cardId + '/pay-booking/complete', { invoice_id: invId, payment_intent: d.payment_intent, token: d.token, csrf_token: csrf })
+                                        .then(function (c) {
+                                            if (c && c.success && c.redirect) { window.location.href = c.redirect; }
+                                            else { setBusy(btn, false); showErr((c && c.message) || 'Could not complete the payment.'); }
+                                        });
+                                });
+                                return;
+                            }
+                            setBusy(btn, false);
+                            showErr((d && d.message) || 'Card was declined.');
+                        })
+                        .catch(function () { setBusy(btn, false); showErr('Network error. Please try again.'); });
+                });
+            });
+        })();
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             handlePaymentGatewayChange();
@@ -584,6 +719,39 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 <span class="material-symbols-outlined text-[18px]">download</span>
                <?= T::download_invoice ?>
             </div>
+            <?php
+            // ADD TO CALENDAR (D3 gap fix) — shown only when the booking has a real
+            // travel date. Offers a universal .ics download + a Google Calendar link.
+            $__calEv = function_exists('bookingCalendarEvent') ? bookingCalendarEvent($booking) : null;
+            if ($__calEv):
+                $__icsUrl = root . 'booking/' . rawurlencode((string) $invoiceId) . '/calendar.ics';
+                $__gStart = date('Ymd', strtotime($__calEv['start']) ?: time());
+                $__gEnd   = $__calEv['end']
+                    ? date('Ymd', strtotime($__calEv['end']) ?: time())
+                    : date('Ymd', (strtotime($__calEv['start']) ?: time()) + 86400);
+                $__gUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+                    . '&text=' . rawurlencode((string) $__calEv['title'])
+                    . '&dates=' . $__gStart . '/' . $__gEnd
+                    . ($__calEv['location'] ? '&location=' . rawurlencode((string) $__calEv['location']) : '')
+                    . '&details=' . rawurlencode('Booking reference: ' . $invoiceId);
+            ?>
+            <div x-data="{ open: false }" class="relative">
+                <button type="button" @click="open = !open" class="btn light w-full flex items-center justify-start gap-2">
+                    <span class="material-symbols-outlined text-[18px]">calendar_add_on</span>
+                    <?= T::add_to_calendar ?? 'Add to calendar' ?>
+                </button>
+                <div x-show="open" x-cloak @click.outside="open = false" class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    <a href="<?= htmlspecialchars($__icsUrl) ?>" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                        <span class="material-symbols-outlined text-[18px]">download</span>
+                        <?= T::apple_outlook_ics ?? 'Apple / Outlook (.ics)' ?>
+                    </a>
+                    <a href="<?= htmlspecialchars($__gUrl) ?>" target="_blank" rel="noopener" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                        <span class="material-symbols-outlined text-[18px]">event</span>
+                        <?= T::google_calendar ?? 'Google Calendar' ?>
+                    </a>
+                </div>
+            </div>
+            <?php endif; ?>
             <button onclick="openResendModal()" id="resendInvoiceBtn" class="btn light w-full flex items-center justify-start gap-2">
                 <span class="material-symbols-outlined text-[18px]">email</span>
                 <?= T::resend_invoice_to_email ?>
@@ -611,11 +779,42 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 ($booking['cancellation_request'] == 1 || $booking['cancellation_request'] == '1') &&
                 !in_array($booking['booking_status'], ['cancelled', 'voided'])
             ): ?>
-            <div class="alert alert-warning">
-                <span class="material-symbols-outlined">info</span>
-                <div>
-                    <p class="text-sm font-medium"><?= T::cancellation_request_submitted ?></p>
+            <?php
+            // CANCELLATION TRANSPARENCY (D3): show the customer where their request
+            // stands — submitted → staff response → refund status — instead of just
+            // "submitted". Cancellation itself stays staff-decided (money-safe); this
+            // only surfaces the status that already exists on the booking row.
+            $__cancReviewed = ((int) ($booking['cancellation_status'] ?? 0) === 1);
+            $__cancResponse = trim((string) ($booking['cancellation_response'] ?? ''));
+            $__refundStatus = strtolower(trim((string) ($booking['refund_status'] ?? '')));
+            $__isRefunded   = in_array(strtolower((string) ($booking['payment_status'] ?? '')), ['refunded'], true)
+                              || in_array($__refundStatus, ['refunded', 'completed', 'success'], true);
+            ?>
+            <div class="rounded-lg bg-amber-50 border border-amber-200 p-3">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-symbols-outlined text-amber-600 text-[18px]">pending_actions</span>
+                    <p class="text-sm font-semibold text-amber-800"><?= T::cancellation_status ?? 'Cancellation status' ?></p>
                 </div>
+                <ol class="space-y-1.5 text-xs">
+                    <li class="flex items-center gap-2 text-gray-700">
+                        <span class="material-symbols-outlined text-green-600 text-[16px]">check_circle</span>
+                        <?= T::cancellation_request_submitted ?? 'Request submitted' ?>
+                    </li>
+                    <li class="flex items-center gap-2 <?= $__cancReviewed ? 'text-gray-700' : 'text-gray-400' ?>">
+                        <span class="material-symbols-outlined text-[16px] <?= $__cancReviewed ? 'text-green-600' : 'text-gray-300' ?>"><?= $__cancReviewed ? 'check_circle' : 'radio_button_unchecked' ?></span>
+                        <?= T::reviewed_by_our_team ?? 'Reviewed by our team' ?>
+                    </li>
+                    <li class="flex items-center gap-2 <?= $__isRefunded ? 'text-gray-700' : 'text-gray-400' ?>">
+                        <span class="material-symbols-outlined text-[16px] <?= $__isRefunded ? 'text-green-600' : 'text-gray-300' ?>"><?= $__isRefunded ? 'check_circle' : 'radio_button_unchecked' ?></span>
+                        <?= T::refund_processed ?? 'Refund processed (if eligible)' ?>
+                    </li>
+                </ol>
+                <?php if ($__cancResponse !== ''): ?>
+                <div class="mt-2 pt-2 border-t border-amber-200">
+                    <p class="text-[11px] font-medium text-amber-800 mb-0.5"><?= T::response_from_our_team ?? 'Response from our team' ?>:</p>
+                    <p class="text-xs text-gray-700"><?= nl2br(htmlspecialchars($__cancResponse)) ?></p>
+                </div>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
             <?php

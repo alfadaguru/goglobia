@@ -1258,6 +1258,11 @@ function ensureCoreFixSchema($db): void
         ensurePaymentScopingSchema($db);
     }
 
+    // Book-on-Hold: the 'held' booking state + provider hold deadline. Idempotent.
+    if (function_exists('ensureBookingHoldSchema')) {
+        ensureBookingHoldSchema($db);
+    }
+
     // Register the Adivaha flight supplier as a manageable module so it appears
     // in admin (Settings > Modules) with full control — credentials, enable,
     // test/live, markup. Idempotent: inserts the row only when absent; never
@@ -1934,6 +1939,60 @@ function ensurePaymentScopingSchema($db): void
         }
     } catch (\Throwable $e) {
         error_log('ensurePaymentScopingSchema seed-global: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Book-on-Hold schema (D-items 11-16). Adds the `held` booking state + the
+ * provider's hold deadline so a flight can be RESERVED without payment and paid
+ * before the supplier's expiry. Idempotent; swallows failures (a DB user without
+ * ALTER rights just keeps today's shape — Hold then silently never offers).
+ *
+ * - bookings.booking_status ENUM gains 'held' (kept as the FIRST value only in
+ *   new installs; here we MODIFY to add it while preserving the others + default).
+ * - bookings.hold_expires_at DATETIME — the PROVIDER's auto-cancel deadline (the
+ *   authority). We also mirror it into the existing `payment_due_at` so the
+ *   existing pay-later sweep (pay_later_sweep) picks the hold up with no new cron.
+ * The Tiqwa reservation reference is stored in booking_data.supplier_ref (already
+ * written by the Tiqwa reserve step), so NO new ref column is needed.
+ */
+function ensureBookingHoldSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        // 1) Add 'held' to the booking_status ENUM if missing.
+        $col = $db->query("SHOW COLUMNS FROM `bookings` LIKE 'booking_status'")->fetch(\PDO::FETCH_ASSOC);
+        $type = strtolower((string) ($col['Type'] ?? ''));
+        if ($type !== '' && strpos($type, "'held'") === false) {
+            // Preserve the existing members + default; just prepend 'held'.
+            $db->pdo->exec("ALTER TABLE `bookings` MODIFY `booking_status` enum('held','confirmed','pending','cancelled') NOT NULL DEFAULT 'pending'");
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureBookingHoldSchema enum: ' . $e->getMessage());
+    }
+
+    try {
+        // 2) Add hold_expires_at if missing.
+        $exists = $db->query("SHOW COLUMNS FROM `bookings` LIKE 'hold_expires_at'")->fetchAll();
+        if (count($exists) === 0) {
+            $db->pdo->exec("ALTER TABLE `bookings` ADD COLUMN `hold_expires_at` DATETIME NULL DEFAULT NULL");
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureBookingHoldSchema col: ' . $e->getMessage());
+    }
+
+    try {
+        // 3) Per-flight-module admin toggle (default OFF — Hold stays invisible
+        //    until the owner enables it for a hold-capable supplier).
+        $exists = $db->query("SHOW COLUMNS FROM `modules` LIKE 'hold_enabled'")->fetchAll();
+        if (count($exists) === 0) {
+            $db->pdo->exec("ALTER TABLE `modules` ADD COLUMN `hold_enabled` TINYINT(1) NOT NULL DEFAULT 0");
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureBookingHoldSchema module-toggle: ' . $e->getMessage());
     }
 }
 
@@ -4135,6 +4194,154 @@ function SENDEMAIL($toEmail, $toName, $subject, $htmlBody, $pdfPath = null, arra
 }
 
 /**
+ * Resolve a calendar event (title + start/end dates + location) from any
+ * booking row, reading the module-specific date keys out of booking_data and
+ * falling back to booking_date. Powers the "Add to calendar" control + the
+ * /booking/{invoice}/calendar.ics route. Returns null if no usable date.
+ *
+ * @return array{title:string,start:string,end:?string,location:string,allDay:bool}|null
+ *         start/end are 'Y-m-d' (or 'Y-m-d H:i:s') strings.
+ */
+function bookingCalendarEvent(array $booking): ?array
+{
+    $module = strtolower((string) ($booking['module_type'] ?? $booking['module'] ?? ''));
+    $bd = $booking['booking_data'] ?? null;
+    if (is_string($bd)) { $bd = json_decode($bd, true); }
+    if (!is_array($bd)) { $bd = []; }
+
+    $firstDate = function (array $keys) use ($bd, $booking) {
+        foreach ($keys as $k) {
+            $v = $bd[$k] ?? ($booking[$k] ?? '');
+            $v = trim((string) $v);
+            if ($v !== '' && strtotime($v) !== false) { return $v; }
+        }
+        return '';
+    };
+
+    $brand = (string) ($GLOBALS['app']['name'] ?? 'GoGlobia');
+    $start = ''; $end = ''; $title = ''; $location = '';
+
+    switch ($module) {
+        case 'flights':
+        case 'flight':
+            $start = $firstDate(['departure_date', 'flights_departure_date']);
+            $end   = $firstDate(['return_date', 'flights_return_date']);
+            $o = (string) ($bd['origin'] ?? $bd['from'] ?? '');
+            $d = (string) ($bd['destination'] ?? $bd['to'] ?? '');
+            $title = trim('Flight ' . ($o && $d ? "$o → $d" : '')) ?: 'Flight booking';
+            $location = trim("$o $d");
+            break;
+        case 'stays':
+        case 'hotels':
+            $start = $firstDate(['checkin', 'hotels_checkin_date', 'check_in']);
+            $end   = $firstDate(['checkout', 'hotels_checkout_date', 'check_out']);
+            $title = 'Stay — ' . (string) ($bd['hotel_name'] ?? 'Hotel');
+            $location = (string) ($bd['hotel_address'] ?? $bd['address'] ?? $bd['city'] ?? '');
+            break;
+        case 'tours':
+            $start = $firstDate(['start_date', 'tour_start_date', 'tour_date']);
+            $title = 'Tour — ' . (string) ($bd['tour_name'] ?? $bd['title'] ?? 'Tour');
+            $location = (string) ($bd['location'] ?? $bd['city'] ?? '');
+            break;
+        case 'umrah':
+            $start = $firstDate(['start_date', 'umrah_start_date', 'departure_date']);
+            $title = 'Umrah — ' . (string) ($bd['package_name'] ?? $bd['title'] ?? 'Departure');
+            break;
+        case 'cars':
+            $start = $firstDate(['pickup_date', 'cars_pickup_date', 'date']);
+            $title = 'Car / transfer — ' . (string) ($bd['car_name'] ?? $bd['title'] ?? 'Booking');
+            $location = (string) ($bd['pickup'] ?? $bd['pickup_location'] ?? '');
+            break;
+        case 'ferries':
+            $start = $firstDate(['departure_date', 'travel_date', 'date']);
+            $title = 'Ferry — ' . (string) ($bd['route'] ?? 'Sailing');
+            break;
+        case 'rail':
+            $start = $firstDate(['departure_date', 'travel_date', 'date']);
+            $title = 'Rail — ' . (string) ($bd['route'] ?? 'Journey');
+            break;
+        case 'bus':
+            $start = $firstDate(['departure_date', 'travel_date', 'date']);
+            $title = 'Bus — ' . (string) ($bd['route'] ?? 'Trip');
+            break;
+        default:
+            $start = $firstDate(['start_date', 'travel_date', 'date']);
+            $title = ucfirst($module ?: 'Booking') . ' booking';
+    }
+
+    // Fallback: the booking date itself.
+    if ($start === '') {
+        $start = $firstDate(['booking_date', 'created_at']);
+    }
+    if ($start === '') { return null; }
+
+    return [
+        'title'    => trim($title) . ' · ' . $brand,
+        'start'    => $start,
+        'end'      => $end !== '' ? $end : null,
+        'location' => trim($location),
+        'allDay'   => (strpos($start, ':') === false), // date-only => all-day
+    ];
+}
+
+/**
+ * Build a valid iCalendar (.ics) document body for a booking event. Dates are
+ * emitted as all-day (VALUE=DATE) when no time component is present. Text is
+ * escaped per RFC 5545. Returns '' if the booking has no usable date.
+ */
+function bookingIcsBody(array $booking, string $invoiceId): string
+{
+    $ev = bookingCalendarEvent($booking);
+    if (!$ev) { return ''; }
+
+    $esc = function (string $s): string {
+        return addcslashes(str_replace(["\r\n", "\n", "\r"], '\\n', $s), ",;\\");
+    };
+    $fmtDate = function (string $s, bool $allDay): string {
+        $ts = strtotime($s) ?: time();
+        return $allDay ? date('Ymd', $ts) : date('Ymd\THis', $ts);
+    };
+
+    $allDay = (bool) $ev['allDay'];
+    $uid    = 'booking-' . preg_replace('/[^A-Za-z0-9]/', '', $invoiceId) . '@' . (parse_url((string) ($GLOBALS['app']['url'] ?? 'goglobia'), PHP_URL_HOST) ?: 'goglobia');
+
+    $dtStart = $fmtDate($ev['start'], $allDay);
+    // End: checkout/return if present, else +1 day for an all-day event.
+    if ($ev['end']) {
+        $dtEnd = $fmtDate($ev['end'], $allDay);
+    } elseif ($allDay) {
+        $dtEnd = date('Ymd', (strtotime($ev['start']) ?: time()) + 86400);
+    } else {
+        $dtEnd = date('Ymd\THis', (strtotime($ev['start']) ?: time()) + 3600);
+    }
+
+    $dateLine = $allDay
+        ? "DTSTART;VALUE=DATE:{$dtStart}\r\nDTEND;VALUE=DATE:{$dtEnd}"
+        : "DTSTART:{$dtStart}\r\nDTEND:{$dtEnd}";
+
+    $lines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//' . $esc((string) ($GLOBALS['app']['name'] ?? 'GoGlobia')) . '//Booking//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'BEGIN:VEVENT',
+        'UID:' . $uid,
+        'DTSTAMP:' . gmdate('Ymd\THis\Z'),
+        $dateLine,
+        'SUMMARY:' . $esc((string) $ev['title']),
+        'DESCRIPTION:' . $esc('Booking reference: ' . $invoiceId),
+    ];
+    if (!empty($ev['location'])) {
+        $lines[] = 'LOCATION:' . $esc((string) $ev['location']);
+    }
+    $lines[] = 'END:VEVENT';
+    $lines[] = 'END:VCALENDAR';
+
+    return implode("\r\n", $lines) . "\r\n";
+}
+
+/**
  * ============================================================================
  * GENERATE_BOOKING_PDF - CREATE PDF INVOICE FROM BOOKING DATA
  * ============================================================================
@@ -6288,6 +6495,70 @@ function ensurePromoUsageSchema($db): void
         }
     } catch (\Throwable $e) {
         error_log('ensurePromoUsageSchema: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Favourites (wishlist) — reconcile the legacy `favourites` table to the shape
+ * the save/list code needs. The shipped table was only (id,user_id,data,created_at)
+ * with NO `module`/`item_id` columns, so the API read `$f['module']`/`$f['item_id']`
+ * always came back empty and nothing could be filtered or de-duplicated — and there
+ * was no insert path at all (the wishlist could never be populated). This ensures:
+ *   - `module`  (varchar)  — service key: flights|stays|tours|cars|visa|esim|...
+ *   - `item_id` (varchar)  — the saved item's id/ref within that module
+ *   - a composite UNIQUE (user_id, module, item_id) so a user saves an item once
+ * Idempotent; swallows failures (a DB user without ALTER rights just keeps the
+ * old shape). `favourites` (British) is the ONE canonical table; the duplicate
+ * `favorites` (American) is left untouched/unused.
+ */
+function ensureFavouritesSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        if (!dbTableExists($db, 'favourites')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `favourites` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` varchar(255) NOT NULL,
+                `module` varchar(50) DEFAULT NULL,
+                `item_id` varchar(191) DEFAULT NULL,
+                `data` text NOT NULL,
+                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_fav_user_item` (`user_id`, `module`, `item_id`),
+                KEY `idx_fav_user` (`user_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+            return;
+        }
+
+        // Table exists (legacy shape) — add the missing columns idempotently.
+        $cols = [];
+        foreach (($db->query("SHOW COLUMNS FROM `favourites`")->fetchAll(\PDO::FETCH_ASSOC) ?: []) as $c) {
+            $cols[strtolower((string) ($c['Field'] ?? ''))] = true;
+        }
+        if (!isset($cols['module'])) {
+            $db->query("ALTER TABLE `favourites` ADD COLUMN `module` varchar(50) DEFAULT NULL AFTER `user_id`");
+        }
+        if (!isset($cols['item_id'])) {
+            $db->query("ALTER TABLE `favourites` ADD COLUMN `item_id` varchar(191) DEFAULT NULL AFTER `module`");
+        }
+        // One save per (user,item). Guarded: skip if a dup already exists so the
+        // ALTER doesn't hard-fail on legacy rows.
+        try {
+            $hasUnique = false;
+            foreach (($db->query("SHOW INDEX FROM `favourites`")->fetchAll(\PDO::FETCH_ASSOC) ?: []) as $ix) {
+                if (($ix['Key_name'] ?? '') === 'uq_fav_user_item') { $hasUnique = true; break; }
+            }
+            if (!$hasUnique) {
+                $db->query("ALTER TABLE `favourites` ADD UNIQUE KEY `uq_fav_user_item` (`user_id`, `module`, `item_id`)");
+            }
+        } catch (\Throwable $e) {
+            error_log('ensureFavouritesSchema unique: ' . $e->getMessage());
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureFavouritesSchema: ' . $e->getMessage());
     }
 }
 

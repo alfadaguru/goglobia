@@ -88,6 +88,19 @@ function renderUmrahCard(u, idx, searchParams) {
 
                 <!-- IMAGE CAROUSEL SECTION -->
                 <div class="md:w-1/3 relative group">
+                    <button type="button" data-fav-toggle
+                            data-fav-module="umrah"
+                            data-fav-item="${u.original_id || u.umrah_id || u.id || 'unknown'}"
+                            data-fav-title="${escapedUmrahTitle}"
+                            data-fav-url="${umrahUrl}"
+                            data-fav-image="${(u.image || (images[0] || '')).toString().replace(/"/g, '&quot;')}"
+                            data-fav-price="${String(u.price || 0).replace(/"/g, '&quot;')}"
+                            data-fav-currency="${String(u.currency || 'USD').replace(/"/g, '&quot;')}"
+                            data-fav-saved="0" aria-pressed="false"
+                            class="absolute top-3 right-3 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center text-gray-700 hover:text-red-600"
+                            aria-label="Save to favourites">
+                        <span class="material-symbols-outlined text-[20px]" data-fav-icon style="font-variation-settings:'FILL' 0;">favorite</span>
+                    </button>
                     <!-- Main Image Link -->
                     <a href="${umrahUrl}" target="_blank" rel="noopener noreferrer" class="block w-full h-full">
                         ${images.length > 0 ? `

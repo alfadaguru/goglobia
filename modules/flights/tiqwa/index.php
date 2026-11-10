@@ -24,6 +24,7 @@ require_once 'creds.php';
 require_once 'search.php';
 require_once 'revalidate.php';
 require_once 'utilities.php'; // airports + airlines + wallet + markup CRUD + office_id + booking-details/poll
+require_once 'reserve.php';   // tiqwa_reserve() — Book-on-Hold reserve-without-pay (function, not a route)
 
 // ACTIONS
 require_once 'actions/issue.php';

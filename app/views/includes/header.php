@@ -286,6 +286,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light">
     <meta name="csrf-token" content="<?=CSRF::getToken()?>">
+    <script>window.__APP_ROOT__ = <?= json_encode(root) ?>;</script>
     <?php if ($wlTenant):
       // WHITE-LABEL Phase 2b: the hotel's own favicon + chrome colours override the platform's.
       $__wlTheme2 = (array) wl_tenant('theme');

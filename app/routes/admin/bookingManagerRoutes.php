@@ -1144,6 +1144,14 @@ if (!function_exists('bmBuildManualBookingData')) {
                 'supplier'       => 'manual',
                 'from'           => $first['from_airport'] ?? '',
                 'to'             => $last['to_airport'] ?? '',
+                // Trip-level IATA codes under the SAME keys the supplier issue layer
+                // reads ($fd['departure_code']/$fd['arrival_code'] in adivaha/issue.php).
+                // Manual flights use module='manual' and never call a supplier, so this
+                // is defensive: if a manual booking is ever routed to a live supplier,
+                // domestic-vs-international detection won't silently fail for want of
+                // airport codes (which previously lived only under from_airport/to_airport).
+                'departure_code' => $first['from_airport'] ?? '',
+                'arrival_code'   => $last['to_airport'] ?? ($last['arrival_code'] ?? ''),
                 'departure_date' => !empty($first['departure_datetime']) ? date('Y-m-d', strtotime($first['departure_datetime'])) : '',
                 'airline_name'   => $first['airline_name'] ?? '',
                 'flight_number'  => $first['flight_number'] ?? '',

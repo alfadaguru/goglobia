@@ -148,3 +148,127 @@ $router->route(['POST', 'DELETE'], '/api/cards/([0-9]+)/delete', function ($id) 
     echo json_encode(['success' => true, 'cards' => cards_list($db, $uid)]);
     exit;
 });
+
+// ---- POST /api/cards/{id}/pay-booking : pay a BOOKING with a saved card -----
+// Body: { invoice_id, attempt_id? }. Charges the saved card for the booking's
+// amount (NOT a wallet top-up) and settles the BOOKING through the normal
+// confirm-before-issue callback: we mint the booking payment token, charge the
+// card bound to the invoice, then return a redirect to
+//   invoice/{type}/{id}?token=..&payment_status=success&transaction_id={ref}
+// so handle_payment_callback -> verify_gateway_payment confirms the charge and
+// issues exactly like any gateway payment (no duplicated settlement here).
+$router->post('/api/cards/([0-9]+)/pay-booking', function ($id) use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    $uid = cards_route_user();
+    $in  = cards_route_body();
+    cards_route_csrf($in);
+
+    require_once 'app/lib/payment-gateway.php';
+    require_once 'app/lib/wallet.php';
+
+    $invoiceId = trim((string) ($in['invoice_id'] ?? ''));
+    if ($invoiceId === '') { http_response_code(400); echo json_encode(['success' => false, 'message' => 'Missing invoice']); exit; }
+
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+    if (!$booking) { http_response_code(404); echo json_encode(['success' => false, 'message' => 'Booking not found']); exit; }
+
+    // OWNERSHIP: the booking must belong to this logged-in customer (IDOR).
+    if ((string) ($booking['user_id'] ?? '') !== $uid) {
+        http_response_code(403); echo json_encode(['success' => false, 'message' => 'This booking is not on your account.']); exit;
+    }
+    // Same money-safety guards process_payment() enforces.
+    if (($booking['payment_status'] ?? '') === 'paid') {
+        http_response_code(400); echo json_encode(['success' => false, 'message' => 'This booking is already paid.']); exit;
+    }
+    if (function_exists('payment_supplier_is_unbookable') && payment_supplier_is_unbookable($booking)) {
+        http_response_code(400); echo json_encode(['success' => false, 'message' => 'This item is booked directly with the provider and cannot be paid here.']); exit;
+    }
+
+    // Resolve the card and the currency-correct gateway (NGN->Paystack / else->Stripe).
+    $card = cards_get_owned($db, (int) $id, $uid);
+    if (!$card) { http_response_code(404); echo json_encode(['success' => false, 'message' => 'Card not found']); exit; }
+    $bookingCur = strtoupper((string) ($booking['currency_markup'] ?? ''));
+    $cardCur    = strtoupper((string) $card['currency']);
+    if ($bookingCur !== '' && $cardCur !== '' && $bookingCur !== $cardCur) {
+        http_response_code(400); echo json_encode(['success' => false, 'message' => 'This card cannot pay a ' . $bookingCur . ' booking.']); exit;
+    }
+    $gateway = $db->get('payment_gateways', '*', ['id' => (int) ($card['gateway_id'] ?? 0)])
+        ?: cards_gateway_for_currency($db, $bookingCur ?: $cardCur);
+    if (!$gateway) { http_response_code(400); echo json_encode(['success' => false, 'message' => 'Payment gateway not available']); exit; }
+    if (function_exists('payment_gateway_apply_service_creds')) {
+        payment_gateway_apply_service_creds($db, $gateway, $booking);
+    }
+
+    // Mint the booking payment token (stores gateway_id/amount/currency the callback reads).
+    $token = create_payment_token($booking, $gateway);
+    if (!$token) { http_response_code(500); echo json_encode(['success' => false, 'message' => 'Could not start payment']); exit; }
+
+    if (!function_exists('cards_charge_booking')) { http_response_code(500); echo json_encode(['success' => false, 'message' => 'Saved-card payment unavailable']); exit; }
+    $attemptId = (string) ($in['attempt_id'] ?? '');
+    $res = cards_charge_booking($db, (int) $id, $uid, $booking, (string) $token, $attemptId);
+
+    // Module-aware invoice callback prefix (same map the pay routes use).
+    $mt = strtolower((string) ($booking['module_type'] ?? ''));
+    $prefixes = ['ferries','tours','flights','stays','cars','visa','esim','bus','rail','insurance'];
+    $iPrefix = in_array($mt, $prefixes, true) ? ('invoice/' . $mt . '/') : 'invoice/';
+    $callbackBase = root . $iPrefix . rawurlencode($invoiceId) . '?token=' . urlencode((string) $token) . '&payment_status=success';
+
+    if (!empty($res['ok']) && !empty($res['reference'])) {
+        $redirect = $callbackBase . '&transaction_id=' . urlencode((string) $res['reference']);
+        echo json_encode(['success' => true, 'redirect' => $redirect]);
+        exit;
+    }
+    if (!empty($res['requires_action'])) {
+        // 3-DS / SCA: hand the browser the client_secret + the account's PUBLISHABLE
+        // key (c1, browser-safe) so Stripe.js can confirm the card in-page, then it
+        // calls /pay-booking/complete which returns the same success redirect.
+        $pubKey = function_exists('cards_publishable_key') ? cards_publishable_key($gateway) : '';
+        echo json_encode([
+            'success' => false,
+            'requires_action' => true,
+            'provider' => $res['provider'] ?? 'stripe',
+            'client_secret' => $res['client_secret'] ?? '',
+            'publishable_key' => $pubKey,
+            'payment_intent' => $res['reference'] ?? '',
+            'token' => (string) $token,
+            'message' => $res['message'] ?? 'This card needs extra verification.',
+        ]);
+        exit;
+    }
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => $res['message'] ?? 'Card was declined']);
+    exit;
+});
+
+// ---- POST /api/cards/{id}/pay-booking/complete : finish a 3-DS booking pay ---
+// Body: { invoice_id, payment_intent, token }. After the browser confirms the
+// PaymentIntent via Stripe.js, we hand back the success redirect; the callback's
+// verify step (verify_gateway_payment, pi_ branch) re-retrieves the PI, requires
+// succeeded + amount/currency + invoice binding, and settles — so we never trust
+// the browser's word here, the callback does the authoritative check.
+$router->post('/api/cards/([0-9]+)/pay-booking/complete', function ($id) use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    $uid = cards_route_user();
+    $in  = cards_route_body();
+    cards_route_csrf($in);
+
+    $invoiceId = trim((string) ($in['invoice_id'] ?? ''));
+    $pi        = trim((string) ($in['payment_intent'] ?? ''));
+    $token     = trim((string) ($in['token'] ?? ''));
+    if ($invoiceId === '' || $pi === '' || $token === '') {
+        http_response_code(400); echo json_encode(['success' => false, 'message' => 'Missing payment reference']); exit;
+    }
+
+    $booking = $db->get('bookings', ['user_id', 'module_type'], ['invoice_id' => $invoiceId]);
+    if (!$booking || (string) ($booking['user_id'] ?? '') !== $uid) {
+        http_response_code(403); echo json_encode(['success' => false, 'message' => 'This booking is not on your account.']); exit;
+    }
+
+    $mt = strtolower((string) ($booking['module_type'] ?? ''));
+    $prefixes = ['ferries','tours','flights','stays','cars','visa','esim','bus','rail','insurance'];
+    $iPrefix = in_array($mt, $prefixes, true) ? ('invoice/' . $mt . '/') : 'invoice/';
+    $redirect = root . $iPrefix . rawurlencode($invoiceId) . '?token=' . urlencode($token)
+        . '&payment_status=success&transaction_id=' . urlencode($pi);
+    echo json_encode(['success' => true, 'redirect' => $redirect]);
+    exit;
+});

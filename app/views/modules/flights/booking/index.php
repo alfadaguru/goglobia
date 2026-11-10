@@ -109,6 +109,9 @@ $supplierName = $flightData['supplier'] ?? 'flights';
 $requiresRevalidation = file_exists(__DIR__ . '/../../../../../modules/flights/' . strtolower($supplierName) . '/revalidate.php');
 $isAncillariesEnabled = isAncillariesEnabled($db, $supplierName);
 $isEmdEnabled = isEmdEnabled($db, $supplierName);
+// Book-on-Hold: only when this supplier can reserve-without-pay AND the admin
+// enabled it. Drives whether the "Hold this fare" button renders at all.
+$holdSupported = function_exists('flight_hold_supported') && flight_hold_supported($db, $supplierName);
 
 // Get tax settings for the specific supplier module
 $moduleData = $db->get('modules', ['tax', 'tax_type'], [
@@ -1383,6 +1386,23 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 <span x-show="submitting"><?= T::processing ?>...</span>
                             </button>
 
+                            <?php if ($holdSupported): ?>
+                            <!-- BOOK-ON-HOLD: reserve the fare now, pay before the airline's
+                                 deadline. Only rendered for a hold-capable supplier the admin
+                                 enabled. Sets holdMode then runs the same submit → the success
+                                 handler reserves + redirects to the "on hold" invoice. -->
+                            <button type="button" class="btn light w-full mt-3"
+                                :disabled="submitting || !formData.terms_accepted || fareExpired || (priceChange && priceChange.direction === 'up')"
+                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted || fareExpired || (priceChange && priceChange.direction === 'up') }"
+                                @click="holdMode = true; submitBooking()">
+                                <span class="material-symbols-outlined">schedule</span>
+                                <span><?= T::hold_this_fare ?? 'Hold this fare — pay later' ?></span>
+                            </button>
+                            <p class="text-xs text-gray-500 text-center mt-1">
+                                <?= T::hold_this_fare_hint ?? 'Reserve now with no payment. Pay before the airline deadline to confirm.' ?>
+                            </p>
+                            <?php endif; ?>
+
                             <!-- Terms validation message -->
                             <div x-show="!formData.terms_accepted" class="mt-2">
                                 <p class="text-sm text-red-600 dark:text-red-400 text-center">
@@ -1655,6 +1675,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
         return {
             loading: false,
             submitting: false,
+            holdMode: false, // true when the customer chose "Hold this fare" (Book-on-Hold)
             showBookingLoader: false,
             showAlert: false,
             alertType: 'error',
@@ -3128,10 +3149,33 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                     const data = await response.json();
 
                     if (data.success) {
+                        // BOOK-ON-HOLD: if the customer chose "Hold this fare", reserve
+                        // the booking (no payment) before redirecting to its invoice,
+                        // which will show "On hold — pay by <deadline>".
+                        if (this.holdMode && data.invoice_id) {
+                            try {
+                                const holdResp = await fetch('<?= root ?>api/flight/booking/hold', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                                    body: JSON.stringify({ csrf_token: csrfToken, invoice_id: data.invoice_id })
+                                });
+                                const holdData = await holdResp.json();
+                                if (!holdData.success) {
+                                    this.holdMode = false;
+                                    this.showBookingLoader = false;
+                                    this.showError(holdData.message || 'Could not hold this fare. You can still pay now.');
+                                    // Fall through to the invoice so they can pay instead.
+                                }
+                            } catch (e) {
+                                console.error('hold error:', e);
+                            }
+                        }
                         if (data.countdown) {
                             this.showCountdownRedirect(data.redirect_url || '<?= root ?>invoice/flights/' + data.invoice_id);
                         } else {
-                            this.showSuccess('<?= T::booking ?> <?= T::confirmed ?>! <?= T::redirecting ?>...');
+                            this.showSuccess(this.holdMode
+                                ? 'Fare held! Redirecting to your booking...'
+                                : '<?= T::booking ?> <?= T::confirmed ?>! <?= T::redirecting ?>...');
                             setTimeout(() => {
                                 window.location.href = data.redirect_url || '<?= root ?>invoice/flights/' + data.invoice_id;
                             }, 2000);

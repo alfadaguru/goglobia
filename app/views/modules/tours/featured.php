@@ -74,6 +74,19 @@ $children = (int) ($_SESSION['tour_children'] ?? 0);
                                 <img :src="t.image" :alt="t.name" loading="lazy" decoding="async" fetchpriority="low"
                                     class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                                     onerror="this.src='<?= root ?>uploads/no_img.jpg'">
+                                <button type="button" data-fav-toggle
+                                        data-fav-module="tours"
+                                        :data-fav-item="t.id"
+                                        :data-fav-title="t.name"
+                                        :data-fav-url="link(t)"
+                                        :data-fav-image="t.image"
+                                        :data-fav-price="t.price"
+                                        :data-fav-currency="t.currency"
+                                        data-fav-saved="0" aria-pressed="false"
+                                        class="absolute top-3 right-3 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center text-gray-700 hover:text-red-600"
+                                        aria-label="Save to favourites">
+                                    <span class="material-symbols-outlined text-[20px]" data-fav-icon style="font-variation-settings:'FILL' 0;">favorite</span>
+                                </button>
                             </div>
 
                             <!-- Content -->

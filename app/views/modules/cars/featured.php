@@ -69,6 +69,19 @@ $cur = strtoupper($_SESSION['app_currency'] ?? 'USD');
                              @click="openBookingModal({ ...c, price: c.display_price_per_day })">
                             <!-- Image Container -->
                             <div class="relative h-48 overflow-hidden">
+                                <button type="button" data-fav-toggle
+                                        data-fav-module="cars"
+                                        :data-fav-item="c.id"
+                                        :data-fav-title="c.name"
+                                        :data-fav-image="c.image"
+                                        :data-fav-price="c.display_price_per_day"
+                                        :data-fav-currency="c.currency"
+                                        data-fav-saved="0" aria-pressed="false"
+                                        @click.stop
+                                        class="absolute top-3 right-3 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center text-gray-700 hover:text-red-600"
+                                        aria-label="Save to favourites">
+                                    <span class="material-symbols-outlined text-[20px]" data-fav-icon style="font-variation-settings:'FILL' 0;">favorite</span>
+                                </button>
                                 <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent z-10"></div>
                                 <div class="absolute bottom-3 left-3 z-20">
                                    <span class="bg-black/40 backdrop-blur-sm text-white text-[10px] font-medium px-2.5 py-1 rounded flex items-center gap-1">

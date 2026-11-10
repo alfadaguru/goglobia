@@ -806,6 +806,38 @@ if (!function_exists('stays_hold_release')) {
     }
 }
 
+if (!function_exists('stays_hold_refresh')) {
+    /**
+     * GAP FIX (Part 1 §1.4 CRITICAL "payment outlives the 60-min hold", 2026-11-09).
+     * Bump expires_at = now + TTL for a booking's HELD rows, called at payment start so
+     * a slow 3-DS / gateway redirect never lets the hold lapse while the customer is
+     * mid-payment (which otherwise leads to paid-but-no-room oversell on own inventory).
+     *
+     * SAFETY (doc risk note): touches ONLY rows in state='held'. A 'consumed' (paid),
+     * 'released' or 'expired' row is NEVER resurrected — the state='held' filter in the
+     * UPDATE makes that impossible. Idempotent: re-calling just re-extends the window.
+     *
+     * @param object $db
+     * @param string $ref   the booking invoice_id (stays_holds.ref)
+     * @return int          number of held rows whose expiry was extended
+     */
+    function stays_hold_refresh($db, string $ref): int
+    {
+        $ref = trim($ref);
+        if ($ref === '') { return 0; }
+        try {
+            $ttl = function_exists('stays_hold_ttl_minutes') ? stays_hold_ttl_minutes() : 60;
+            $newExpiry = date('Y-m-d H:i:s', time() + max(1, (int) $ttl) * 60);
+            // state='held' guard: never bumps consumed/released/expired rows.
+            $db->update('stays_holds', ['expires_at' => $newExpiry], ['ref' => $ref, 'state' => 'held']);
+            return (int) $db->count('stays_holds', ['ref' => $ref, 'state' => 'held', 'expires_at' => $newExpiry]);
+        } catch (\Throwable $e) {
+            error_log('stays_hold_refresh: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
 if (!function_exists('stays_bulk_price_set')) {
     /**
      * BULK / SEASONAL / WEEKDAY-WEEKEND pricing (PMS completion #06). Writes per-night

@@ -240,6 +240,51 @@ function wallet_settle_issue_and_notify($db, string $invoiceId, string $transact
         'payment_gateway' => $gatewayLabel,
     ], ['invoice_id' => $invoiceId]);
 
+    // GAP FIX (Part 1 §1.2/§1.4 "wallet/credits residual", 2026-11-09): on a
+    // wallet/credits-paid booking whose supplier issue FAILED ($finalStatus stays
+    // 'pending' = paid-but-unissued), the card/bank path auto-refunds — but the
+    // wallet path previously just left the booking paid+pending with the customer's
+    // wallet still debited and nothing reversed. Reverse the wallet debit through the
+    // SAME spine the booking-cancel path uses (wallet_refund, reason='reversal',
+    // idempotency-keyed so a retry never double-credits). Skip installment/umrah —
+    // those reverse through their own ledgers on cancel (mirrors the guards inside
+    // _auto_refund_on_issue_failure), and skip if already in a terminal refund state.
+    if ($finalStatus === 'pending' && function_exists('wallet_refund')) {
+        try {
+            $isInstallment = function_exists('installments_active_for') && installments_active_for($db, $invoiceId);
+            $isUmrah       = $moduleType === 'umrah';
+            $walletUserId  = (string) ($booking['user_id'] ?? '');
+            $reverseAmt    = round((float) ($booking['price_markup'] ?? 0), 2);
+            $reverseCur    = strtoupper(trim((string) ($booking['currency_markup'] ?? ''))) ?: 'NGN';
+            // Re-read the live booking so we never reverse one an admin/other path
+            // already cancelled/refunded (idempotency belt-and-braces alongside the key).
+            $liveBk        = $db->get('bookings', ['booking_status', 'payment_status'], ['invoice_id' => $invoiceId]);
+            $liveBs        = strtolower((string) ($liveBk['booking_status'] ?? ''));
+            $alreadyTerminal = in_array($liveBs, ['refund_initiated', 'refunded', 'cancelled', 'voided'], true);
+            if (!$isInstallment && !$isUmrah && !$alreadyTerminal && $walletUserId !== '' && $reverseAmt > 0) {
+                $rf = wallet_refund($db, $walletUserId, $reverseAmt, $reverseCur, [
+                    'reason'          => 'reversal',
+                    'invoice_id'      => $invoiceId,
+                    'ref_type'        => 'invoice',
+                    'ref_id'          => $invoiceId,
+                    'idempotency_key' => 'WALLET-ISSUEFAIL-REV-' . $invoiceId,
+                    'note'            => 'Reverse wallet debit — supplier issue failed (paid-but-unissued) ' . $invoiceId,
+                ]);
+                if (!empty($rf['ok'])) {
+                    $db->update('bookings', [
+                        'payment_status' => 'refunded',
+                        'booking_status' => 'cancelled',
+                    ], ['invoice_id' => $invoiceId]);
+                    error_log('wallet_settle AUTO-REVERSED wallet debit (issue failed) | invoice=' . $invoiceId . ' amount=' . $reverseAmt . ' ' . $reverseCur);
+                } else {
+                    error_log('wallet_settle wallet-reversal FAILED | invoice=' . $invoiceId . ' msg=' . ($rf['message'] ?? '?') . ' — admin must refund manually.');
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('wallet_settle wallet-reversal exception | invoice=' . $invoiceId . ' : ' . $e->getMessage());
+        }
+    }
+
     // Notify through the shared, service-correct path (NOT a hardcoded stays
     // webhook). Only when the booking actually confirmed — a paid-but-unissued
     // 'pending' booking must not send a "ticket" (bm_notify_paid also guards this).
@@ -390,6 +435,88 @@ function process_payment($invoiceId)
             if ($payCurrency !== '' && !payment_gateway_allowed_for_currency($db, $gateway, $payCurrency)) {
                 return ['success' => false, 'message' => 'This payment method does not support ' . $payCurrency . ' payments. Please choose the payment method for your currency.'];
             }
+        }
+
+        // GAP FIX (Part 1 §1.4 CRITICAL "Frozen price + stale offer at late payment",
+        // 2026-11-09): for a FLIGHTS booking paid on a return visit, re-validate the fare
+        // live BEFORE minting the token so we never charge a stale price for a fare that
+        // has moved. Policy (owner decision): on a beyond-tolerance change, BLOCK and ask
+        // the customer to review the new fare (never silently re-charge). FAIL-OPEN on any
+        // error/timeout/missing-endpoint — a supplier outage must never block a legitimate
+        // payment, so we fall through to the existing frozen-price charge. No-op for
+        // suppliers with no revalidate.php. DB-gated via settings.flight_repay_revalidate
+        // (default ON); set to '0' to disable (e.g. detect-only rollout).
+        if (strtolower((string) ($booking['module_type'] ?? '')) === 'flights'
+            && function_exists('flightCallSupplierRevalidate')) {
+            try {
+                $frEnabled = $db->get('settings', 'flight_repay_revalidate', ['id' => 1]);
+                $frEnabled = ($frEnabled === null || $frEnabled === '') ? '1' : (string) $frEnabled;
+                $supplier  = strtolower(trim((string) ($booking['module'] ?? '')));
+                $revalFile = dirname(__DIR__) . '/../modules/flights/' . $supplier . '/revalidate.php';
+                // Internal own-inventory 'flights' has no supplier/revalidate — skip it.
+                if ($frEnabled === '1' && $supplier !== '' && $supplier !== 'flights' && is_file($revalFile)) {
+                    $bd = json_decode((string) ($booking['booking_data'] ?? '[]'), true) ?: [];
+                    $flightData   = is_array($bd['flight_data'] ?? null) ? $bd['flight_data'] : [];
+                    $searchParams = is_array($bd['search_params'] ?? null) ? $bd['search_params'] : (is_array($bd['flight_data']['search_params'] ?? null) ? $bd['flight_data']['search_params'] : []);
+                    $oldNet       = (float) ($booking['price_original'] ?? 0);
+                    $curr         = strtoupper((string) ($booking['currency_original'] ?? $booking['currency_markup'] ?? 'USD'));
+                    if (!empty($flightData)) {
+                        // Short 8s cap at pay-time (fail-open quickly on a slow supplier
+                        // so checkout is never stalled); book-time callers keep the 30/90s default.
+                        $rv = flightCallSupplierRevalidate($db, $flightData, $supplier, $oldNet, $curr, $searchParams, 8);
+
+                        // BUG 1a FIX (2026-11-10): a DEFINITIVELY EXPIRED offer must BLOCK
+                        // the charge — not fail open. Adivaha (and peers) hard-expire a
+                        // search trace after ~15 min with NO token refresh; paying anyway
+                        // guarantees a /book HTTP 400 at issue ("search is older than 15
+                        // minutes") → customer charged, no ticket (observed live, invoice
+                        // 85244545). The previous guard only acted on a price-CHANGE and
+                        // let an EXPIRED (status:false) response fall through to the charge.
+                        // We now detect a POSITIVE expiry/invalid signal and stop the
+                        // payment, asking the customer to search again. We still FAIL-OPEN
+                        // on a transient/network error (status:false WITHOUT an expired/
+                        // is_valid:false signal), so a supplier glitch never blocks a
+                        // legitimate payment.
+                        $rvData       = is_array($rv['data'] ?? null) ? $rv['data'] : [];
+                        $rvExpired    = !empty($rv['expired']) || !empty($rvData['expired']);
+                        $rvInvalid    = array_key_exists('is_valid', $rvData) && $rvData['is_valid'] === false;
+                        if (is_array($rv) && empty($rv['status']) && ($rvExpired || $rvInvalid)) {
+                            error_log('process_payment FLIGHT OFFER EXPIRED — blocked (search stale) | invoice=' . $invoiceId . ' supplier=' . $supplier);
+                            return ['success' => false, 'fare_expired' => true,
+                                    'message' => 'This fare has expired (flight fares are held for about 15 minutes). Please search again to see current prices and book — your card has not been charged.'];
+                        }
+
+                        // Only ACT on an affirmative, successful, price-CHANGED response.
+                        // Anything else (transient status=false, no data, network error) = FAIL-OPEN.
+                        if (is_array($rv) && !empty($rv['status']) && !empty($rv['data']['price_changed'])) {
+                            $newNet = (float) ($rv['data']['new_price'] ?? 0);
+                            // Tolerance: only block when the live net rose beyond 2% above
+                            // what the customer is about to pay (a drop or tiny move is fine
+                            // — we honour the cheaper/stored price).
+                            if ($oldNet > 0 && $newNet > 0 && (($newNet - $oldNet) / $oldNet) * 100.0 > 2.0) {
+                                error_log('process_payment FLIGHT FARE CHANGED — blocked for review | invoice=' . $invoiceId . ' old=' . $oldNet . ' new=' . $newNet . ' ' . $curr);
+                                return ['success' => false, 'fare_changed' => true, 'old_price' => $oldNet, 'new_price' => $newNet, 'currency' => $curr,
+                                        'message' => 'The fare for this flight has changed since you booked. Please review the updated price and confirm before paying.'];
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // FAIL-OPEN: never block a legitimate payment on a revalidate error.
+                error_log('process_payment flight-revalidate (fail-open) ' . $invoiceId . ': ' . $e->getMessage());
+            }
+        }
+
+        // GAP FIX (Part 1 §1.4 CRITICAL "payment outlives the 60-min hold", 2026-11-09):
+        // for own-inventory stays, re-extend the held rows' expiry NOW — at payment start —
+        // so a slow 3-DS / gateway redirect can't let the hold lapse mid-payment and leave
+        // the booking paid-but-no-room. stays_hold_refresh touches ONLY state='held' rows
+        // (never consumed/released), so it cannot resurrect a cancelled hold. No-op for API
+        // suppliers (they have no local hold).
+        if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)
+            && function_exists('stays_hold_refresh')) {
+            try { stays_hold_refresh($db, (string) $invoiceId); }
+            catch (\Throwable $e) { error_log('process_payment hold-refresh ' . $invoiceId . ': ' . $e->getMessage()); }
         }
 
         // Create payment token
@@ -1006,11 +1133,34 @@ function handle_payment_callback($token, $action, $data = [])
                     try {
 
                         // ============================================================
+                        // BUG-2 FIX (2026-11-10): persist the gateway transaction
+                        // reference BEFORE the supplier-issue loopback. Money is
+                        // already charged + verified at this point; the full paid-write
+                        // (payment_status='paid' + transaction_id) only runs AFTER this
+                        // issue block (~line 1500), so if issue FAILS and
+                        // _auto_refund_on_issue_failure fires here, it would re-read a
+                        // booking whose transaction_id is still NULL →
+                        // refund_gateway_payment aborts with "No transaction reference
+                        // to refund" (observed live: invoice 85244545). Stamp the ref
+                        // now so the auto-refund always has it. Guarded + idempotent;
+                        // does NOT mark paid (confirm-before-issue is unchanged).
+                        // Stamp ONLY transaction_id here. Do NOT touch payment_gateway:
+                        // it already holds the gateway FK id (set at booking creation,
+                        // read by the refund path + line ~843) — overwriting it with a
+                        // name/label would corrupt that reference.
+                        try {
+                            $__txnRefEarly = (string) ($data['transaction_id'] ?? ($data['gateway_data']['transaction_id'] ?? ''));
+                            if ($__txnRefEarly !== '') {
+                                $db->update('bookings', ['transaction_id' => $__txnRefEarly], ['invoice_id' => $tokenData['invoice_id']]);
+                            }
+                        } catch (\Throwable $__e) { error_log('pre-issue txn-ref stamp: ' . $__e->getMessage()); }
+
+                        // ============================================================
                         // BUILD API URL FOR MODULE BOOKING ENDPOINT
                         // Standard module API pattern: root . 'modules/' . $moduleType . '/' . $module . '/issue'
                         // ============================================================
                         $modulePath = $module;
-                        
+
                         $apiUrl = root . 'modules/' . $moduleType . '/' . $modulePath . '/issue';
 
                         error_log("CALLING BOOKING API: {$apiUrl}");
@@ -1565,7 +1715,24 @@ function handle_payment_callback($token, $action, $data = [])
             // bm_notify_paid fallback). Shared with the dev_mode-mismatch path via
             // pg_notify_customer_paid so the two can never diverge (customer-flow
             // audit #7/#10/#18).
-            pg_notify_customer_paid($db, $tokenData, $data);
+            //
+            // GAP FIX (Part 1 §1.4 HIGH, 2026-11-09): only fire the "confirmed /
+            // ticket" notification when the booking actually reached a non-'pending'
+            // state. A paid-but-unissued booking (supplier issue failed / price-block
+            // / stale offer) is left booking_status='pending' here; sending it a
+            // success/ticket email would be a false confirmation. For those, the
+            // bmStrandedIssue recovery cron (app/routes/crons/bmStrandedIssueRoutes.php)
+            // re-fires the issue and — on success — flips it to 'confirmed' with a PNR,
+            // and bm_notify_paid then delivers the REAL confirmation. This mirrors the
+            // wallet path, which already gates on $finalStatus === 'confirmed'.
+            // Confirm-on-payment modules (tours-internal/visa/insurance/flights-internal)
+            // are set 'confirmed' at the paid-write, so they still notify normally.
+            $__notifyStatus = strtolower((string) ($bookingData['booking_status'] ?? ''));
+            if ($__notifyStatus !== 'pending') {
+                pg_notify_customer_paid($db, $tokenData, $data);
+            } else {
+                error_log('pg_notify SUPPRESSED (paid-but-unissued, stranded-issue recovery owns it) | invoice=' . ($tokenData['invoice_id'] ?? '?'));
+            }
 
             // Clear token
             clear_payment_token($token);
@@ -2290,12 +2457,19 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
             // GET session status from Stripe API
             // ============================================================
             case 'stripe':
-                // SECURITY: Stripe CAN be verified via the Checkout Session API.
-                // Never trust the browser redirect. If we cannot verify (no
-                // session id / no key / API unreachable), return 'pending'
-                // (booking not marked paid) instead of the old 'success'.
-                $sessionId = $gatewayData['session_id'] ?? $gatewayData['transaction_id'] ?? '';
-                if (empty($sessionId)) {
+                // SECURITY: never trust the browser redirect — re-verify with the
+                // Stripe API. Two reference shapes are supported:
+                //   * pi_...  (on-domain Payment Element — the current flow): verify
+                //             via the PaymentIntent API.
+                //   * cs_...  (legacy hosted Checkout Session — kept for any in-flight
+                //             links): verify via the Checkout Session API.
+                // If we cannot verify (no id / no key / API unreachable), return
+                // 'pending' (booking NOT marked paid) rather than confirming.
+                $stripeRef = (string) ($gatewayData['payment_intent']
+                    ?? $gatewayData['session_id']
+                    ?? $gatewayData['transaction_id']
+                    ?? '');
+                if ($stripeRef === '') {
                     return 'pending';
                 }
 
@@ -2309,6 +2483,54 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                 $secretKey = $gateway['c2'] ?? '';
                 if (empty($secretKey)) return 'pending';
 
+                $invId = (string) ($tokenData['invoice_id'] ?? '');
+
+                // ---- PAYMENT INTENT path (pi_...) — on-domain Elements ----------
+                if (stripos($stripeRef, 'pi_') === 0) {
+                    $ch = curl_init('https://api.stripe.com/v1/payment_intents/' . urlencode($stripeRef));
+                    curl_setopt_array($ch, [
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_USERPWD => $secretKey . ':',
+                        CURLOPT_TIMEOUT => 30,
+                        CURLOPT_SSL_VERIFYPEER => true,
+                        CURLOPT_SSL_VERIFYHOST => 2,
+                    ]);
+                    $response = curl_exec($ch);
+                    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+
+                    if ($httpCode !== 200) return 'pending'; // could not verify — do NOT confirm
+
+                    $pi = json_decode($response, true);
+                    $piStatus = (string) ($pi['status'] ?? '');
+
+                    if ($piStatus === 'succeeded') {
+                        // amount_received is in minor units.
+                        $paidMajor = ((float) ($pi['amount_received'] ?? $pi['amount'] ?? 0)) / 100;
+                        $paidCur   = (string) ($pi['currency'] ?? '');
+                        if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                            error_log("STRIPE VERIFY: amount/currency mismatch for PI {$stripeRef}");
+                            return 'failure';
+                        }
+                        // Bind the PaymentIntent to this invoice via metadata.invoice_id.
+                        $piInv = (string) ($pi['metadata']['invoice_id'] ?? '');
+                        if ($invId !== '' && $piInv !== $invId) {
+                            error_log("STRIPE VERIFY: PI {$stripeRef} not bound to invoice {$invId} (got {$piInv})");
+                            return 'failure';
+                        }
+                        // Persist the PaymentIntent id — refund_gateway_payment accepts it directly.
+                        $data['transaction_id'] = $stripeRef;
+                        return 'success';
+                    } elseif (in_array($piStatus, ['requires_payment_method', 'canceled'], true)) {
+                        return 'cancel';
+                    } else {
+                        // requires_action / requires_confirmation / processing → not confirmed yet.
+                        return 'pending';
+                    }
+                }
+
+                // ---- CHECKOUT SESSION path (cs_...) — legacy hosted checkout ----
+                $sessionId = $stripeRef;
                 $ch = curl_init('https://api.stripe.com/v1/checkout/sessions/' . urlencode($sessionId));
                 curl_setopt_array($ch, [
                     CURLOPT_RETURNTRANSFER => true,
@@ -2334,7 +2556,6 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                         error_log("STRIPE VERIFY: amount/currency mismatch for session {$sessionId}");
                         return 'failure';
                     }
-                    $invId = (string) ($tokenData['invoice_id'] ?? '');
                     $sessInv = (string) ($session['client_reference_id'] ?? ($session['metadata']['invoice_id'] ?? ''));
                     if ($invId !== '' && $sessInv !== $invId) {
                         error_log("STRIPE VERIFY: session {$sessionId} not bound to invoice {$invId} (got {$sessInv})");

@@ -19,6 +19,63 @@
 // gate blocks; the caller just does header('Location: '.$target); exit;. This
 // keeps all header()/exit control flow in the route, not buried in a helper.
 
+if (!function_exists('claimGuestBookingsForUser')) {
+    /**
+     * Durably attach the guest bookings made in THIS session to the user who just
+     * logged in (D2 gap fix). A guest checkout leaves bookings.user_id = NULL and
+     * only reachable via $_SESSION['owned_invoices']; that reachability dies with
+     * the session (new device/after logout). On login we re-parent every owned,
+     * still-unowned invoice to this user so "attach the booking to the account"
+     * becomes durable, not session-scoped. Safe + idempotent: it only ever claims
+     * invoices THIS session already owned, and only rows whose user_id is empty.
+     *
+     * @param object $db
+     * @param array  $user  the users row (needs user_id, id, email, first/last name)
+     * @return int  number of bookings claimed
+     */
+    function claimGuestBookingsForUser($db, array $user): int
+    {
+        $owned = $_SESSION['owned_invoices'] ?? null;
+        if (!is_array($owned) || empty($owned)) { return 0; }
+
+        $userId = (string) ($user['user_id'] ?? '');
+        if ($userId === '') { return 0; }
+
+        // Minimal owner stamp mirrored into user_data (same keys the booking
+        // routes write), so the invoice shows the owner even offline.
+        $userData = json_encode([
+            'id'         => $user['user_id'] ?? null,
+            'email'      => $user['email'] ?? '',
+            'first_name' => $user['first_name'] ?? '',
+            'last_name'  => $user['last_name'] ?? '',
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        $claimed = 0;
+        foreach (array_unique($owned) as $inv) {
+            $inv = (string) $inv;
+            if ($inv === '') { continue; }
+            try {
+                // Read the current owner first, then claim ONLY if still unowned
+                // (guest NULL/empty). This never steals a booking already owned by
+                // another account, and is idempotent (re-login = no-op).
+                $row = $db->get('bookings', ['user_id'], ['invoice_id' => $inv]);
+                if (!$row) { continue; }
+                $currentOwner = trim((string) ($row['user_id'] ?? ''));
+                if ($currentOwner !== '') { continue; } // already owned — leave it
+
+                $db->update('bookings', [
+                    'user_id'   => $userId,
+                    'user_data' => $userData,
+                ], ['invoice_id' => $inv]);
+                $claimed++;
+            } catch (\Throwable $e) {
+                error_log('claimGuestBookingsForUser: ' . $e->getMessage());
+            }
+        }
+        return $claimed;
+    }
+}
+
 if (!function_exists('establish_login_session')) {
     /**
      * Finalise a login once identity is proven. Sets session + cookies + logs,
@@ -83,6 +140,12 @@ if (!function_exists('establish_login_session')) {
         // using checkUser()/auth::isLoggedIn() behaves correctly. (logout clears it
         // via session_destroy.)
         $_SESSION['user_logged_in'] = true;
+
+        // D2 gap fix: durably attach any guest bookings made in this session to the
+        // user now logging in (re-parents bookings.user_id, not just owned_invoices).
+        if (function_exists('claimGuestBookingsForUser')) {
+            claimGuestBookingsForUser($db, $user);
+        }
 
         // Remember-me — signed 30-day cookie (same scheme as the auto-login reader).
         if ($remember) {

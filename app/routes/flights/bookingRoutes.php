@@ -72,8 +72,12 @@ if (!function_exists('flightResolveBookingData')) {
 }
 
 if (!function_exists('flightCallSupplierRevalidate')) {
-    function flightCallSupplierRevalidate($db, array $flightData, string $supplier, float $oldPrice, string $currency, array $searchParams = []): array
+    function flightCallSupplierRevalidate($db, array $flightData, string $supplier, float $oldPrice, string $currency, array $searchParams = [], ?int $timeout = null): array
     {
+        // $timeout (optional): hard cap in seconds for the supplier revalidate call.
+        // When null (book-time / AI / API callers), the per-supplier default is used
+        // (30s, or 90s for Travelport). The pay-later re-entry path passes a short cap
+        // (~8s) so a slow supplier fails open quickly instead of stalling checkout.
         $supplier   = strtolower(trim($supplier));
         $moduleType = 'flights';
         $token      = flightExtractOfferToken($flightData);
@@ -173,8 +177,8 @@ if (!function_exists('flightCallSupplierRevalidate')) {
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $postBody,
             CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_TIMEOUT        => ($supplier === 'travelport') ? 90 : 30,
-            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT        => ($timeout !== null && $timeout > 0) ? $timeout : (($supplier === 'travelport') ? 90 : 30),
+            CURLOPT_CONNECTTIMEOUT => ($timeout !== null && $timeout > 0) ? max(3, min(10, $timeout)) : 10,
             CURLOPT_SSL_VERIFYPEER => false,
         ]);
 
@@ -406,6 +410,103 @@ $router->post('/api/flight/booking/save-draft', function () use ($SECURE, $db) {
             'success' => false,
             'message' => $e->getMessage()
         ]);
+    }
+    exit;
+});
+
+
+// ============================================================================
+// POST /api/flight/booking/hold — BOOK-ON-HOLD (D-items 11-16)
+// Reserve an existing unpaid/pending flight booking with the supplier WITHOUT
+// paying, then flip it to booking_status='held' with the provider's expiry as the
+// pay deadline. No money, no ticket. The customer pays later via the normal flow;
+// the pay→issue path recognises the existing reserve and only issues on payment.
+// ============================================================================
+$router->post('/api/flight/booking/hold', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    try {
+        $input = json_decode((string) file_get_contents('php://input'), true);
+        if (!is_array($input)) { $input = $_POST; }
+        $invoiceId = trim((string) ($input['invoice_id'] ?? ''));
+        if ($invoiceId === '') { throw new Exception('Invoice ID required'); }
+
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+        if (!$booking) { throw new Exception('Booking not found'); }
+
+        // Owner / creating-guest-session / admin only (same guard as the other
+        // state-changing flight routes). Exits 403 JSON on denial.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
+        // CSRF (website session + JSON endpoint).
+        $csrfToken = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (class_exists('CSRF') && !CSRF::validateToken($csrfToken)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Invalid security token']);
+            exit;
+        }
+
+        // Only a fresh, unpaid, non-confirmed booking can be put on hold.
+        if (strtolower((string) ($booking['payment_status'] ?? '')) === 'paid') {
+            throw new Exception('This booking is already paid.');
+        }
+        $status = strtolower((string) ($booking['booking_status'] ?? ''));
+        if ($status === 'held') {
+            echo json_encode(['success' => true, 'held' => true, 'message' => 'Already on hold',
+                'hold_expires_at' => (string) ($booking['hold_expires_at'] ?? '')]);
+            exit;
+        }
+        if (!in_array($status, ['pending', ''], true)) {
+            throw new Exception('This booking cannot be put on hold.');
+        }
+
+        // Resolve supplier from booking_data.
+        $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
+        if (!is_array($bd)) { $bd = []; }
+        $supplier = strtolower(trim((string) ($bd['supplier'] ?? '')));
+
+        if (!function_exists('flight_hold_supported') || !flight_hold_supported($db, $supplier)) {
+            throw new Exception('Book-on-Hold is not available for this airline.');
+        }
+
+        // Reserve with the supplier (no payment).
+        $res = flight_hold_reserve($db, $booking, $supplier);
+        if (empty($res['ok'])) {
+            throw new Exception($res['message'] ?: 'Could not hold this flight.');
+        }
+
+        // The PROVIDER's expiry is the authority. If the supplier gave none, fall
+        // back to a conservative 24h so the sweep still has a deadline.
+        $expiresAt = trim((string) ($res['expires_at'] ?? ''));
+        $deadline  = ($expiresAt !== '' && strtotime($expiresAt) !== false)
+            ? date('Y-m-d H:i:s', strtotime($expiresAt))
+            : date('Y-m-d H:i:s', time() + 24 * 3600);
+
+        // Flip to held + set the deadline. Mirror into payment_due_at so the
+        // existing pay-later sweep auto-cancels an unpaid expired hold (no new cron).
+        $db->update('bookings', [
+            'booking_status'  => 'held',
+            'hold_expires_at' => $deadline,
+            'payment_due_at'  => $deadline,
+            'pay_later_status' => 'pending',
+        ], ['invoice_id' => $invoiceId]);
+
+        if (function_exists('triggerWebhook')) {
+            try { triggerWebhook('flights/booking', 'flights.booking.held', ['invoice_id' => $invoiceId, 'expires_at' => $deadline]); } catch (\Throwable $e) {}
+        }
+
+        echo json_encode([
+            'success' => true,
+            'held' => true,
+            'message' => 'Flight held. Pay before the deadline to confirm.',
+            'hold_expires_at' => $deadline,
+            'reference' => (string) ($res['reference'] ?? ''),
+            'invoice_id' => $invoiceId,
+        ]);
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
     }
     exit;
 });

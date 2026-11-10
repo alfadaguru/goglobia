@@ -1,13 +1,18 @@
 <?php
 // ============================================================================
 // FILE: app/routes/ai/giaRoutes.php
-// GIA — GoGlobia Intelligent Agent (BRD "GIA by GoGlobia") — Phase A
-// POST /api/gia/chat — agentic chat + tool-calling (READ-ONLY tools only)
+// GIA — GoGlobia Intelligent Agent (BRD "GIA by GoGlobia")
+// POST /api/gia/chat — agentic chat + tool-calling (end-to-end commerce).
 //
-// Phase A scope: a model-agnostic chat agent (Claude / OpenAI / Gemini, chosen by
-// the admin's settings.ai_configuration) that can call ONE read-only tool
-// (search_trip -> the existing aiSearchService). No bookings, no payments, no
-// state changes. Conversation state is kept in the session for this phase.
+// Scope (current): a model-agnostic chat agent (Claude / OpenAI / Gemini, chosen
+// by the admin's settings.ai_configuration) with a FULL tool chain — search_trip,
+// fetch_live_offers, select_option, compose_trip, create_checkout, create_booking,
+// request_approval, initiate_payment, get_order_status, request_human. GIA can
+// plan AND book AND take payment in chat: create_booking writes a real pending
+// booking (reusing the web process_payment spine) and initiate_payment (R3) starts
+// a real, approval-gated charge via GIA's own Paystack flow (gia_booking_payment).
+// (Historical note: this began as a Phase-A read-only search agent — that is no
+// longer the case; the write/pay tools below are live.)
 //
 // Loading note: the App\lib\ai\* classes autoload via composer's CLASSMAP
 // (vendor/composer/autoload_classmap.php). This install has NO composer.json, so

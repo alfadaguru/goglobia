@@ -1,11 +1,12 @@
 <?php
 
 // ============================================================================
-// STRIPE PAYMENT GATEWAY - INTEGRATED CHECKOUT
+// STRIPE PAYMENT GATEWAY - ON-DOMAIN ELEMENTS (Payment Element)
 // ============================================================================
-// HANDLES SECURE PAYMENT PROCESSING VIA STRIPE CHECKOUT SESSION
-// SUPPORTS BOTH LEGACY PAYLOAD FORMAT AND NEW PAYMENT LIBRARY FORMAT
-// REDIRECTS USERS TO STRIPE HOSTED CHECKOUT PAGE FOR CARD PROCESSING
+// Renders Stripe's embedded Payment Element in-page (no off-site redirect) and
+// confirms a server-created PaymentIntent in the browser via Stripe.js. The card
+// never touches our server (PCI). Supports the legacy base64 payload and the new
+// $paymentData array. Verification + refund use the PaymentIntent id.
 // ============================================================================
 
 // CHECK IF PAYMENT DATA EXISTS - EXIT IF NO PAYMENT REQUEST DETECTED
@@ -105,7 +106,9 @@ if (empty($secretKey)) {
 // ============================================================================
 // FORMAT AMOUNT IN CENTS - STRIPE REQUIRES INTEGER AMOUNTS IN SMALLEST UNIT
 // ============================================================================
-$amount = intval($booking['price_markup'] * 100);
+// Charge the amount DUE NOW (the loader puts payment_amount_due() into
+// $payload->price / $booking['price_markup'] here), in the booking currency.
+$amount = intval(round(((float) $booking['price_markup']) * 100));
 
 // Validate amount
 if ($amount <= 0) {
@@ -115,96 +118,149 @@ if ($amount <= 0) {
     return;
 }
 
-$successUrlWithSession = $successUrl;
-if (strpos($successUrlWithSession, '{CHECKOUT_SESSION_ID}') === false) {
-    $separator = strpos($successUrlWithSession, '?') === false ? '?' : '&';
-    $successUrlWithSession .= $separator . 'session_id={CHECKOUT_SESSION_ID}&transaction_id={CHECKOUT_SESSION_ID}';
+// The browser needs the PUBLISHABLE key (c1 = api_key in get_gateway_config).
+$publishableKey = $config['api_key'] ?? '';
+if (empty($publishableKey)) {
+    echo '<div style="text-align:center;padding:20px;color:#ef4444;">';
+    echo '<p><strong>Configuration Error</strong></p>';
+    echo '<p>Stripe publishable key is not configured. Please contact support.</p>';
+    echo '</div>';
+    error_log('Stripe: publishable key (c1) missing for invoice ' . ($booking['invoice_id'] ?? '?'));
+    return;
 }
 
 try {
     // ============================================================================
-    // CREATE STRIPE CHECKOUT SESSION - HOSTED PAYMENT PAGE
+    // ON-DOMAIN STRIPE ELEMENTS (Payment Element)
+    // ----------------------------------------------------------------------------
+    // Replaces the old off-site Checkout Session redirect: we create a PaymentIntent
+    // server-side (secret key, c2) and render Stripe's embedded Payment Element in
+    // THIS page so the customer never leaves the site (parity with the Paystack
+    // in-page pop-up). The card is captured in the browser by Stripe.js and confirmed
+    // against the PaymentIntent's client_secret — our server never sees card data (PCI).
+    //
+    // SECURITY: the PaymentIntent is bound to this invoice via metadata.invoice_id +
+    // description, and the server-side verify (verify_gateway_payment 'stripe' case)
+    // re-retrieves the PaymentIntent, requires status=succeeded, matches amount/currency,
+    // and confirms the invoice binding — the browser 'success' is never trusted.
+    // On success the browser navigates to success_url carrying the PaymentIntent id as
+    // transaction_id (the same param the callback reads), and refund already accepts a
+    // PaymentIntent id directly.
     // ============================================================================
-    $session = \Stripe\Checkout\Session::create([
-        'customer_email' => $booking['email'],
-        'payment_method_types' => ['card'],
-        'mode' => 'payment',
-        // SECURITY (P1): bind the session to this invoice so verification can
-        // confirm the paid session belongs to this booking (not another).
-        'client_reference_id' => (string) $booking['invoice_id'],
+    $intent = \Stripe\PaymentIntent::create([
+        'amount'   => $amount,
+        'currency' => strtolower($booking['currency_markup']),
+        // Bind to this invoice so verification can confirm the PI belongs to this booking.
         'metadata' => ['invoice_id' => (string) $booking['invoice_id']],
-        'line_items' => [
-            [
-                'price_data' => [
-                    'currency' => strtolower($booking['currency_markup']),
-                    'unit_amount' => $amount,
-                    'product_data' => [
-                        'name' => 'Travel Booking',
-                        'description' => 'Booking for Invoice ' . $booking['invoice_id'],
-                    ],
-                ],
-                'quantity' => 1,
-            ]
-        ],
-        'success_url' => $successUrlWithSession,
-        'cancel_url' => $cancelUrl,
+        'description' => 'Booking for Invoice ' . $booking['invoice_id'],
+        'receipt_email' => $booking['email'] ?? null,
+        // Let Stripe present the card (and any dashboard-enabled) methods inline.
+        'automatic_payment_methods' => ['enabled' => true],
     ]);
 
-    // Validate session was created
-    if (empty($session->url)) {
-        throw new Exception('Failed to create Stripe checkout session');
+    $clientSecret = (string) ($intent->client_secret ?? '');
+    if ($clientSecret === '') {
+        throw new Exception('Failed to create Stripe payment');
     }
 
+    // success_url already looks like invoice/{type}/{id}?token=...&payment_status=success
+    // (built by the loader). We append the verified PaymentIntent id as transaction_id
+    // on the browser side after confirmation (see the script below), so the callback's
+    // verify step can re-retrieve and confirm this exact PaymentIntent.
+    $returnBase = $successUrl;
     ?>
 
     <!-- ============================================================================ -->
-    <!-- STRIPE REDIRECT - AUTO-REDIRECT TO CHECKOUT PAGE -->
+    <!-- STRIPE PAYMENT ELEMENT - ON-DOMAIN CARD FORM (no redirect off-site) -->
     <!-- ============================================================================ -->
-    <div style="text-align:center;padding:20px;color:#64748b;">
-        <p style="margin-bottom:12px;">Redirecting to Stripe Checkout...</p>
-        <div class="spinner" style="margin:0 auto;width:40px;height:40px;border:4px solid #e5e7eb;border-top-color:#635bff;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+    <div id="stripe-pay-wrap" style="max-width:420px;margin:0 auto;">
+        <form id="stripe-payment-form">
+            <div id="stripe-payment-element"><!-- Stripe injects the card form here --></div>
+            <button id="stripe-submit" type="submit"
+                    style="margin-top:16px;width:100%;background:#635bff;color:#fff;border:none;padding:13px 20px;border-radius:7px;font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;">
+                <span id="stripe-btn-text">Pay <?= htmlspecialchars(strtoupper((string) $booking['currency_markup'])) ?> <?= htmlspecialchars(number_format((float) $booking['price_markup'], 2)) ?></span>
+                <span id="stripe-btn-spin" style="display:none;width:15px;height:15px;border:2px solid rgba(255,255,255,0.35);border-top-color:#fff;border-radius:50%;animation:spin 0.6s linear infinite;"></span>
+            </button>
+            <div id="stripe-error" role="alert" style="margin-top:12px;color:#dc2626;font-size:13px;display:none;"></div>
+        </form>
+        <p style="margin-top:12px;text-align:center;color:#94a3b8;font-size:11px;">Your card is processed securely by Stripe. We never see your card details.</p>
     </div>
-    
+
+    <script src="https://js.stripe.com/v3/"></script>
     <script>
-        // Auto-redirect to Stripe checkout URL
-        (function() {
-            const checkoutUrl = <?= json_encode($session->url) ?>;
-            const isDevMode = <?= json_encode(!empty($config['dev_mode'])) ?>;
-            const delay = isDevMode ? 1000 : 500;
-            
-            setTimeout(function() {
-                window.location.href = checkoutUrl;
-            }, delay);
-        })();
+    (function () {
+        // Guard: Stripe.js must be present. If it failed to load, show a clear error.
+        if (typeof Stripe === 'undefined') {
+            var w = document.getElementById('stripe-error');
+            if (w) { w.style.display = 'block'; w.textContent = 'Could not load the secure card form. Please refresh and try again.'; }
+            return;
+        }
+        var stripe = Stripe(<?= json_encode($publishableKey) ?>);
+        var clientSecret = <?= json_encode($clientSecret) ?>;
+        var returnUrl = <?= json_encode($returnBase) ?>;
+        var intentId = <?= json_encode((string) $intent->id) ?>;
+
+        var elements = stripe.elements({ clientSecret: clientSecret });
+        var paymentElement = elements.create('payment');
+        paymentElement.mount('#stripe-payment-element');
+
+        var form = document.getElementById('stripe-payment-form');
+        var btn = document.getElementById('stripe-submit');
+        var btnText = document.getElementById('stripe-btn-text');
+        var btnSpin = document.getElementById('stripe-btn-spin');
+        var errBox = document.getElementById('stripe-error');
+
+        function setBusy(b) {
+            btn.disabled = b;
+            btnSpin.style.display = b ? 'inline-block' : 'none';
+            btnText.style.opacity = b ? '0.7' : '1';
+        }
+        function showError(msg) {
+            errBox.style.display = 'block';
+            errBox.textContent = msg || 'Payment could not be completed. Please try again.';
+            setBusy(false);
+        }
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            errBox.style.display = 'none';
+            setBusy(true);
+
+            // On success we go to OUR callback (returnUrl already carries
+            // ?token=...&payment_status=success); add the PaymentIntent id so the
+            // server-side verify can re-retrieve and confirm this exact payment.
+            var sep = returnUrl.indexOf('?') === -1 ? '?' : '&';
+            var finalReturn = returnUrl + sep + 'transaction_id=' + encodeURIComponent(intentId) + '&payment_intent=' + encodeURIComponent(intentId);
+
+            stripe.confirmPayment({
+                elements: elements,
+                confirmParams: { return_url: finalReturn },
+                // Stay on-page unless the card genuinely needs a redirect (e.g. 3-DS
+                // that cannot be done inline); then Stripe redirects to finalReturn.
+                redirect: 'if_required'
+            }).then(function (result) {
+                if (result.error) {
+                    showError(result.error.message);
+                    return;
+                }
+                var pi = result.paymentIntent;
+                if (pi && (pi.status === 'succeeded' || pi.status === 'processing' || pi.status === 'requires_capture')) {
+                    // Confirmed inline (no redirect needed) — go to our callback ourselves.
+                    window.top.location.href = finalReturn;
+                } else if (pi) {
+                    showError('Payment status: ' + pi.status + '. Please try again.');
+                } else {
+                    // redirect:'if_required' handled a redirect; nothing to do here.
+                }
+            }).catch(function (err) {
+                showError(err && err.message ? err.message : 'Payment error. Please try again.');
+            });
+        });
+    })();
     </script>
 
     <style>
-        .payment-container {
-            max-width: 400px;
-            margin: 0 auto;
-            padding: 20px;
-            text-align: center;
-        }
-
-        .stripe-btn {
-            background: #635bff;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 5px;
-            font-size: 16px;
-            cursor: pointer;
-            width: 100%;
-            margin-top: 10px;
-        }
-
-        .stripe-btn:hover {
-            background: #5a54d9;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 
     <?php
@@ -214,7 +270,7 @@ try {
     echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #fecaca;">';
     echo '<h4 style="color:#dc2626;margin-top:0;">Stripe Payment Error</h4>';
     echo '<p style="color:#991b1b;margin-bottom:10px;">' . htmlspecialchars($errorMsg) . '</p>';
-    
+
     // Audit: do NOT render key-presence / amount / email debug to the browser.
     error_log('Stripe error for invoice ' . ($booking['invoice_id'] ?? '?') . ': ' . $errorMsg
         . ' (secret ' . (empty($config['secret_key']) ? 'MISSING' : 'present') . ')');

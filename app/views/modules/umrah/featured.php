@@ -135,15 +135,30 @@ $first_city_slug = !empty($umrah_cities) ? strtolower(preg_replace('/[^a-z0-9]+/
                                     </span>
                                 </div>
 
+                                <!-- Save to favourites (heart) -->
+                                <button type="button" data-fav-toggle
+                                        data-fav-module="umrah"
+                                        data-fav-item="<?= (int) $depId ?>"
+                                        data-fav-title="<?= htmlspecialchars($pkg['name'] ?? 'Umrah package') ?>"
+                                        data-fav-url="<?= htmlspecialchars($link) ?>"
+                                        data-fav-image="<?= htmlspecialchars($umrahImage) ?>"
+                                        data-fav-price="<?= htmlspecialchars((string) $displayPrice) ?>"
+                                        data-fav-currency="<?= htmlspecialchars($pkgCurrency) ?>"
+                                        data-fav-saved="0" aria-pressed="false"
+                                        class="absolute top-3 right-3 z-30 w-9 h-9 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center text-gray-700 hover:text-red-600"
+                                        aria-label="Save to favourites">
+                                    <span class="material-symbols-outlined text-[20px]" data-fav-icon style="font-variation-settings:'FILL' 0;">favorite</span>
+                                </button>
+
                                 <!-- Availability Badge Top Right -->
                                 <?php if ($availability === 'limited'): ?>
-                                    <div class="absolute top-3 right-3 z-20">
+                                    <div class="absolute top-14 right-3 z-20">
                                         <span class="bg-orange-600 text-white text-xs font-semibold px-2.5 py-1 rounded-lg shadow-lg">
                                             <?= defined('T::limited_seats') ? T::limited_seats : 'Limited seats' ?>
                                         </span>
                                     </div>
                                 <?php elseif ($availability === 'sold_out'): ?>
-                                    <div class="absolute top-3 right-3 z-20">
+                                    <div class="absolute top-14 right-3 z-20">
                                         <span class="bg-gray-800 text-white text-xs font-semibold px-2.5 py-1 rounded-lg shadow-lg">
                                             <?= defined('T::sold_out') ? T::sold_out : 'Sold out' ?>
                                         </span>

@@ -75,6 +75,7 @@ $allUserBookings = $db->select('bookings', ['booking_status', 'payment_status'],
 // Count booking statuses
 $bookingStatusCounts = [
     'confirmed' => 0,
+    'held' => 0,        // Book-on-Hold: reserved-not-yet-paid flights count here
     'pending' => 0,
     'cancelled' => 0
 ];
@@ -374,8 +375,8 @@ $selectedPaymentStatus = $_GET['payment_status'] ?? '';
             $whereCondition['module_type'] = $currentFilter;
          }
 
-         // Filter by booking status if selected
-         if (!empty($selectedBookingStatus) && in_array($selectedBookingStatus, ['confirmed', 'pending', 'cancelled'])) {
+         // Filter by booking status if selected ('held' = Book-on-Hold reservations).
+         if (!empty($selectedBookingStatus) && in_array($selectedBookingStatus, ['confirmed', 'held', 'pending', 'cancelled'])) {
             $whereCondition['booking_status'] = $selectedBookingStatus;
          }
 
@@ -456,6 +457,8 @@ $selectedPaymentStatus = $_GET['payment_status'] ?? '';
                   $statusClass = 'bg-slate-100 text-slate-800 border-slate-300 uppercase text-xs font-semibold border';
                   if ($row['booking_status'] === 'confirmed') {
                      $statusClass = 'bg-green-100 text-green-800 border-green-300 uppercase text-xs font-semibold border';
+                  } elseif ($row['booking_status'] === 'held') {
+                     $statusClass = 'bg-amber-100 text-amber-800 border-amber-300 uppercase text-xs font-semibold border';
                   } elseif ($row['booking_status'] === 'pending') {
                      $statusClass = 'bg-slate-100 text-slate-800 border-slate-300 uppercase text-xs font-semibold border';
                   } elseif ($row['booking_status'] === 'cancelled') {

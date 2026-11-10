@@ -262,3 +262,90 @@ window.flPanel = window.flPanel || function (triggerId, panelId, focusId) {
         init();
     }
 })();
+
+// ============================================================================
+// FAVOURITES (wishlist) — one delegated handler for every heart button on the
+// site. A button opts in with:
+//   <button data-fav-toggle data-fav-module="stays" data-fav-item="123"
+//           data-fav-title="..." data-fav-url="..." data-fav-image="..."
+//           data-fav-saved="0" aria-pressed="false">…heart icon…</button>
+// CSRF is auto-attached by the X-CSRF-TOKEN interceptor above; the website is
+// exempt from the API key (is_web_client). Guests are nudged to sign in.
+// Root comes from window.__APP_ROOT__ (injected in header.php).
+// ============================================================================
+(function () {
+    function root() { return (window.__APP_ROOT__ || '/'); }
+    function toast(msg, type) {
+        if (window.vt && typeof window.vt.success === 'function') {
+            (type === 'error' ? window.vt.error : window.vt.success)(msg);
+        }
+    }
+    function paint(btn, saved) {
+        btn.setAttribute('data-fav-saved', saved ? '1' : '0');
+        btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+        btn.classList.toggle('is-faved', !!saved);
+        var icon = btn.querySelector('[data-fav-icon]') || btn.querySelector('.material-symbols-outlined');
+        if (icon) {
+            icon.textContent = 'favorite';
+            icon.style.fontVariationSettings = saved ? "'FILL' 1" : "'FILL' 0";
+        }
+    }
+    // The toggle itself, callable with any heart button element. Exposed as
+    // window.ggFavToggle so Alpine cards that must @click.stop the parent action
+    // (e.g. a card that opens a modal) can still fire the favourite inline.
+    function runFavToggle(btn) {
+        if (!btn || btn.dataset.favBusy === '1') return;
+        var module = btn.getAttribute('data-fav-module') || '';
+        var itemId = btn.getAttribute('data-fav-item') || '';
+        if (!module || !itemId) return;
+
+        btn.dataset.favBusy = '1';
+        fetch(root() + 'api/users/favourites/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                module: module,
+                item_id: itemId,
+                data: {
+                    title:    btn.getAttribute('data-fav-title')    || '',
+                    url:      btn.getAttribute('data-fav-url')      || '',
+                    image:    btn.getAttribute('data-fav-image')    || '',
+                    price:    btn.getAttribute('data-fav-price')    || '',
+                    currency: btn.getAttribute('data-fav-currency') || ''
+                }
+            })
+        }).then(function (r) {
+            if (r.status === 401) { toast('Please sign in to save favourites', 'error'); return null; }
+            return r.json();
+        }).then(function (j) {
+            if (!j) return;
+            if (j.status === 'success') {
+                paint(btn, !!j.saved);
+                toast(j.saved ? 'Saved to favourites' : 'Removed from favourites');
+            } else {
+                toast(j.message || 'Could not update favourites', 'error');
+            }
+        }).catch(function () {
+            toast('Could not update favourites', 'error');
+        }).finally(function () {
+            btn.dataset.favBusy = '0';
+        });
+    }
+    window.ggFavToggle = runFavToggle;
+
+    // CAPTURE phase so the heart fires even when a card's @click.stop (modal/link
+    // cards) would stop the event from bubbling to a normal document listener.
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('[data-fav-toggle]') : null;
+        if (!btn) return;
+        // Cancel BOTH the default (link navigation) AND propagation, so a heart on a
+        // card whose wrapper is an <a> or carries an onclick (e.g. storeHotelData)
+        // does not also trigger that parent behaviour. Only ever runs for a real
+        // heart button (closest() matched), so normal card clicks are untouched.
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+        runFavToggle(btn);
+    }, true);
+})();

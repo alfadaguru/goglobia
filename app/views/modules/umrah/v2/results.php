@@ -187,6 +187,19 @@ $preInfants  = max(0, (int) ($_GET['infants']  ?? 0));
                      short source images can't make cards different heights) -->
                 <div class="w-full sm:w-64 h-48 sm:h-44 shrink-0 relative overflow-hidden"
                      style="background:linear-gradient(135deg,#0f766e 0%,#065f46 55%,#064e3b 100%)">
+                  <button type="button" data-fav-toggle
+                          data-fav-module="umrah"
+                          :data-fav-item="p.id"
+                          :data-fav-title="p.label"
+                          :data-fav-url="p.url"
+                          :data-fav-image="p.image"
+                          :data-fav-price="p.from"
+                          :data-fav-currency="p.currency"
+                          data-fav-saved="0" aria-pressed="false"
+                          class="absolute top-3 right-3 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center text-gray-700 hover:text-red-600"
+                          aria-label="Save to favourites">
+                    <span class="material-symbols-outlined text-[20px]" data-fav-icon style="font-variation-settings:'FILL' 0;">favorite</span>
+                  </button>
                   <template x-if="p.image">
                     <img :src="p.image" :alt="'Umrah ' + p.label" class="w-full h-full object-cover" loading="lazy"
                          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">

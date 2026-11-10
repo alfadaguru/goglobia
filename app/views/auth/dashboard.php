@@ -80,7 +80,7 @@
                         <?= $walletCur ?> <?= htmlspecialchars((string)($dashboardData['wallet_balance'] ?? '0.00')) ?>
                      </div>
                   </div>
-                  <button type="button" class="btn primary inline-flex items-center gap-2" @click="open = !open">
+                  <button type="button" id="walletAddFundsBtn" class="btn primary inline-flex items-center gap-2" @click="open = true">
                      <span class="material-symbols-outlined text-xl">add</span> Add Funds
                   </button>
                </div>
@@ -148,12 +148,20 @@
 
          <?php
             // -----------------------------------------------------------------
-            // SAVED CARDS (card-on-file). List + add (Stripe.js) + remove. The
-            // card number is entered in Stripe's own field — it never touches us.
+            // SAVED CARDS (card-on-file). List + add + remove. CURRENCY-AWARE add:
+            //   * USD (and other non-NGN): Stripe SetupIntent — the card is entered
+            //     in Stripe's own field (never touches us) with no charge.
+            //   * NGN: Paystack has NO zero-charge tokenisation, so a Naira card can
+            //     only be saved as a side-effect of a real charge. We therefore route
+            //     NGN "Add card" to the Paystack wallet top-up (which auto-vaults the
+            //     card on success — see save-on-first-top-up in payment-gateway.php),
+            //     instead of a Stripe field that their account can't use.
             // -----------------------------------------------------------------
             $savedCards = $dashboardData['saved_cards'] ?? [];
+            $cardsDisplayCur = strtoupper((string) ($dashboardData['display_currency'] ?? ''));
+            $cardsIsNgn = ($cardsDisplayCur === 'NGN');
          ?>
-         <div class="card p-4 mb-5" x-data="savedCards(<?= htmlspecialchars(json_encode($savedCards), ENT_QUOTES) ?>)">
+         <div class="card p-4 mb-5" x-data="savedCards(<?= htmlspecialchars(json_encode($savedCards), ENT_QUOTES) ?>, <?= $cardsIsNgn ? 'true' : 'false' ?>)">
             <div class="flex items-center justify-between mb-3">
                <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-1">
                   <span class="material-symbols-outlined text-base">credit_card</span> Saved cards
@@ -191,8 +199,8 @@
                </template>
             </ul>
 
-            <!-- Add-card panel (Stripe.js mounts here) -->
-            <div x-show="adding" x-cloak class="mt-3 rounded-lg border border-slate-200 p-3">
+            <!-- Add-card panel — USD/Stripe: card field mounts here -->
+            <div x-show="adding && !isNgn" x-cloak class="mt-3 rounded-lg border border-slate-200 p-3">
                <div id="card-element" class="p-2 border border-slate-200 rounded bg-white"></div>
                <p class="text-xs text-red-500 mt-1" x-text="err" x-show="err"></p>
                <div class="flex items-center gap-2 mt-3">
@@ -203,21 +211,36 @@
                </div>
                <p class="text-[11px] text-slate-400 mt-2">Your card details are handled securely by Stripe — they never touch our servers.</p>
             </div>
+
+            <!-- Add-card panel — NGN/Paystack: guide to the top-up (which saves the card) -->
+            <div x-show="adding && isNgn" x-cloak class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+               <p class="text-xs text-slate-600">To save a <strong>Naira</strong> card, make a wallet top-up with Paystack and tick “save my card” on Paystack’s page. Your card is then stored here automatically — Paystack doesn’t allow saving a card without a payment.</p>
+               <div class="flex items-center gap-2 mt-3">
+                  <button type="button" class="btn primary text-xs inline-flex items-center gap-1" @click="goTopUp()">
+                     <span class="material-symbols-outlined text-base">account_balance_wallet</span> Top up &amp; save card
+                  </button>
+                  <button type="button" class="btn ghost text-xs" @click="cancelAdd()">Cancel</button>
+               </div>
+            </div>
          </div>
 
          <script src="https://js.stripe.com/v3/"></script>
          <script>
-         function savedCards(initial){
+         function savedCards(initial, isNgn){
             const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
             const ROOT = '<?= root ?>';
             return {
-               cards: initial || [], adding:false, busy:false, err:'',
+               cards: initial || [], isNgn: !!isNgn, adding:false, busy:false, err:'',
                _stripe:null, _elements:null, _card:null, _clientSecret:'', _setupId:'',
                _post(url, body){
                   return fetch(ROOT+url,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify(body||{})}).then(r=>r.json());
                },
                async startAdd(){
-                  this.err=''; this.adding=true; this.busy=true;
+                  this.err=''; this.adding=true;
+                  // NGN: Paystack has no zero-charge card save — show the top-up route
+                  // panel (no Stripe call). USD/other: begin the Stripe SetupIntent.
+                  if(this.isNgn){ this.busy=false; return; }
+                  this.busy=true;
                   try{
                      const d = await this._post('api/cards/setup');
                      if(!d.success){ this.err=d.message||'Could not start.'; this.adding=false; this.busy=false; return; }
@@ -227,6 +250,14 @@
                      this._card = this._elements.create('card');
                      this.$nextTick(()=>{ this._card.mount('#card-element'); this.busy=false; });
                   }catch(e){ this.err='Network error.'; this.adding=false; this.busy=false; }
+               },
+               goTopUp(){
+                  // NGN add-card = make a Paystack wallet top-up (which auto-saves the
+                  // card on success). Reveal the Add Funds form and scroll to it.
+                  this.adding=false;
+                  var addBtn = document.getElementById('walletAddFundsBtn');
+                  if(addBtn){ addBtn.click(); addBtn.scrollIntoView({behavior:'smooth', block:'center'}); }
+                  else { window.location.hash = 'wallet'; }
                },
                async saveCard(){
                   if(!this._card) return; this.busy=true; this.err='';
@@ -516,6 +547,8 @@
                            $statusClass = 'bg-slate-100 text-slate-800 border-slate-300 uppercase text-xs font-semibold border';
                            if ($row['booking_status'] === 'confirmed') {
                               $statusClass = 'bg-green-100 text-green-800 border-green-300 uppercase text-xs font-semibold border';
+                           } elseif ($row['booking_status'] === 'held') {
+                              $statusClass = 'bg-amber-100 text-amber-800 border-amber-300 uppercase text-xs font-semibold border';
                            } elseif ($row['booking_status'] === 'pending') {
                               $statusClass = 'bg-slate-100 text-slate-800 border-slate-300 uppercase text-xs font-semibold border';
                            } elseif ($row['booking_status'] === 'cancelled') {
