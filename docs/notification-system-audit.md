@@ -82,22 +82,22 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 | E17 | GIA lead nurture (single + sweep) | ● | · | ● | · | · | ✅ clean |
 | E18 | GIA realtime widget push (Pusher) | · | ● | · | · | · | ✅ clean |
 | **Cron-driven** |
-| E19 | Abandoned-booking sweep | ? | ? | ? | ? | ? | ⬜ |
-| E20 | Flight reminders | ? | ? | ? | ? | ? | ⬜ |
-| E21 | Pay-Later reminders | ? | ? | ? | ? | ? | ⬜ |
-| E22 | Credits reminders | ? | ? | ? | ? | ? | ⬜ |
-| E23 | Service comms (per-service scheduled) | ? | ? | ? | ? | ? | ⬜ |
-| E24 | Umrah holds expiry | ? | ? | ? | ? | ? | ⬜ |
-| E25 | Referral release | ? | ? | ? | ? | ? | ⬜ |
-| E26 | Refund retry | ? | ? | ? | ? | ? | ⬜ |
-| E27 | Supplier earnings / ticks | ? | ? | ? | ? | ? | ⬜ |
-| E28 | Support shift nudge | ? | ? | ? | ? | ? | ⬜ |
-| E29 | BM stranded-issue alert | ? | ? | ? | ? | ? | ⬜ |
+| E19 | Abandoned-booking sweep | · | · | · | · | · | ✅ no notify (state only) |
+| E20 | Flight reminders | ● | · | ● | · | · | ✅ clean |
+| E21 | Pay-Later reminders | ● | · | ● | · | · | ✅ via bm_notify_paid |
+| E22 | Credits reminders | ● | · | · | · | · | ✅ email-only |
+| E23 | Service comms (per-service scheduled) | ● | · | ● | · | · | ✅ clean |
+| E24 | Umrah holds expiry | ● | · | ● | · | · | ✅ via umrah settle |
+| E25 | Referral release | · | · | · | · | · | ✅ no notify |
+| E26 | Refund retry | ● | ●chat | ● | · | · | ✅ via audited libs |
+| E27 | Supplier earnings / ticks | · | · | · | · | · | ✅ no customer notify |
+| E28 | Support shift nudge | · | · | ●staff | · | · | ✅ clean, capped |
+| E29 | BM stranded-issue alert | ● | · | ● | · | · | ✅ admin/via bm_notify_paid |
 | **Bulk** |
-| E30 | Newsletter / campaign dispatch | ? | ? | ? | ? | ? | ⬜ |
-| E31 | Campaign delivery webhook (bounce/open/click) | ? | ? | ? | ? | ? | ⬜ |
+| E30 | Newsletter / campaign dispatch | ● | · | · | · | · | ✅ compliant bulk email |
+| E31 | Campaign delivery webhook (bounce/open/click) | ◑ | · | · | · | · | ✅ inbound (updates suppression) |
 | **Realtime (non-GIA)** |
-| E32 | Footer live notifications (logged-in users, Pusher) | ? | ? | ? | ? | ? | ⬜ |
+| E32 | Footer live notifications (logged-in users, Pusher) | · | ○ | · | · | · | ✅ **DORMANT (N-34, tied to N-24)** |
 
 > This event list is derived from Phase-0 code discovery. It may gain rows as flows are traced (e.g. a cron that fires a sub-event). It will not lose rows silently — any removal will be annotated with why.
 >
@@ -533,7 +533,27 @@ GIA is a parallel notification system, distinct from `NOTIFY`. It has its OWN ch
 - **E29 BM stranded-issue** (`bmStrandedIssueRoutes` → `booking_manager.php`): surfaces paid-but-unissued bookings for admin retry; customer notified once issued via `bm_notify_paid` (audited). Admin-facing.
 > These reuse the audited `bm_notify_paid`/`NOTIFY::payment`/`gia_bp_notify` machinery — no new transport. Per-lib content (reminder copy) is a by-template appendix item.
 
-_(Next: E30/E31 campaigns/newsletter, E32 non-GIA footer realtime.)_
+#### E30 — Newsletter / campaign dispatch · ✅ AUDITED
+**Files:** `app/lib/campaigns.php` (engine) + `crons/campaignsDispatchRoutes.php` (`GET /cron/campaigns/dispatch`).
+- Dispatch (`campaignsDispatchRoutes.php:30–79`): resume-safe batched send via `campaign_run_batch` (`:70`); selects due `scheduled` + mid-send `sending` campaigns (`:54–61`), caps **20 campaigns/tick** (`:60`), empty-body guard (`:65–68`). Sends via `SENDEMAIL` with per-message List-Unsubscribe headers (`extra_headers` → Resend, S2).
+- Engine (`campaigns.php`): **marketing vs operational groups** (`:96`); **suppression-list honoring** for marketing sends (`:184–221,256`); **one-click unsubscribe tokens** HMAC-keyed on a server secret (`:127–145`); deterministic batching by email (`:167–175`). Serious, compliant bulk-email infra.
+- **No new findings** (the live-provider TLS/attachment findings N-21/22 apply to the transport, not here).
+**Per-channel (E30):** Email ● (bulk, marketing/operational) · others · .
+
+#### E31 — Campaign delivery webhook (bounce/open/click) · ✅ AUDITED (dispatch-level)
+- `app/routes/webhooksResendRoutes.php` receives Resend/Svix delivery events → updates campaign analytics + **adds bounced emails to `campaign_suppressions`** (feeding E30's suppression check). Svix HMAC verification is present but was noted elsewhere as runtime-unvalidated (owner-test item) — cross-referenced, not a new notification-dispatch finding.
+**Per-channel (E31):** inbound webhook (not a send) · .
+
+#### E32 — Footer live notifications (logged-in users, Pusher) · ✅ AUDITED → DORMANT
+**File:** `app/views/includes/footer.php:560–640`.
+- Client subscribes to a **HARDCODED Pusher app key `47c534ae27bce2c4a8b7`** (`:585`) and a **GLOBAL public channel `notify-channel`** (`:589`), binding `new-notification` → browser desktop `Notification` (`:591–597`), with an `is_test` gate (`:594`) and client-side dedup.
+- **Publisher:** `app/lib/notifications/push/pusher.php:42,60` (`PusherProvider::sendPushNotification` → `trigger('notify-channel','new-notification')`).
+- _FINDING N-34 (LATENT / would-be MEDIUM: cross-user disclosure): `notify-channel` is a **single global public channel** — **every** logged-in visitor subscribes to the same channel and receives **every** `new-notification` event. If any per-user content (a booking/payment) were pushed, it would be shown to **all** subscribed users. **This does NOT fire today** because the only publisher is `sendPushNotification`, which has **ZERO callers** (N-24) — the channel is subscribed but never server-published (except a possible admin "test" via `settingsRoutes.php:988`). So it is a **dormant design risk** tied to N-24: if push is ever wired, it must use per-user private channels (`private-user-{id}`), not this global one._ (App keys are client-public by Pusher design — the key itself is not the issue; the global-channel scoping is.)
+**Per-channel (E32):** Web/Realtime ○ (subscribed, not published today) · others · .
+
+**S6 STATUS: ✅ Phase 6 complete — all 18 crons mapped (6 notify, 12 state-only), E20/E22/E23/E28/E30/E31 audited, E21/24/26/29 cross-referenced to audited libs, E32 realtime (dormant). Findings N-34.**
+
+_(Next: Phase 7 — the single web artifact rendering this whole document.)_
 
 ---
 
