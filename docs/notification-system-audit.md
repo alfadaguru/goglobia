@@ -65,9 +65,9 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 | E02 | Payment received / booking paid | ● | · | ● | ● | · | 🟡 flights+dispatcher ✅, per-svc cross-ref |
 | E03 | Resend ticket/voucher | ● | · | ●¹ | · | · | ✅ (N-28: priced body on paid) |
 | E04 | Cancellation | ● | · | ● | ● | · | ✅ |
-| E05 | Deposit / installment (umrah, PaySmallSmall) | ? | ? | ? | ? | ? | ⬜ |
-| E06 | Vendor/supplier booking notice | ? | ? | ? | ? | ? | ⬜ |
-| E07 | Vendor/supplier payment notice | ? | ? | ? | ? | ? | ⬜ |
+| E05 | Deposit / wallet-funding | ● | · | · | · | · | ✅ email-only |
+| E06 | Vendor/supplier booking notice | ● | · | ● | ● | · | ✅ own-inventory only |
+| E07 | Vendor/supplier payment notice | · | · | · | · | · | ✅ **DEAD (N-29)** |
 | **Account / auth** |
 | E08 | Signup welcome (web + API) | ? | ? | ? | ? | ? | ⬜ |
 | E09 | Email verification / resend | ? | ? | ? | ? | ? | ⬜ |
@@ -365,7 +365,28 @@ _(Event sections E01–E32 appended here as each is completed.)_
 
 **Note (E02 admin path):** `admin/bookingsRoutes.php:195–206` also fires `NOTIFY::payment` on the `unpaid→paid` edit transition with BOTH invoice+ticket (correct 3-doc), guarded by the transition test and the `mark_paid` already-paid short-circuit (`:401–410`, audit #46 — prevents repeat "payment received" emails).
 
-_(E05 deposit, E06/E07 vendor — next pass.)_
+### E05 — Deposit / wallet-funding notification · ✅ AUDITED
+
+**Callers:** `app/routes/ajaxRoutes.php:1109` (`new_request` on deposit submission), `:1469` (`$newStatus` = approved/rejected on admin action), `app/routes/api/users/depositRoutes.php:223` (API `new_request`, in try/catch).
+**Handler:** `NOTIFY::deposit($actionType,$depositData,$userData)` (notify.php:88–201, audited in S1).
+- **EMAIL-ONLY** (no WhatsApp/SMS). Recipients: the depositing user + all `admin/superadmin status='active'`, de-duped if admin==user (notify.php:134–170). Template `emails/wallet/deposit_notification.php`. Subjects branch on action (`Deposit Request Received/Approved/Rejected` for user; `[ADMIN] …` for staff).
+**Per-channel (E05):** Email ● (user + admins) · WhatsApp · · SMS · · Realtime · · Push · .
+
+### E06 — Vendor/supplier booking notice · ✅ AUDITED (own-inventory only)
+
+**Callers (own-inventory services only):** flights submit `flights/bookingRoutes.php:1471` + API `api/flights:1046`; stays submit `stays/bookingRoutes.php:1012,1026` (owner + hotel email); cars API `api/cars:887`. Fires **at booking submit** when the inventory item (`flights/stays/cars.user_id`) has an owner (`:1466–1471`). tours vendor call is commented out (`tours:679`).
+**Handler:** `NOTIFY::vendor($module,$vendorData,$bookingData)` → `sendVendor()` (notify.php:858–994, audited in S1): sends **ONLY to the vendor** (email + WhatsApp + SMS), priced (vendor is internal), per-module mapping only stays+flights (N-10).
+- _Note: the booking-confirmation customer email for these services is separate (E01, post-payment). E06 is the owner/hotel heads-up on a new booking against their own inventory, fired at submit (so the owner learns of an unpaid booking) — consistent with the updates.json note that flights/stays submit retain a conditional `NOTIFY::vendor` while the customer-facing inline notify was removed to fix checkout hang._
+**Per-channel (E06):** Email ● (vendor only) · WhatsApp ● (vendor) · SMS ● (vendor) · Realtime · · Push · .
+
+### E07 — Vendor/supplier payment notice · ✅ AUDITED → **DEAD**
+
+- _FINDING N-29 (INFO / dead code): `NOTIFY::vendorPayment()` (notify.php:849 → `sendVendor(…,'booking_payment',…)`) has **ZERO callers** anywhere in `app/` (grep-verified). The vendor is never notified when a booking against their inventory is PAID — only when it is first created (E06). Either wire it into the payment path or remove it. (Joins N-24 push and `mailer.php` as defined-but-unwired notification code.)_
+**Per-channel (E07):** — (never fires).
+
+**Phase-3 transactional events (E01–E07): ✅ ALL AUDITED** (core dispatch + per-service call-site map; a few service-specific template files remain to be spot-read in the by-service appendix, flagged where relevant). Findings this phase: N-25…N-29.
+
+_(Next: Phase 4 — account/auth events E08–E13.)_
 
 ---
 
