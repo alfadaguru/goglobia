@@ -63,8 +63,8 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 | **Transactional — booking lifecycle** |
 | E01 | Booking created (per service ×11) | ● | · | ● | ● | · | 🟡 flights ✅, others cross-ref |
 | E02 | Payment received / booking paid | ● | · | ● | ● | · | 🟡 flights+dispatcher ✅, per-svc cross-ref |
-| E03 | Resend ticket/voucher | ? | ? | ? | ? | ? | ⬜ |
-| E04 | Cancellation | ? | ? | ? | ? | ? | ⬜ |
+| E03 | Resend ticket/voucher | ● | · | ●¹ | · | · | ✅ (N-28: priced body on paid) |
+| E04 | Cancellation | ● | · | ● | ● | · | ✅ |
 | E05 | Deposit / installment (umrah, PaySmallSmall) | ? | ? | ? | ? | ? | ⬜ |
 | E06 | Vendor/supplier booking notice | ? | ? | ? | ? | ? | ⬜ |
 | E07 | Vendor/supplier payment notice | ? | ? | ? | ? | ? | ⬜ |
@@ -341,7 +341,31 @@ _(Event sections E01–E32 appended here as each is completed.)_
 - GIA: `gia_booking_payment.php:982` (Phase 5).
 - BM/shared: `booking_manager.php:441` (`bm_notify_paid`, audited in the BM work).
 
-_(E03 resend, E04 cancellation, E05 deposit, E06/E07 vendor — next pass.)_
+### E03 — Resend ticket/voucher · ✅ AUDITED
+
+**Primary caller (admin):** `app/routes/admin/bookingsRoutes.php:315–366` (`action=resend_voucher|resend_ticket`), per-channel, read-only (allowed on cancelled/voided).
+- Always generates the **no-price TICKET** (`GENERATE_BOOKING_PDF(id,'ticket')`, `:320`).
+- `channel='whatsapp'` (`:322–349`): `SENDWHATSAPP($full,$name,$caption,$ticketPath,$ticketUrl)` — prefers public URL, warm caption; clear failure messages when no phone / provider can't send files.
+- `channel='email'` (default, `:351–360`): `NOTIFY::resend($module, $booking, […], $ticketPath)`.
+- **Dispatch behaviour (from S1):** `send()` skips WhatsApp+SMS for `event==='resend'` (notify.php:462,471) and the email fan-out `return`s after the customer, before owner/admin (notify.php:562–565). So **E03 = customer email only** (+ the explicit WhatsApp branch here when chosen).
+- _FINDING N-28 (MEDIUM — a "no-price ticket" that shows the price): `NOTIFY::resend` has only a 4th `$pdfPath` arg and no 5th `$customerPdfPath` (notify.php:66). So in `send()`, `$customerPdfPath===null` → the customer gets the **owner (PRICED) body** (notify.php:541), not the price-free body. The flight/booking email template shows the amount when the booking is **paid** and `hide_price` is empty (`emails/flights/booking.php:81,99`). → For a **paid** booking, the admin "Resend **ticket**" (a no-price travel document) emails the customer a **priced** body with the no-price ticket PDF attached — the body contradicts the no-price intent. (Unpaid resends are unaffected — the template hides price when unpaid.) Fix: have `resend` pass the ticket as the 5th arg too, OR force `hide_price` for resend._
+
+**Other resend callers (same `NOTIFY::resend` shape, mostly ticket-pdf 4th-arg):** per-service web `flights:599, stays:328, tours:196, rail:805, umrah:306`; API `api/flights:1152, api/stays:1027, api/umrah:567`; agent `agentBookingCentreRoutes.php:450`; `ajaxRoutes.php:618`; AI-trip `tripBookingRoutes.php:714`. **All inherit N-28** (priced body on paid resend) unless they pass a 5th arg — spot-check pending per caller, but the signature makes the 5th arg impossible on `resend` as written, so **N-28 applies to every resend caller**.
+
+**Per-channel (E03):** Email ● (customer only; **priced body on paid bookings — N-28**) · WhatsApp ● (only via the explicit admin WhatsApp branch / the resend's own doc path; NOTIFY's WA is skipped for resend) · SMS · (skipped for resend) · Realtime · · Push · .
+
+### E04 — Cancellation · ✅ AUDITED
+
+**Primary caller (admin edit):** `app/routes/admin/bookingsRoutes.php:209–215` — fires `NOTIFY::cancellation($module,$data,[…])` **only on the `cancellation_status` 0→1 transition** (`:209`, edge-triggered, no re-save spam). No PDF (cancellation has no document — correct).
+- Via `send()`: `event='booking_cancellation'` → subject `cancellation_request`; template is the service's **own `$event.php`** (NOT collapsed to booking.php — notify.php:510–516 only collapses booking/payment/resend). Fans to **customer + owner + admins** on **email + WhatsApp + SMS** (owner/admin prefixed `[SUPPLIER]`/`[ADMIN] … Cancellation`).
+
+**Other cancellation callers:** per-service web `flights:673, stays:399, tours:278, umrah:392`; API `api/flights:1209, api/stays:1091, api/ferries:105, api/rail:170`. Same `NOTIFY::cancellation` shape.
+
+**Per-channel (E04):** Email ● (customer + owner + admins) · WhatsApp ● · SMS ● · Realtime · · Push · .
+
+**Note (E02 admin path):** `admin/bookingsRoutes.php:195–206` also fires `NOTIFY::payment` on the `unpaid→paid` edit transition with BOTH invoice+ticket (correct 3-doc), guarded by the transition test and the `mark_paid` already-paid short-circuit (`:401–410`, audit #46 — prevents repeat "payment received" emails).
+
+_(E05 deposit, E06/E07 vendor — next pass.)_
 
 ---
 
