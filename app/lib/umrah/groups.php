@@ -506,11 +506,22 @@ if (!function_exists('umrah_group_confirm')) {
         $result = ['ok' => false, 'message' => 'Group submit failed'];
         try {
             $db->action(function ($db) use ($g, $groupId, $invoiceId, $bookingRef, $agent, $departure, $dt, $pax, $currency, $total, $agentEarning, $snapshot, $now, $walletTxn, &$result) {
-                // FINAL capacity re-check INSIDE the transaction (audit H: oversell
-                // across concurrent groups on the same departure-tier). The pre-
-                // charge check serializes a single group; this catches two
-                // different groups racing the last seats. Throwing here aborts the
-                // transaction and triggers the outer refund + claim release.
+                // FINAL capacity re-check INSIDE the transaction (U-03: oversell
+                // across concurrent groups on the same departure-tier, or a group
+                // racing a customer umrah_hold_create). The pre-charge check and the
+                // CAS claim only serialize a single group against itself; two
+                // DIFFERENT groups (or a group vs a customer hold) race the last
+                // seats because umrah_capacity_for() is an UNLOCKED sum.
+                //
+                // Serialize here the SAME way umrah_hold_create does: take a row
+                // lock on the departure-tier row AND the parent departure row with
+                // raw "SELECT ... FOR UPDATE" (NOT the invalid Medoo 'FOR UPDATE'
+                // option), so all group confirms and customer holds on this
+                // departure contend on the same lock before the capacity sum is
+                // read. The loser blocks until the winner commits, then re-reads the
+                // now-updated capacity and throws → outer catch refunds + releases.
+                $db->query('SELECT id FROM umrah_departure_tiers WHERE id = :id FOR UPDATE', [':id' => (int) $dt['id']]);
+                $db->query('SELECT id FROM umrah_departures WHERE id = :dep FOR UPDATE', [':dep' => (int) $dt['departure_id']]);
                 if (function_exists('umrah_capacity_for')) {
                     $capTx = umrah_capacity_for($db, (int) $dt['id']);
                     if ((int) ($capTx['remaining'] ?? 0) < $pax) {

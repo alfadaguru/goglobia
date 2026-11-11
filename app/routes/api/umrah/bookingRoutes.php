@@ -123,6 +123,13 @@ $router->post('/api/umrah/booking/draft', function () use ($db) {
     try {
         $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
 
+        // CSRF (U-08): the draft is non-authoritative for price (submit re-derives
+        // server-side, U-02), but still require a token for cookie/session callers
+        // to stop unauthenticated draft spam. Bearer/JWT API clients are exempt.
+        if (function_exists('umrah_v1_csrf_guard')) {
+            umrah_v1_csrf_guard(is_array($input) ? $input : []);
+        }
+
         if (!$input || empty($input['umrah_id'])) {
             throw new Exception('umrah_id is required');
         }
@@ -304,6 +311,25 @@ $router->post('/api/umrah/bookings/submit', function () use ($db) {
     try {
         $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
 
+        // CSRF (U-02): this endpoint confirms a booking (state change). Require a
+        // valid CSRF token for cookie/session (web-client) callers. Bearer/JWT API
+        // clients are exempt (no cookies → no CSRF risk), matching the umrah v1
+        // guard used across the rest of the umrah API.
+        if (function_exists('umrah_v1_csrf_guard')) {
+            umrah_v1_csrf_guard(is_array($input) ? $input : []);
+        } else {
+            $__h = function_exists('getallheaders') ? array_change_key_case((array) getallheaders(), CASE_LOWER) : [];
+            $__hasBearer = !empty($__h['authorization']) && preg_match('/Bearer\s+\S+/i', (string) $__h['authorization']);
+            if (!$__hasBearer) {
+                $__tok = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($__h['x-csrf-token'] ?? ''));
+                if (!class_exists('CSRF') || !CSRF::validateToken((string) $__tok)) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'message' => 'Invalid or missing security token']);
+                    return;
+                }
+            }
+        }
+
         if (!$input || empty($input['booking_hash'])) {
             throw new Exception('Booking hash required');
         }
@@ -388,49 +414,41 @@ $router->post('/api/umrah/bookings/submit', function () use ($db) {
             }
         }
 
-        $actualPrice = floatval(
-            $bookingData['actual_total_umrah_price']
-            ?? $bookingData['actual_price']
-            ?? $bookingData['base_price']
-            ?? $bookingData['price']
-            ?? $bookingData['markup_total_umrah_price']
-            ?? $bookingData['amount']
-            ?? 0
-        );
-        $markupPrice = floatval(
-            $bookingData['markup_total_umrah_price']
-            ?? $bookingData['price']
-            ?? $bookingData['amount']
-            ?? $actualPrice
-        );
-        $currency = $bookingData['currency'] ?? 'USD';
-
         if (!function_exists('MARKUP')) {
             require_once dirname(__DIR__, 4) . '/modules/helpers.php';
         }
 
-        // Enforce user/role-based MARKUP on actual base cost
-        if ($actualPrice > 0 && function_exists('MARKUP')) {
-            $umrahModule = $db->get('modules', '*', ['name' => 'umrah', 'type' => 'umrah', 'status' => '1']);
-            $markedInfo = MARKUP($actualPrice, $umrahModule ?: null, $db, $currency, $currency);
-            if (!empty($markedInfo['price']) && $markedInfo['price'] > 0) {
-                $markupPrice = round((float)$markedInfo['price'], 2);
-            }
+        // PRICE INTEGRITY (U-02): NEVER trust any client-supplied price. The draft
+        // ($bookingData) and the request body ($input) are both attacker-seeded
+        // (the /api/umrah/booking/draft endpoint stores whatever the client sends,
+        // and the old code then read actual_price/markup_total/final_total/tax_amount
+        // straight from them). Re-derive the authoritative price SERVER-SIDE from the
+        // `umrah` product row by umrah_id + pax — identical to the hardened singular
+        // /api/umrah/booking/submit path (umrahLegacyServerPrice). The client's
+        // final_total/tax_amount/actual_price are ignored entirely.
+        $umrahIdForPrice = (int) ($bookingData['umrah_id'] ?? $input['umrah_id'] ?? 0);
+        $paxAdults   = (int) ($bookingData['total_adults']   ?? $input['total_adults']   ?? 1);
+        $paxChildren = (int) ($bookingData['total_children'] ?? $input['total_children'] ?? 0);
+        $paxInfants  = (int) ($bookingData['total_infants']  ?? $input['total_infants']  ?? 0);
+
+        if (!function_exists('umrahLegacyServerPrice')) {
+            // Defensive: the helper lives in the web umrah bookingRoutes (loaded
+            // before the API routes). Load it explicitly if this route is reached
+            // in isolation so pricing can never silently fall back to client data.
+            require_once dirname(__DIR__, 3) . '/umrah/bookingRoutes.php';
+        }
+        $priced = umrahLegacyServerPrice($db, $umrahIdForPrice, $paxAdults, $paxChildren, $paxInfants);
+        if (empty($priced['ok'])) {
+            throw new Exception($priced['message'] ?? 'This umrah package is not available for booking.');
         }
 
-        // 3. TAX & COMMISSION
-        $taxInfo = calculateTax($markupPrice, 'umrah', $db);
-        $taxAmount = (float) ($taxInfo['tax_amount'] ?? 0);
-        $commission = round($markupPrice - $actualPrice, 2);
-        $finalTotal = round($markupPrice + $taxAmount, 2);
-
-        // Use prices from input if provided
-        if (isset($input['final_total']) && (float) $input['final_total'] > 0) {
-            $finalTotal = (float) $input['final_total'];
-        }
-        if (isset($input['tax_amount']) && (float) $input['tax_amount'] > 0) {
-            $taxAmount = (float) $input['tax_amount'];
-        }
+        $actualPrice = (float) $priced['actual'];                 // net (server)
+        $markupPrice = (float) $priced['markup'];                 // customer sell (server, agent-aware)
+        $currency    = (string) $priced['currency'];              // from the product row, not the client
+        $taxAmount   = (float) $priced['tax'];
+        $taxInfo     = ['tax_amount' => $taxAmount, 'tax_type' => $priced['tax_type'] ?? 'percentage'];
+        $commission  = round($markupPrice - $actualPrice, 2);
+        $finalTotal  = round($markupPrice + $taxAmount, 2);
 
         // 3.1 PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust
         // the client's promo_discount). Enforces module/targeting/usage/per-user.

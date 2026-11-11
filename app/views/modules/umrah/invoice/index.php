@@ -645,9 +645,9 @@ foreach ($session_keys as $key) {
                                 <h4 class="font-medium text-blue-700 dark:text-blue-300 mb-2 rounded"><?= T::primary_guest ?></h4>
                                 <div class="text-sm">
                                     <?php if (isset($travellersData['primary_guest'])): ?>
-                                        <p><strong><?= $travellersData['primary_guest']['title'] ?? '' ?> <?= $travellersData['primary_guest']['first_name'] ?? '' ?> <?= $travellersData['primary_guest']['last_name'] ?? '' ?></strong></p>
-                                        <p class="text-gray-600"><?= $travellersData['primary_guest']['email'] ?? '' ?></p>
-                                        <p class="text-gray-600">+<?= $travellersData['primary_guest']['country_code'] ?? '' ?> <?= $travellersData['primary_guest']['phone'] ?? '' ?></p>
+                                        <p><strong><?= htmlspecialchars((string)($travellersData['primary_guest']['title'] ?? ''), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)($travellersData['primary_guest']['first_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)($travellersData['primary_guest']['last_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?></strong></p>
+                                        <p class="text-gray-600"><?= htmlspecialchars((string)($travellersData['primary_guest']['email'] ?? ''), ENT_QUOTES, 'UTF-8') ?></p>
+                                        <p class="text-gray-600">+<?= htmlspecialchars((string)($travellersData['primary_guest']['country_code'] ?? ''), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)($travellersData['primary_guest']['phone'] ?? ''), ENT_QUOTES, 'UTF-8') ?></p>
                                     <?php else: ?>
                                         <p><strong><?= htmlspecialchars((string)$booking['first_name'], ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)$booking['last_name'], ENT_QUOTES, 'UTF-8') ?></strong></p>
                                         <p class="text-gray-600"><?= htmlspecialchars((string)$booking['email'], ENT_QUOTES, 'UTF-8') ?></p>
@@ -739,6 +739,18 @@ function processPayment() {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '<?= root ?>payment/process';
+
+    // CSRF (F-04): /payment/process requires a token. This form is submitted via
+    // form.submit(), which bypasses the global submit interceptor, so attach the
+    // page token (published in <meta name="csrf-token">) explicitly.
+    var __csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    if (__csrfMeta && __csrfMeta.content) {
+        var csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrf_token';
+        csrfInput.value = __csrfMeta.content;
+        form.appendChild(csrfInput);
+    }
 
     const inputs = {
         'invoice_id': '<?= $invoiceId ?>',

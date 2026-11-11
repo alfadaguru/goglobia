@@ -1140,32 +1140,50 @@ if (!function_exists('umrah_settle_payment')) {
         // successive empty-txn payments get distinct keys, while a re-fired
         // callback for the SAME payment still needs a real txn id to dedupe.
         $txnId = (string) $txnId;
-        if ($txnId === '') {
-            // Number of settlements already recorded on this booking (any txn).
-            // Suffixing with it makes each successive empty-txn payment unique.
-            $prior = (int) $db->count('umrah_installments', [
-                'umrah_booking_id' => $ubId,
-                'transaction_id[!]' => null,
-            ]);
-            $txnId = 'AUTO-' . $invoiceId . '-' . number_format((float) $amount, 2, '', '') . '-' . ($prior + 1);
-        }
 
-        // Idempotency: if this txn is already recorded, do nothing.
-        $seen = $db->get('umrah_installments', 'id', ['umrah_booking_id' => $ubId, 'transaction_id' => $txnId]);
-        if ($seen) {
-            return ['ok' => true, 'status' => 'already', 'confirmed' => ($ub['booking_status'] === 'confirmed'), 'price_locked' => !empty($ub['price_locked_at'])];
+        // FAST-PATH idempotency (common case): a re-fired gateway/webhook callback
+        // carries the SAME real txn id. If it's already recorded, no-op without
+        // opening a transaction. For an EMPTY txn id the authoritative check must
+        // happen INSIDE the lock (U-05) — the synthesized key depends on the
+        // settlement count, which two concurrent empty-txn callbacks would both read
+        // as equal BEFORE the lock, letting them double-credit — so skip the
+        // fast-path here and dedupe under the lock below.
+        if ($txnId !== '') {
+            $seen = $db->get('umrah_installments', 'id', ['umrah_booking_id' => $ubId, 'transaction_id' => $txnId]);
+            if ($seen) {
+                return ['ok' => true, 'status' => 'already', 'confirmed' => ($ub['booking_status'] === 'confirmed'), 'price_locked' => !empty($ub['price_locked_at'])];
+            }
         }
 
         $result = ['ok' => false, 'status' => 'error'];
         try {
-            $db->action(function ($db) use ($ub, $ubId, $amount, $txnId, $now, $invoiceId, &$result) {
-                // CONCURRENCY LOCK (money-flow audit M2): serialise concurrent
-                // distinct-txn settlements for this booking so two payments can't
-                // both allocate to the same pending installment (one collected,
-                // never credited). Lock the umrah_bookings row FIRST; the second
-                // settlement blocks until the first commits, then re-reads the
-                // updated schedule. Same idiom as the generic installments engine.
+            $db->action(function ($db) use ($ub, $ubId, $amount, &$txnId, $now, $invoiceId, &$result) {
+                // CONCURRENCY LOCK (money-flow audit M2 + U-05): serialise concurrent
+                // settlements for this booking so two payments can't both allocate to
+                // the same pending installment (one collected, never credited). Lock
+                // the umrah_bookings row FIRST; the second settlement blocks until the
+                // first commits, then re-reads the updated schedule. Same idiom as the
+                // generic installments engine.
                 $db->query('SELECT id FROM umrah_bookings WHERE id = :id FOR UPDATE', [':id' => (int) $ubId]);
+
+                // Synthesize the empty-txn key + the authoritative idempotency check
+                // INSIDE the lock (U-05): the settlement count and the $seen lookup are
+                // now serialized, so two concurrent empty-txn callbacks for the SAME
+                // payment can't both pass — the second blocks, re-reads the committed
+                // count, derives a different key OR matches the first's row, and the
+                // re-fire is treated as 'already' instead of double-crediting.
+                if ($txnId === '') {
+                    $prior = (int) $db->count('umrah_installments', [
+                        'umrah_booking_id'  => $ubId,
+                        'transaction_id[!]' => null,
+                    ]);
+                    $txnId = 'AUTO-' . $invoiceId . '-' . number_format((float) $amount, 2, '', '') . '-' . ($prior + 1);
+                }
+                $seenTx = $db->get('umrah_installments', 'id', ['umrah_booking_id' => $ubId, 'transaction_id' => $txnId]);
+                if ($seenTx) {
+                    $result = ['ok' => true, 'status' => 'already', 'confirmed' => ($ub['booking_status'] === 'confirmed'), 'price_locked' => !empty($ub['price_locked_at'])];
+                    return true; // commit (no-op) — duplicate settlement
+                }
                 // Allocate the payment across pending installments (in seq order).
                 $pending = $db->select('umrah_installments', '*', [
                     'umrah_booking_id' => $ubId,
@@ -1287,7 +1305,9 @@ if (!function_exists('umrah_settle_payment')) {
             return ['ok' => false, 'status' => 'error', 'message' => 'Settlement failed'];
         }
 
-        if (!empty($result['ok']) && function_exists('umrah_audit')) {
+        // Audit only a REAL settlement — a de-duplicated re-fire (status 'already',
+        // U-05 in-lock dedupe) must not write a misleading 'payment_settled' row.
+        if (!empty($result['ok']) && ($result['status'] ?? '') === 'settled' && function_exists('umrah_audit')) {
             umrah_audit($db, 'umrah_booking', $ub['booking_ref'], 'payment_settled', null,
                 ['amount' => $amount, 'txn' => $txnId, 'paid' => $result['amount_paid'] ?? null, 'confirmed' => $result['confirmed'] ?? null], $ub['user_id']);
         }

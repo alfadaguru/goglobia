@@ -1026,7 +1026,13 @@ $router->post(admin.'/umrah-manager/groups/review', function () use ($SECURE, $d
 // (refunds only). $_POST['outcomes'] = JSON {member_id: 'approved'|'rejected'}.
 $router->post(admin.'/umrah-manager/groups/visa', function () use ($SECURE, $db) {
     ADMIN_AUTH();
-    admin_require($db, 'bookings', 'edit');
+    // U-04: this route AUTO-REFUNDS non-approved pilgrims to the agent wallet
+    // (umrah_group_set_visa → wallet_refund), so it must require the dedicated
+    // bookings.refund permission — not the coarse bookings.edit — matching how the
+    // Booking Manager money actions (/verify, /retry-issue) are senior-gated. The
+    // refund amount is already server-derived + idempotent, so this only restricts
+    // WHO may trigger it, closing the "any bookings.edit employee can refund" gap.
+    admin_require($db, 'bookings', 'refund');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_group_set_visa')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
