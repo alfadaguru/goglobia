@@ -1157,6 +1157,31 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Reservation engine unavailable.'];
         header('Location: ' . $back); exit;
     }
+
+    // COMPULSORY ROOM ASSIGNMENT (owner rule): a walk-in MUST be assigned a physical
+    // room, so it always appears on the front-desk room board and can never become an
+    // invisible unassigned booking. The server is the authority (client `required` is
+    // not trusted). Validate the room belongs to THIS property, is active, assignable,
+    // and not already in use BEFORE creating the booking — so we never create a
+    // reservation we then can't assign.
+    $prid = (int) ($_POST['physical_room_id'] ?? 0);
+    if ($prid <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Pick a room number — every walk-in must be assigned a room.'];
+        header('Location: ' . $back); exit;
+    }
+    $physRoom = $db->get('stays_physical_rooms', ['id', 'hk_status'],
+        ['id' => $prid, 'stay_id' => $stayId, 'active' => 1]);
+    if (!$physRoom) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'That room is not available for this property. Pick another.'];
+        header('Location: ' . $back); exit;
+    }
+    $assignable = function_exists('hk_assignable_statuses') ? hk_assignable_statuses() : ['clean', 'inspected', 'vacant'];
+    $inUse = function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : [];
+    if (!in_array((string) ($physRoom['hk_status'] ?? ''), $assignable, true) || isset($inUse[$prid])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'That room is occupied or not ready. Pick an available room.'];
+        header('Location: ' . $back); exit;
+    }
+
     $res = resv_create_walkin($db, $stayId, [
         'room_id'    => (int) ($_POST['room_id'] ?? 0),
         'option_id'  => (int) ($_POST['option_id'] ?? 0),
@@ -1178,17 +1203,17 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         'customer_id' => (int) ($_POST['customer_id'] ?? 0),
     ]);
     $assignNote = '';
-    // "Reserve this room" from the front-desk board passes physical_room_id — assign the
-    // new booking to that physical room via the canonical helper (it validates the room is
-    // this property's, active, assignable + not in use; stores pms_physical_room_id). Best
-    // effort: a failed assignment never fails the reservation (the room can be assigned at
-    // check-in), it just notes it.
-    if (!empty($res['ok']) && !empty($res['invoice_id'])) {
-        $prid = (int) ($_POST['physical_room_id'] ?? 0);
-        if ($prid > 0 && function_exists('hk_assign_room_to_booking')) {
-            $assigned = hk_assign_room_to_booking($db, (string) $res['invoice_id'], $prid, $stayId);
-            $assignNote = $assigned ? ' Room assigned.' : ' (couldn’t pre-assign that room — assign it at check-in.)';
-        }
+    // Assign the booking to the (already-validated) physical room via the canonical
+    // helper — it re-checks the room is this property's, active, assignable + not in use,
+    // and stores pms_physical_room_id so the booking shows on the room board. $prid was
+    // validated above (compulsory), so the only way this fails now is a race (the room
+    // got taken between validation and here) — surface that honestly rather than claim a
+    // clean success; the operator can reassign a free room at check-in.
+    if (!empty($res['ok']) && !empty($res['invoice_id']) && function_exists('hk_assign_room_to_booking')) {
+        $assigned = hk_assign_room_to_booking($db, (string) $res['invoice_id'], $prid, $stayId);
+        $assignNote = $assigned
+            ? ' Room assigned.'
+            : ' — but that room was just taken; please assign another room from the booking.';
     }
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => ($res['message'] ?? 'Could not create the reservation.') . $assignNote];
     if (!empty($res['ok']) && !empty($res['invoice_id'])) {

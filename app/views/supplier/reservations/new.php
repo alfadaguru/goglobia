@@ -116,18 +116,22 @@
       </div>
     </div>
 
-    <?php // UX#1/#5: assign an actual ROOM NUMBER right here in the walk-in form — no need
-          // to go through Room status first. Lists the available physical rooms of the
-          // chosen type; the picked one is assigned so the booking shows on the board.
-          // Hidden when the room came pre-selected from the board (physical_room_id already
-          // set above). Optional — leave "Unassigned" to assign later. ?>
+    <?php // Assign an actual ROOM NUMBER right here in the walk-in form — REQUIRED (owner
+          // rule): every walk-in must be assigned a physical room so it appears on the
+          // front-desk room board and can never become an invisible, unassigned booking.
+          // Lists the available physical rooms of the chosen type. Hidden ONLY when the
+          // room came pre-selected from the board (physical_room_id already set above). ?>
     <?php if (!$presetRoom): ?>
     <div class="form-control">
-      <label class="block text-sm font-medium text-gray-700 mb-1">Assign room number <span class="text-gray-400">(optional)</span></label>
-      <select name="physical_room_id" id="physRoomSelect" class="input">
-        <option value="">Unassigned — pick a room type first…</option>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Assign room number <span class="text-rose-500">*</span></label>
+      <select name="physical_room_id" id="physRoomSelect" required class="input">
+        <option value="">Pick a room type first…</option>
       </select>
-      <p class="text-xs text-gray-400 mt-1">Pick the physical room so it shows as occupied on the front-desk board. You can also assign/move it later.</p>
+      <p class="text-xs text-gray-400 mt-1">Required — pick the physical room this guest will occupy so it shows on the front-desk board.</p>
+      <p id="physRoomEmpty" class="text-xs text-rose-600 mt-1 hidden">
+        No bookable room of this type exists yet.
+        <a href="<?= root ?>supplier/stays/<?= (int) $sid ?>/rooms" class="underline font-medium">Add rooms &amp; numbers first →</a>
+      </p>
     </div>
     <?php endif; ?>
 
@@ -201,7 +205,7 @@
 
     <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
       <a href="<?= root ?>supplier/reservations" class="btn secondary">Cancel</a>
-      <button type="submit" class="btn emerald">
+      <button type="submit" id="walkinSubmit" class="btn emerald">
         <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">add</span> Create reservation</span>
       </button>
     </div>
@@ -263,6 +267,8 @@
   var optSel = document.getElementById('optionSelect');
   var physSel = document.getElementById('physRoomSelect'); // absent when a room was preset
   if (!roomSel || !optSel) { return; }
+  var physEmptyMsg = document.getElementById('physRoomEmpty');
+  var submitBtn = document.getElementById('walkinSubmit');
   function fillPhys() {
     if (!physSel) { return; }
     var rid = roomSel.value;
@@ -270,7 +276,9 @@
     physSel.innerHTML = '';
     var first = document.createElement('option');
     first.value = '';
-    first.textContent = rooms.length ? 'Unassigned (assign a room number)' : 'No free room of this type — leave unassigned';
+    // REQUIRED: a room MUST be picked. When none are free, the select stays empty so the
+    // form's native `required` blocks submit, and we surface a link to go create rooms.
+    first.textContent = rooms.length ? 'Select a room number…' : 'No room available — add rooms first';
     physSel.appendChild(first);
     rooms.forEach(function (pr) {
       var o = document.createElement('option');
@@ -278,6 +286,17 @@
       o.textContent = pr.label;
       physSel.appendChild(o);
     });
+    // Show/hide the "add rooms first" hint. Keep the select ENABLED + required + empty so
+    // the browser's native validation ("please select an item") fires on submit — a
+    // disabled field is skipped by validation, which would let an empty submit through to
+    // the server. The submit button is also blocked below when no room is pickable.
+    if (physEmptyMsg) { physEmptyMsg.classList.toggle('hidden', rooms.length > 0 || rid === ''); }
+    if (submitBtn) {
+      var block = (rid !== '' && rooms.length === 0);
+      submitBtn.disabled = block;
+      submitBtn.classList.toggle('opacity-50', block);
+      submitBtn.classList.toggle('cursor-not-allowed', block);
+    }
   }
   function fill() {
     var rid = roomSel.value;
