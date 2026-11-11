@@ -93,11 +93,11 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             <div class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-300 mt-1">
                 <span class="material-symbols-outlined text-amber-600 text-[18px]">schedule</span>
                 <div>
-                    <p class="text-sm font-semibold text-amber-800"><?= T::on_hold_pay_by ?? 'On hold — pay to confirm' ?></p>
+                    <p class="text-sm font-semibold text-amber-800"><?= 'On hold — pay to confirm' ?></p>
                     <p class="text-xs text-amber-700 mt-0.5">
-                        <?= T::pay_before ?? 'Please pay before' ?>
+                        <?= 'Please pay before' ?>
                         <strong><?= date('d M Y, H:i', $__holdTs) ?></strong>
-                        <?= T::or_reservation_released ?? 'or the airline will release this reservation.' ?>
+                        <?= 'or the airline will release this reservation.' ?>
                     </p>
                 </div>
             </div>
@@ -128,16 +128,16 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             <div class="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 mt-1">
                 <span class="material-symbols-outlined text-blue-600 text-[18px]">flight_takeoff</span>
                 <div>
-                    <p class="text-sm font-semibold text-blue-800"><?= T::awaiting_confirmation ?? 'Awaiting airline confirmation' ?></p>
-                    <p class="text-xs text-blue-700 mt-0.5"><?= T::awaiting_confirmation_note ?? 'Your payment is complete. We are confirming your ticket with the airline and will email it to you shortly — no further action is needed.' ?></p>
+                    <p class="text-sm font-semibold text-blue-800"><?= 'Awaiting airline confirmation' ?></p>
+                    <p class="text-xs text-blue-700 mt-0.5"><?= 'Your payment is complete. We are confirming your ticket with the airline and will email it to you shortly — no further action is needed.' ?></p>
                 </div>
             </div>
             <?php elseif ($__payStatus === 'refunded'): ?>
             <div class="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 mt-1">
                 <span class="material-symbols-outlined text-blue-600 text-[18px]">account_balance_wallet</span>
                 <div>
-                    <p class="text-sm font-semibold text-blue-800"><?= T::payment_refunded ?? 'Payment refunded' ?></p>
-                    <p class="text-xs text-blue-700 mt-0.5"><?= T::payment_refunded_note ?? 'This booking could not be confirmed, so your payment has been refunded. Card refunds take 3–5 business days to appear; wallet refunds are instant.' ?></p>
+                    <p class="text-sm font-semibold text-blue-800"><?= 'Payment refunded' ?></p>
+                    <p class="text-xs text-blue-700 mt-0.5"><?= 'This booking could not be confirmed, so your payment has been refunded. Card refunds take 3–5 business days to appear; wallet refunds are instant.' ?></p>
                 </div>
             </div>
             <?php endif; ?>
@@ -766,16 +766,16 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             <div x-data="{ open: false }" class="relative">
                 <button type="button" @click="open = !open" class="btn light w-full flex items-center justify-start gap-2">
                     <span class="material-symbols-outlined text-[18px]">calendar_add_on</span>
-                    <?= T::add_to_calendar ?? 'Add to calendar' ?>
+                    Add to calendar
                 </button>
                 <div x-show="open" x-cloak @click.outside="open = false" class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                     <a href="<?= htmlspecialchars($__icsUrl) ?>" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
                         <span class="material-symbols-outlined text-[18px]">download</span>
-                        <?= T::apple_outlook_ics ?? 'Apple / Outlook (.ics)' ?>
+                        Apple / Outlook (.ics)
                     </a>
                     <a href="<?= htmlspecialchars($__gUrl) ?>" target="_blank" rel="noopener" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
                         <span class="material-symbols-outlined text-[18px]">event</span>
-                        <?= T::google_calendar ?? 'Google Calendar' ?>
+                        Google Calendar
                     </a>
                 </div>
             </div>
@@ -821,7 +821,7 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             <div class="rounded-lg bg-amber-50 border border-amber-200 p-3">
                 <div class="flex items-center gap-2 mb-2">
                     <span class="material-symbols-outlined text-amber-600 text-[18px]">pending_actions</span>
-                    <p class="text-sm font-semibold text-amber-800"><?= T::cancellation_status ?? 'Cancellation status' ?></p>
+                    <p class="text-sm font-semibold text-amber-800"><?= 'Cancellation status' ?></p>
                 </div>
                 <ol class="space-y-1.5 text-xs">
                     <li class="flex items-center gap-2 text-gray-700">
@@ -830,16 +830,16 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                     </li>
                     <li class="flex items-center gap-2 <?= $__cancReviewed ? 'text-gray-700' : 'text-gray-400' ?>">
                         <span class="material-symbols-outlined text-[16px] <?= $__cancReviewed ? 'text-green-600' : 'text-gray-300' ?>"><?= $__cancReviewed ? 'check_circle' : 'radio_button_unchecked' ?></span>
-                        <?= T::reviewed_by_our_team ?? 'Reviewed by our team' ?>
+                        <?= 'Reviewed by our team' ?>
                     </li>
                     <li class="flex items-center gap-2 <?= $__isRefunded ? 'text-gray-700' : 'text-gray-400' ?>">
                         <span class="material-symbols-outlined text-[16px] <?= $__isRefunded ? 'text-green-600' : 'text-gray-300' ?>"><?= $__isRefunded ? 'check_circle' : 'radio_button_unchecked' ?></span>
-                        <?= T::refund_processed ?? 'Refund processed (if eligible)' ?>
+                        <?= 'Refund processed (if eligible)' ?>
                     </li>
                 </ol>
                 <?php if ($__cancResponse !== ''): ?>
                 <div class="mt-2 pt-2 border-t border-amber-200">
-                    <p class="text-[11px] font-medium text-amber-800 mb-0.5"><?= T::response_from_our_team ?? 'Response from our team' ?>:</p>
+                    <p class="text-[11px] font-medium text-amber-800 mb-0.5"><?= 'Response from our team' ?>:</p>
                     <p class="text-xs text-gray-700"><?= nl2br(htmlspecialchars($__cancResponse)) ?></p>
                 </div>
                 <?php endif; ?>

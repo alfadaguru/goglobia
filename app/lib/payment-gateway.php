@@ -64,7 +64,7 @@ function pg_confirms_on_payment_module($module): bool
     // NOTE: scoped to the own-inventory module NAME, not module_type='insurance', so
     // a future real insurance supplier (travelsure) with its own issue.php still
     // auto-issues normally.
-    return in_array(strtolower((string) $module), ['flight', 'flights', 'visas', 'goglobia'], true);
+    return in_array(strtolower((string) $module), ['flight', 'flights', 'visa', 'visas', 'goglobia'], true);
 }
 
 /**
