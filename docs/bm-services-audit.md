@@ -198,4 +198,55 @@ an **off-system umrah as a branded voucher** — manual-only by design.
 
 ---
 
-_(Next: Bus — manual-only.)_
+## 8. BUS (manual-only) — AUDITED (no change)
+
+### Manual-only containment — VERIFIED
+- Catalogue `bus => live:false` (`:107`) + server mode-forcing (`:306–308`). **No bus issue endpoint exists** (`bm_module_has_issue_endpoint('bus',*) = N`; `modules/bus/` has no `issue.php`) → bus can't go live even with a crafted POST. ✅
+
+### Manual path — SOUND
+- **Form** (`manager.php:628–639`): service name, operator, from (origin), to (destination), travel date, bus type/class, departure time, arrival time, optional reference.
+- **Builder** (`bookingManagerRoutes.php:1155–1169`): reads those into a `trip.*` voucher shape (+ top-level `date`). It also sets `trip.seat_class` (empty — no form input), which is **intentional**: the bus invoice reads `trip.seat_class`. **OK — 1:1 + the extra key is template-expected.**
+- **Voucher renders cleanly:** the bus invoice (`app/views/modules/bus/invoice/index.php`) reads every trip field **null-safely** (`$t['service_name'] ?? ''`, etc.; img falls back to `no_img.jpg`; date comes from `$booking['booking_date']`, not `trip.date_display`). So the fields the BM builder doesn't set (`img/duration/seats_available/date_display`) just render empty — nothing breaks. ✅
+
+**BUS verdict: SOUND — no change.** Manual-only on both UI + backend; form↔builder 1:1; the `trip.*` voucher shape matches the bus ticket template, which tolerates the optional keys the BM omits.
+
+---
+
+## 9. INSURANCE (manual-only) — AUDITED (no change) — FINAL SERVICE
+
+### Manual-only containment — VERIFIED
+- Catalogue `insurance => live:false` (`:113`) + server mode-forcing (`:306–308`).
+- A `modules/insurance/travelsure/issue.php` DOES exist, **but it's unreachable from the BM**: the gate checks `modules/insurance/insurance|manual/issue.php` (neither exists → `has_issue=N`), and with `live:false` the BM never selects a supplier → `$moduleName='manual'` always → `bm_fire_supplier_issue` targets `modules/insurance/manual/issue` (absent, no call). So travelsure can't be triggered via the BM. ✅
+
+### Manual path — SOUND (credential-guarded, defense in depth)
+- **Form** (`manager.php:664–681`): plan name, provider, coverage area, coverage summary, trip start/end, travellers count, **Policy number (required `*`, red-border when empty)** + explanatory note. Plus the shared MIME-guarded file-attach (`:683–684`).
+- **Guard (both layers):** client (`manager.php:1612`) AND server (`bookingManagerRoutes.php:690–694`) reject a manual insurance policy with no policy number (falls back to `reference`). **Fail-closed, defense in depth** — mirrors the eSIM credential guard. ✅
+- **Builder** (`bookingManagerRoutes.php:1206–1222`): reads all 8 form fields 1:1 into the voucher. **OK.**
+
+### Voucher rendering — VALID (not orphaned)
+- Dedicated route `GET /invoice/insurance/{id}` (`app/routes/insurance/invoiceRoutes.php:51`) with the standard **IDOR guard** (`enforceInvoiceAccess`, `:67`) + payment-callback handling, rendering via the **shared `includes/invoice/summary.php`** (`:104`).
+- The shared summary renders from `price_markup` + customer + invoice_id (always set by the BM INSERT), so a BM insurance booking produces a **valid invoice** (amount, customer, number). The persisted plan_name/policy_number are available; surfacing them is cosmetic, not a correctness gap. **Not blank, not orphaned.** ✅
+
+**INSURANCE verdict: SOUND — no change.** Manual-only on both layers (travelsure unreachable via BM); policy-number credential guard on client + server; form↔builder 1:1; valid IDOR-guarded invoice via the shared summary.
+
+---
+
+## SUMMARY — all 11 BM services audited (one at a time)
+
+| # | Service | Mode | Verdict | Change this pass |
+|---|---|---|---|---|
+| — | flights | live+manual | SOUND after fixes | (earlier) H1 googleflights, M1 passport, M2 verify-amount + rich card |
+| — | hotels/stays | live+manual | SOUND after fixes | (earlier) rich card, sort, multi-room + child-ages |
+| 1 | tours | live+manual | SOUND | — (1 can't-verify: toursbms confirm-back) |
+| 2 | cars | live+manual | SOUND after fix | **mozio false-block** (dispatcher) fixed |
+| 3 | rail | live+manual | SOUND (strongest money path) | stale manual banner fixed |
+| 4 | ferries | manual (live contained) | **HIGH contained** | live paid-but-unissuable → manual-only + guard |
+| 5 | esim | live+manual | SOUND (best price-trust) | — |
+| 6 | umrah | manual | SOUND | — (no v2 collision) |
+| 7 | visa | manual | SOUND after fix | **applicant passport+nationality** wired |
+| 8 | bus | manual | SOUND | — |
+| 9 | insurance | manual | SOUND | — |
+
+**Real defects found + fixed this pass:** mozio false-block (cars) · ferries paid-but-unissuable (contained) · visa applicant passport/nationality (form gap). **Plus** 1 stale-copy fix (rail) and 1 can't-verify flagged honestly (toursbms), not asserted. Every service's live-vs-manual gating is correct; every manual builder matches its form 1:1; the live handle/stub guards hold across all suppliers. **Nothing faked, nothing hidden.**
+
+Commit trail: 98de082 (cars) · 9d430c1 (rail) · 989b9eb (ferries) · a09daad (esim) · 7e3e6cc (umrah) · 16549f6 (visa) · 907ce93 (bus) · +insurance.
