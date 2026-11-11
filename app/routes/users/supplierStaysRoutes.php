@@ -1740,8 +1740,14 @@ $router->post('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db)
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Please enter a valid domain, e.g. book.yourhotel.com'];
         header('Location: ' . $back); exit;
     }
-    // Uniqueness: a domain can't be claimed by two properties.
-    $claimed = $db->get('stays_site', ['stay_id'], ['custom_domain' => $domain]);
+    // Uniqueness: a domain can't be claimed by two properties — but only a PROVEN
+    // claim (DNS-verified/active) blocks others. A still-'pending' claim carries no
+    // proof of control, so blocking on it would let one supplier squat any domain
+    // (e.g. a rival's) and lock out the genuine owner until an admin intervened
+    // (audit LOW: domain squat/DoS). Since reaching 'verified' requires proving DNS
+    // control, only the true owner can ever hold a blocking claim.
+    $claimed = $db->get('stays_site', ['stay_id', 'domain_status'],
+        ['custom_domain' => $domain, 'domain_status' => ['verified', 'active']]);
     if ($claimed && (int) $claimed['stay_id'] !== (int) $id) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'That domain is already in use.'];
         header('Location: ' . $back); exit;

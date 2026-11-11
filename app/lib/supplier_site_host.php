@@ -182,6 +182,19 @@ if (!function_exists('supplier_site_verify_domain')) {
         }
 
         if ($txtOk && $pointOk) {
+            // Promotion-time uniqueness: never let a domain already PROVEN (verified/active)
+            // by another property be verified a second time (a stale pending claim must not
+            // collide with the live owner). The save-time check only blocks on proven
+            // claims; this backstops it at the moment of promotion.
+            try {
+                $conflict = $db->get('stays_site', ['stay_id'],
+                    ['custom_domain' => $domain, 'domain_status' => ['verified', 'active'],
+                     'stay_id[!]' => $stayId]);
+                if ($conflict) {
+                    return ['ok' => false, 'status' => (string) $site['domain_status'],
+                        'message' => 'That domain is already verified on another property.'];
+                }
+            } catch (\Throwable $e) { error_log('supplier_site_verify_domain conflict check: ' . $e->getMessage()); }
             try {
                 $db->update('stays_site', ['domain_status' => 'verified', 'updated_at' => date('Y-m-d H:i:s')], ['stay_id' => $stayId]);
             } catch (\Throwable $e) { error_log('supplier_site_verify_domain update: ' . $e->getMessage()); }

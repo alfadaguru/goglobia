@@ -435,8 +435,27 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
             exit;
         }
 
-        if ($user['status'] !== 'active' || $user['banned']) {
-            $_SESSION['login_error'] = 'invalid';
+        // Status / ban gate — mirror establish_login_session() so quick-login admits
+        // a PENDING supplier (they may log in to see their area + request services;
+        // consequential writes are still blocked by supplier_can). Previously this
+        // rejected pending suppliers with 'invalid' while the normal form let them in
+        // (audit LOW: inconsistent lockout).
+        $pendingSupplierOk = (($user['role'] ?? '') === 'supplier' && $user['status'] === 'pending');
+        if ($user['status'] !== 'active' && !$pendingSupplierOk) {
+            if (($user['role'] ?? '') === 'supplier' && $user['status'] === 'rejected') {
+                $_SESSION['login_error'] = 'supplier_rejected';
+                $_SESSION['supplier_rejected_reason'] = (string) ($user['supplier_rejected_reason'] ?? '');
+            } else {
+                $_SESSION['login_error'] = 'invalid';
+            }
+            header('Location: ' . $redirectTo);
+            exit;
+        }
+        if ($pendingSupplierOk) {
+            $_SESSION['supplier_approval_pending'] = true;
+        }
+        if (!empty($user['banned'])) {
+            $_SESSION['login_error'] = 'banned';
             header('Location: ' . $redirectTo);
             exit;
         }
