@@ -948,8 +948,34 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         $draftData = json_decode($draft['data'], true);
         $flightData = $draftData['flight_data'] ?? [];
         
-        // Extract supplier name from flight data
-        $supplierName = $flightData['supplier'] ?? 'flights';
+        // Extract supplier name from flight data.
+        // HARDENING (2026-11-11): search.php stamps the supplier in TWO places on
+        // every live offer — flight_data.supplier AND flight_data.booking_data.supplier
+        // (e.g. adivaha/search.php:419,430). If the top-level one is ever missing we
+        // RECOVER from the nested copy (or a segment's) before defaulting. Defaulting
+        // straight to 'flights' is NOT harmless: 'flights' is the own-inventory module
+        // and is confirm-on-payment (pg_confirms_on_payment_module), so a real
+        // supplier booking that lost its handle would be marked CONFIRMED without ever
+        // issuing the ticket (charged, no ticket). Only fall back to own-inventory
+        // 'flights' when NO supplier signal exists anywhere.
+        $supplierName = trim((string) ($flightData['supplier'] ?? ''));
+        if ($supplierName === '') {
+            // 2nd source: the offer's own booking_data block.
+            $__bdSup = is_array($flightData['booking_data'] ?? null)
+                ? trim((string) ($flightData['booking_data']['supplier'] ?? '')) : '';
+            // 3rd source: the first segment's booking_data block (round-trip/2x).
+            if ($__bdSup === '' && !empty($flightData['segments'][0]) && is_array($flightData['segments'][0])) {
+                $__seg0 = $flightData['segments'][0];
+                $__segBd = is_array($__seg0['booking_data'] ?? null) ? $__seg0['booking_data'] : [];
+                $__bdSup = trim((string) ($__segBd['supplier'] ?? ($__seg0['supplier'] ?? '')));
+            }
+            if ($__bdSup !== '') {
+                $supplierName = $__bdSup;
+                error_log('flight submit: top-level supplier empty — recovered "' . $supplierName . '" from booking_data for draft ' . ($input['booking_hash'] ?? '?'));
+            } else {
+                $supplierName = 'flights'; // genuine own-inventory (no supplier anywhere).
+            }
+        }
 
         // Extract form data (guest_details contains the entire formData object)
         $formData = $input['guest_details'] ?? [];
