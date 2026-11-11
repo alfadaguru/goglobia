@@ -484,24 +484,10 @@ $router->get(admin.'/promo-codes/search-items', function () use ($SECURE,$db) {
                 break;
                 
             case 'umrah':
-                $where = ['LIMIT' => 20];
-                if (!empty($search)) {
-                    $where['OR'] = [
-                        'name[~]' => $search,
-                        'location[~]' => $search
-                    ];
-                }
-                $items = $db->select('umrah', ['id', 'name', 'location', 'days', 'nights'], $where);
-                foreach ($items as $item) {
-                    $duration = '';
-                    if ($item['days']) $duration = $item['days'] . 'D';
-                    if ($item['nights']) $duration .= '/' . $item['nights'] . 'N';
-                    $results[] = [
-                        'id' => $item['id'],
-                        'text' => $item['name'],
-                        'extra' => trim(($item['location'] ?? '') . ($duration ? ' · ' . $duration : ''))
-                    ];
-                }
+                // v1→v2: umrah item-level promo targeting is retired (the legacy
+                // `umrah` product table is removed). Umrah discounts are applied via
+                // a whole-module (module='umrah'/'all') promo, which the v2 checkout
+                // honours without any per-item picker. Return no items.
                 break;
             case 'esim':
                 $where = ['status' => 1, 'LIMIT' => 20];
@@ -605,10 +591,7 @@ $router->get(admin.'/promo-codes/get-items', function () use ($SECURE,$db) {
                 }
                 break;
             case 'umrah':
-                $items = $db->select('umrah', ['id', 'name', 'location'], ['id' => $ids]);
-                foreach ($items as $item) {
-                    $results[] = ['id' => $item['id'], 'text' => $item['name'], 'extra' => $item['location'] ?? ''];
-                }
+                // v1→v2: umrah item-level promo targeting retired (legacy table gone).
                 break;
             case 'esim':
                 $items = $db->select('airalo_countries', ['id', 'nicename', 'iso'], ['id' => $ids]);

@@ -580,8 +580,9 @@ function promoFormData() {
                                     <?php if (in_array('ferries', $module_types)): ?>
                                         <option value="ferries" <?= ($promo['module'] ?? '') === 'ferries' ? 'selected' : '' ?>><?= T::ferries ?? 'Ferries' ?></option>
                                     <?php endif; ?>
-                                    <?php if (in_array('umrah',   $module_types)): ?>
-                                        <option value="umrah"   <?= ($promo['module'] ?? '') === 'umrah'   ? 'selected' : '' ?>><?= T::umrah   ?? 'Umrah' ?></option>
+                                    <?php /* v1→v2: umrah dropped from promo targeting (legacy `umrah` product table retired). Umrah bookings are still covered by a module='all' promo; this only removes umrah as a per-service promo target. Keep the option visible ONLY if an existing promo is already scoped to umrah, so it can still be viewed/edited, never newly selected. */ ?>
+                                    <?php if (($promo['module'] ?? '') === 'umrah'): ?>
+                                        <option value="umrah" selected><?= T::umrah ?? 'Umrah' ?> (legacy)</option>
                                     <?php endif; ?>
                                     <?php if (in_array('rail',    $module_types)): ?>
                                         <option value="rail"    <?= ($promo['module'] ?? '') === 'rail'    ? 'selected' : '' ?>><?= T::rail    ?? 'Rail' ?></option>

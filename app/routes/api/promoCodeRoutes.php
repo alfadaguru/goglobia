@@ -116,11 +116,9 @@ $router->post('/api/promo/validate', function () use ($SECURE, $db) {
                                     }
                                     break;
                                 case 'umrah':
-                                    $item = $db->get('umrah', ['location'], ['id' => $itemId]);
-                                    if ($item && !empty($item['location'])) {
-                                        $loc = $db->get('locations', 'id', ['city[~]' => $item['location']]);
-                                        if ($loc) $resolvedLocationId = intval($loc);
-                                    }
+                                    // v1→v2: umrah item-level promo targeting retired
+                                    // (legacy `umrah` table removed). Whole-module umrah
+                                    // promos need no per-item location resolution.
                                     break;
                             }
                         }
