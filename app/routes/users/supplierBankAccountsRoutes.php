@@ -21,6 +21,24 @@ if (!function_exists('_supplier_bank_owner')) {
     }
 }
 
+if (!function_exists('_supplier_bank_owner_active')) {
+    /** Like _supplier_bank_owner, but ALSO requires the owner's account to be ACTIVE
+     *  (approved). A still-pending (unapproved) supplier can log in and see this area,
+     *  but must not register/change payout destinations until an admin approves them —
+     *  this mirrors supplier_can()'s pending-owner write-lock, which these bank routes
+     *  bypass because they gate on is_owner only (audit MED-4). Returns null when
+     *  pending/not-an-owner. Read-only list endpoints keep the plain owner check. */
+    function _supplier_bank_owner_active($db): ?string
+    {
+        $ctx = supplier_acting_context($db);
+        if ($ctx === null || !empty($ctx['is_admin'])) { return null; }
+        if (empty($ctx['is_owner'])) { return null; }
+        // owner_active is only set for a supplier owner; false ⇒ not yet approved.
+        if (array_key_exists('owner_active', $ctx) && $ctx['owner_active'] === false) { return null; }
+        return (string) $ctx['owner'];
+    }
+}
+
 // ----------------------------------------------------------------------------
 // GET /supplier/bank-accounts — list accounts + add form
 // ----------------------------------------------------------------------------
@@ -53,8 +71,8 @@ $router->get('/supplier/bank-accounts/banks', function () use ($SECURE, $db) {
 $router->post('/supplier/bank-accounts/resolve', function () use ($SECURE, $db) {
     SUPPLIER_AUTH();
     header('Content-Type: application/json');
-    $owner = _supplier_bank_owner($db);
-    if ($owner === null) { echo json_encode(['ok' => false, 'message' => 'Not allowed']); exit; }
+    $owner = _supplier_bank_owner_active($db);
+    if ($owner === null) { echo json_encode(['ok' => false, 'message' => 'Your account must be approved before you can add payout accounts.']); exit; }
     if (!CSRF::validateToken(CSRF::tokenFromRequest())) {
         echo json_encode(['ok' => false, 'message' => 'Invalid request token.']); exit;
     }
@@ -86,9 +104,12 @@ $router->post('/supplier/bank-accounts/resolve', function () use ($SECURE, $db) 
 $router->post('/supplier/bank-accounts/add', function () use ($SECURE, $db) {
     SUPPLIER_AUTH();
     CSRF::guard();
-    $owner = _supplier_bank_owner($db);
+    $owner = _supplier_bank_owner_active($db);
     $back = root . 'supplier/bank-accounts';
-    if ($owner === null) { header('Location: ' . root . 'supplier/dashboard'); exit; }
+    if ($owner === null) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Your account must be approved before you can add payout accounts.'];
+        header('Location: ' . root . 'supplier/dashboard'); exit;
+    }
 
     $res = function_exists('supplier_bank_account_add')
         ? supplier_bank_account_add($db, $owner, [
@@ -113,7 +134,7 @@ $router->post('/supplier/bank-accounts/add', function () use ($SECURE, $db) {
 $router->post('/supplier/bank-accounts/default', function () use ($SECURE, $db) {
     SUPPLIER_AUTH();
     CSRF::guard();
-    $owner = _supplier_bank_owner($db);
+    $owner = _supplier_bank_owner_active($db);
     $back = root . 'supplier/bank-accounts';
     if ($owner === null) { header('Location: ' . root . 'supplier/dashboard'); exit; }
     $id = (int) ($_POST['id'] ?? 0);
@@ -129,7 +150,7 @@ $router->post('/supplier/bank-accounts/default', function () use ($SECURE, $db) 
 $router->post('/supplier/bank-accounts/remove', function () use ($SECURE, $db) {
     SUPPLIER_AUTH();
     CSRF::guard();
-    $owner = _supplier_bank_owner($db);
+    $owner = _supplier_bank_owner_active($db);
     $back = root . 'supplier/bank-accounts';
     if ($owner === null) { header('Location: ' . root . 'supplier/dashboard'); exit; }
     $id = (int) ($_POST['id'] ?? 0);
