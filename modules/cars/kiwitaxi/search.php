@@ -220,8 +220,8 @@ $router->post('cars/kiwitaxi/search', function() use ($db) {
             CURLOPT_HTTPHEADER     => ['Accept: application/json', 'Accept-Language: en-US,en;q=0.9'],
             CURLOPT_TIMEOUT => $requestTimeout,
             CURLOPT_CONNECTTIMEOUT => $connectTimeout,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,  // F-05: verify TLS (kiwitaxi.com is HTTPS)
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
         ]);

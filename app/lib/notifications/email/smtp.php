@@ -122,11 +122,21 @@ class SmtpProvider {
 
             // LOG: Connection attempt
 
+            // TLS verification (F-05): SMTP AUTH sends the username/password in
+            // base64 right after the handshake, so an unverified TLS session lets a
+            // MITM capture the SMTP credentials. Verify the server certificate by
+            // default (works for Gmail/SES/Mailgun/SendGrid and any correctly-
+            // configured host). Operators whose relay uses a self-signed cert can
+            // opt out by setting the SMTP config flag `insecure_tls` (or
+            // `allow_self_signed`) — otherwise verification is enforced.
+            $insecureTls = !empty($this->config['insecure_tls']) || !empty($this->config['allow_self_signed']);
             $context = stream_context_create([
                 'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                    'allow_self_signed' => true,
+                    'verify_peer'       => !$insecureTls,
+                    'verify_peer_name'  => !$insecureTls,
+                    'allow_self_signed' => $insecureTls,
+                    'peer_name'         => $smtp_host, // SNI / hostname match
+                    'SNI_enabled'       => true,
                 ]
             ]);
 
@@ -316,11 +326,18 @@ class SmtpProvider {
                 $use_starttls = ($security === 'tls');
             }
 
+            // TLS verification (F-05): verify the SMTP server cert by default so the
+            // credentials sent during AUTH cannot be captured by a MITM. Opt-out via
+            // the SMTP config flag `insecure_tls`/`allow_self_signed` for self-signed
+            // relays. (Mirrors the primary send path above.)
+            $insecureTls = !empty($this->config['insecure_tls']) || !empty($this->config['allow_self_signed']);
             $context = stream_context_create([
                 'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                    'allow_self_signed' => true,
+                    'verify_peer'       => !$insecureTls,
+                    'verify_peer_name'  => !$insecureTls,
+                    'allow_self_signed' => $insecureTls,
+                    'peer_name'         => $smtp_host,
+                    'SNI_enabled'       => true,
                 ]
             ]);
 

@@ -177,7 +177,7 @@ function processCredentials() {
         // Parse XML response
         if ($http_code === 200) {
             // Parse XML response
-            $xml = @simplexml_load_string($api_response);
+            $xml = @simplexml_load_string($api_response, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
             if ($xml === false) {
                 $response['debug']['validation_steps'][] = '[ERROR] Failed to parse XML response';

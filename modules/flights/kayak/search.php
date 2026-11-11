@@ -212,7 +212,7 @@ $router->post('flights/kayak/search', function() use ($db) {
                 'User-Agent: kayakaffiliateapp',
                 'x-original-client-ip: ' . ($_SERVER['REMOTE_ADDR'] ?? '8.8.8.8')
             ],
-            CURLOPT_SSL_VERIFYPEER => false
+            CURLOPT_SSL_VERIFYPEER => true  // F-05: verify TLS (kayakaffiliates.com is HTTPS)
         ]);
 
         $result   = curl_exec($ch);
@@ -276,7 +276,7 @@ $router->post('flights/kayak/search', function() use ($db) {
                     'User-Agent: kayakaffiliateapp',
                     'x-original-client-ip: ' . ($_SERVER['REMOTE_ADDR'] ?? '8.8.8.8')
                 ],
-                CURLOPT_SSL_VERIFYPEER => false
+                CURLOPT_SSL_VERIFYPEER => true  // F-05: verify TLS (kayakaffiliates.com is HTTPS)
             ]);
 
             $result       = curl_exec($ch);

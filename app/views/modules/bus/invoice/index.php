@@ -204,6 +204,18 @@ function processPayment() {
     form.method = 'POST';
     form.action = '<?= root ?>payment/process';
 
+    // CSRF (F-04): /payment/process requires a token. This form is submitted via
+    // form.submit(), which bypasses the global submit interceptor, so attach the
+    // page token (published in <meta name="csrf-token">) explicitly.
+    var __csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    if (__csrfMeta && __csrfMeta.content) {
+        var csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrf_token';
+        csrfInput.value = __csrfMeta.content;
+        form.appendChild(csrfInput);
+    }
+
     const invoiceInput = document.createElement('input');
     invoiceInput.type = 'hidden';
     invoiceInput.name = 'invoice_id';

@@ -365,7 +365,7 @@ $router->post('stays/travelport/details', function() use ($db) {
 
         if ($mediaHttpCode !== 200 && !empty($mediaResponse)) {
             libxml_use_internal_errors(true);
-            $mediaFaultXml = simplexml_load_string($mediaResponse);
+            $mediaFaultXml = simplexml_load_string($mediaResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
             if ($mediaFaultXml !== false) {
                 $mediaFaultXml->registerXPathNamespace('soap', 'http://schemas.xmlsoap.org/soap/envelope/');
                 $mediaFaultXml->registerXPathNamespace('SOAP', 'http://schemas.xmlsoap.org/soap/envelope/');
@@ -384,7 +384,7 @@ $router->post('stays/travelport/details', function() use ($db) {
         // PARSE DETAILS RESPONSE
         // ========================================
         libxml_use_internal_errors(true);
-        $xml = simplexml_load_string($detailsResponse);
+        $xml = simplexml_load_string($detailsResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
         
         if ($xml === false) {
             throw new Exception('Invalid XML response');
@@ -622,7 +622,7 @@ $router->post('stays/travelport/details', function() use ($db) {
         $maxImages = 30;
         
         if ($mediaHttpCode === 200 && $mediaResponse) {
-            $mediaXml = simplexml_load_string($mediaResponse);
+            $mediaXml = simplexml_load_string($mediaResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
             if ($mediaXml !== false) {
                 $mediaXml->registerXPathNamespace('com', 'http://www.travelport.com/schema/common_v52_0');
                 

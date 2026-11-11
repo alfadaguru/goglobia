@@ -388,8 +388,11 @@ $router->post('stays/agoda/search', function() use ($db) {
 
     if (!empty($apiKey) && !empty($apiSecret) && !empty($paginatedHotelIds)) {
         
-        $baseUrl = 'http://affiliateapi7643.agoda.com/affiliateservice/lt_v1';
-        
+        // TLS (F-05): use HTTPS so the Authorization header (apiKey:apiSecret) is not
+        // sent in cleartext. The same Agoda affiliate host serves HTTPS; cURL verifies
+        // the certificate by default (no VERIFYPEER=false here), preventing MITM.
+        $baseUrl = 'https://affiliateapi7643.agoda.com/affiliateservice/lt_v1';
+
         $price_from = !empty($_POST['price_from']) ? (int)$_POST['price_from'] : 20;
         $price_to = !empty($_POST['price_to']) ? (int)$_POST['price_to'] : 10000;
 

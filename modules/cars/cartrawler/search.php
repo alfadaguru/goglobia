@@ -406,7 +406,7 @@ $router->post('cars/cartrawler/search', function() use ($db) {
         // ========================================
         if ($httpCode === 200 && !empty($apiResponse)) {
             try {
-                $xml = simplexml_load_string($apiResponse);
+                $xml = simplexml_load_string($apiResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
                 
                 if ($xml === false) {
                     error_log('CarTrawler: Failed to parse XML response');

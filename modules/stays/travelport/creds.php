@@ -191,7 +191,7 @@ $router->post('stays/travelport/creds', function() {
         // Parse XML response
         if ($http_code === 200) {
             libxml_use_internal_errors(true);
-            $xml = simplexml_load_string($api_response);
+            $xml = simplexml_load_string($api_response, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
             if ($xml === false) {
                 $response['debug']['validation_steps'][] = '[ERROR] Failed to parse XML response';

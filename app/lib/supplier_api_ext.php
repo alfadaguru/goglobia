@@ -63,8 +63,9 @@ if (!function_exists('supplier_webhook_secret_gen')) {
     /** A fresh signing secret the supplier uses to verify our HMAC-SHA256 signature. */
     function supplier_webhook_secret_gen(): string
     {
-        try { return 'whsec_' . bin2hex(random_bytes(24)); }
-        catch (\Throwable $e) { return 'whsec_' . bin2hex(hash('sha256', uniqid('', true) . mt_rand(), true)); }
+        // F-06: CSPRNG only. No predictable mt_rand()/uniqid() fallback — a guessable
+        // signing secret lets a supplier-side attacker forge our webhook signatures.
+        return 'whsec_' . bin2hex(random_bytes(32));
     }
 }
 

@@ -431,19 +431,45 @@ if (($_POST['action'] ?? '') === 'install') {
             ?? $_SERVER['REMOTE_ADDR']
             ?? '0.0.0.0';
 
-        // 1) Optional IP allow-list.
+        // Read the operator's update guards from .env once.
         $envFileUpd = UPD_ROOT . '/.env';
         $allowIps = '';
+        $updSecret = '';
         if (is_file($envFileUpd)) {
             $envU = @parse_ini_file($envFileUpd);
-            $allowIps = is_array($envU) ? trim((string)($envU['UPDATES_ALLOWED_IPS'] ?? '')) : '';
+            if (is_array($envU)) {
+                $allowIps  = trim((string)($envU['UPDATES_ALLOWED_IPS'] ?? ''));
+                $updSecret = trim((string)($envU['UPDATES_SECRET'] ?? ''));
+            }
         }
+
+        // 1) Optional IP allow-list.
+        $ipAllowed = true;
         if ($allowIps !== '') {
             $list = array_filter(array_map('trim', explode(',', $allowIps)));
-            if (!in_array($clientIp, $list, true)) {
+            $ipAllowed = in_array($clientIp, $list, true);
+        }
+
+        // 1b) SECURITY (F-07): shared-secret gate. This installer is bootstrap-
+        // independent (it must run even when the app fatals), so it cannot use the
+        // normal admin session. When the operator sets UPDATES_SECRET in .env, an
+        // install MUST present it (POST `secret` field or X-Updates-Secret header),
+        // compared constant-time. Set UPDATES_SECRET (and/or UPDATES_ALLOWED_IPS) in
+        // production to stop an anonymous visitor from force-advancing updates /
+        // triggering file deletions + migrations. With neither configured, behaviour
+        // is unchanged (back-compat) but the gap is logged.
+        $providedSecret = (string)($_POST['secret'] ?? $_SERVER['HTTP_X_UPDATES_SECRET'] ?? '');
+        $secretOk = ($updSecret === '') ? null : hash_equals($updSecret, $providedSecret);
+
+        if ($allowIps !== '' || $updSecret !== '') {
+            // At least one guard is configured → require it to pass.
+            $pass = ($allowIps !== '' && $ipAllowed) || ($updSecret !== '' && $secretOk === true);
+            if (!$pass) {
                 http_response_code(403);
-                upd_json(['success' => false, 'message' => 'Updates are restricted to authorised IP addresses.']);
+                upd_json(['success' => false, 'message' => 'Updates are restricted. Provide an authorised IP or the update secret.']);
             }
+        } else {
+            error_log('SECURITY (F-07): /updates install invoked with NO UPDATES_SECRET or UPDATES_ALLOWED_IPS configured — set one in .env to restrict who can trigger updates. clientIp=' . $clientIp);
         }
 
         // 2) Rate limit: max 5 install requests per 60s per IP, and 15 global.

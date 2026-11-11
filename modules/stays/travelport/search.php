@@ -450,7 +450,7 @@ $router->post('stays/travelport/search', function() use ($db) {
         // ========================================================================
         function parseHotelDetails($xmlString, $hotelCode = '') {
             libxml_use_internal_errors(true);
-            $xml = simplexml_load_string($xmlString);
+            $xml = simplexml_load_string($xmlString, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
             if ($xml === false) {
                 error_log("Failed to parse details XML for {$hotelCode}");
@@ -631,7 +631,7 @@ $router->post('stays/travelport/search', function() use ($db) {
         // ========================================================================
         function parseHotelMedia($xmlString, $hotelCode = '') {
             libxml_use_internal_errors(true);
-            $xml = simplexml_load_string($xmlString);
+            $xml = simplexml_load_string($xmlString, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
             if ($xml === false) {
                 error_log("Failed to parse media XML for {$hotelCode}");
@@ -689,7 +689,7 @@ $router->post('stays/travelport/search', function() use ($db) {
             );
 
             libxml_use_internal_errors(true);
-            $xml = simplexml_load_string($apiResponse);
+            $xml = simplexml_load_string($apiResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
             if ($xml === false) {
                 throw new Exception('Invalid XML response');

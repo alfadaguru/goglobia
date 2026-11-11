@@ -102,7 +102,7 @@ class Amazon_SESProvider {
             throw new Exception("cURL Error: " . $curlError);
         }
 
-        $xml = simplexml_load_string($response);
+        $xml = simplexml_load_string($response, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
         if ($httpCode === 200 && isset($xml->SendEmailResult->MessageId)) {
             return [
@@ -189,7 +189,7 @@ class Amazon_SESProvider {
                 throw new Exception("Connection failed: " . $curlError);
             }
 
-            $xml = simplexml_load_string($response);
+            $xml = simplexml_load_string($response, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
             if ($httpCode === 200 && isset($xml->GetSendQuotaResult)) {
                 return [

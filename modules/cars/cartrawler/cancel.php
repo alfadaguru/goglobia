@@ -94,7 +94,7 @@ $router->post('cars/cartrawler/cancel', function() use ($db) {
         $error_message = '';
 
         if ($httpCode === 200 && !empty($apiResponse)) {
-            $xml = simplexml_load_string($apiResponse);
+            $xml = simplexml_load_string($apiResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
             if ($xml === false) {
                 $error_message = 'Failed to parse XML response from supplier.';
             } else {

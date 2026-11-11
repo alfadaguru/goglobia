@@ -144,7 +144,13 @@ $router->post('esim/airalo/issue', function () use ($db) {
                         $cv = CURRENCY_CONVERT($liveSell, $db, $liveCur, $paidCur);
                         $liveInPaid = is_array($cv) ? (float) ($cv['price'] ?? $liveSell) : (float) $cv;
                     }
-                    $pc = reconcilePostPaymentPrice($db, $booking, $liveInPaid, $paidCur);
+                    // QUANTITY-AWARE RECONCILE (F-02): price_markup is the whole-order
+                    // total (qty × unit). airalo_authoritative_price returns a PER-SINGLE-SIM
+                    // sell, so scale the live sell by the order quantity before comparing —
+                    // otherwise every multi-unit order (qty > 1) would reconcile unit-vs-order
+                    // and be wrongly held for review.
+                    $liveLineInPaid = round($liveInPaid * max(1, (int) $quantity), 2);
+                    $pc = reconcilePostPaymentPrice($db, $booking, $liveLineInPaid, $paidCur);
                     if (empty($pc['ok'])) {
                         echo json_encode([
                             'status'         => false,

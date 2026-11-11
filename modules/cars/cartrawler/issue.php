@@ -358,7 +358,7 @@ try {
     $errMsg  = '';
 
     if ($httpCode === 200 && !empty($apiResponse)) {
-        $xml = @simplexml_load_string($apiResponse);
+        $xml = @simplexml_load_string($apiResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
         if ($xml === false) {
             $errMsg = 'Failed to parse XML response from CarTrawler.';
         } else {

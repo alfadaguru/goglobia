@@ -162,7 +162,7 @@ $router->post('stays/travelport/rooms', function() use ($db) {
 
         // Parse media response
         if ($mediaHttpCode === 200 && $mediaResponse) {
-            $mediaXml = simplexml_load_string($mediaResponse);
+            $mediaXml = simplexml_load_string($mediaResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
             if ($mediaXml !== false) {
                 $mediaXml->registerXPathNamespace('com', 'http://www.travelport.com/schema/common_v52_0');
 
@@ -236,7 +236,7 @@ $router->post('stays/travelport/rooms', function() use ($db) {
         // PARSE RESPONSE
         // ========================================
         libxml_use_internal_errors(true);
-        $xml = simplexml_load_string($apiResponse);
+        $xml = simplexml_load_string($apiResponse, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
         if ($xml === false) {
             throw new Exception('Invalid XML response');

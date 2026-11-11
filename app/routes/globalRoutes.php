@@ -328,6 +328,20 @@ $router->post('/modules/([^/]+)/([^/]+)/([^/]+)', function ($moduleType, $module
 $router->post('/payment/process', function () use ($SECURE, $db) {
     require_once 'app/lib/payment-gateway.php';
 
+    // CSRF (F-04): this mints a payment token + transaction-log row, a state
+    // change, so require a valid CSRF token. The token rides in the `csrf_token`
+    // form field (added by processPayment()) OR the X-CSRF-TOKEN header; read any
+    // transport via tokenFromRequest(). On failure, bounce back to the invoice.
+    if (class_exists('CSRF')) {
+        if (!CSRF::validateToken(CSRF::tokenFromRequest())) {
+            paylog('process:ABORT csrf-failed', ['invoice_id' => $_POST['invoice_id'] ?? '']);
+            $__inv = (string) ($_POST['invoice_id'] ?? '');
+            $_SESSION['payment_notice'] = ['type' => 'error', 'title' => 'Session Expired', 'message' => 'Your session expired. Please reload the page and try the payment again.'];
+            header('Location: ' . root . 'invoice/' . $__inv);
+            exit;
+        }
+    }
+
     $invoiceId = $_POST['invoice_id'] ?? '';
     $gatewayId = $_POST['gateway_id'] ?? '';
     paylog('process:ENTER', ['invoice_id' => $invoiceId, 'gateway_id' => $gatewayId]);
@@ -346,6 +360,16 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
         paylog('process:ABORT invalid-payment-data', ['invoice_id' => $invoiceId, 'booking' => (bool) $booking, 'gateway' => (bool) $gateway]);
         echo "Invalid payment data";
         exit;
+    }
+
+    // OWNERSHIP (F-04): only the booking owner (session user, Bearer user, owning
+    // agency, the guest session that created it, or an admin) may mint a payment
+    // token for this invoice. Without this, any user could POST another user's
+    // invoice_id and drive its payment flow / consume its attempt cap. On a web
+    // POST enforceInvoiceAccess() redirects a non-owner to /login (or root) and
+    // exits; a guest who just created the booking still passes via owned_invoices.
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking, root . 'invoice/' . $invoiceId);
     }
     paylog('process:LOADED', ['invoice_id' => $invoiceId, 'gateway' => $gateway['name'] ?? '?', 'gw_dev_mode' => $gateway['dev_mode'] ?? '?', 'booking_ccy' => $booking['currency_markup'] ?? '?', 'module' => $booking['module'] ?? '?', 'module_type' => $booking['module_type'] ?? '?', 'pay_status' => $booking['payment_status'] ?? '?']);
 

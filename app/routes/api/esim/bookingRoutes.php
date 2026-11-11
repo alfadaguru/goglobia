@@ -212,6 +212,13 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
         $baseCurrency = $displayCurrency;
         $conversionRate = 1.0;
 
+        // QUANTITY-AWARE PRICING (F-02): $price / $basePrice are PER-SINGLE-SIM, but the
+        // client-chosen $orderQuantity (validated 1..50 above) is sent to the Airalo order,
+        // so the customer receives $orderQuantity eSIMs. The charge, coupon math, and
+        // commission MUST scale by quantity, or a buyer pays for one SIM and receives many.
+        $lineSubtotal = round($price * $orderQuantity, 2);     // qty × sell (authoritative charge base)
+        $lineBase     = round($basePrice * $orderQuantity, 2); // qty × supplier net
+
         // Secure Promo Code / Coupon Validation
         $couponCodeStr = strtoupper(trim((string) ($input['coupon_code'] ?? $input['promo_code'] ?? '')));
         $couponDiscount = 0.0;
@@ -234,7 +241,7 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
                 $pv = validatePromoCode(
                     $db,
                     $couponCodeStr,
-                    (float) $price,
+                    (float) $lineSubtotal,
                     'esim',
                     (string) $displayCurrency,
                     [
@@ -276,15 +283,15 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
                         $minAmount = $converted['price'];
                     }
 
-                    if ($price < $minAmount) {
+                    if ($lineSubtotal < $minAmount) {
                         throw new Exception('Minimum order amount of ' . $displayCurrency . ' ' . number_format($minAmount, 2) . ' is required to use this coupon');
                     }
                 }
 
-                // Calculate discount
+                // Calculate discount (against the full order line, not a single SIM)
                 $promoCurrency = strtoupper($promoData['currency'] ?? 'USD');
                 if ($promoData['discount_type'] === 'percentage') {
-                    $couponDiscount = round($price * (floatval($promoData['discount_value']) / 100), 2);
+                    $couponDiscount = round($lineSubtotal * (floatval($promoData['discount_value']) / 100), 2);
                     // Apply max discount cap if set
                     if (!empty($promoData['max_discount_amount'])) {
                         $maxCap = floatval($promoData['max_discount_amount']);
@@ -302,20 +309,21 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
                         $converted = CURRENCY_CONVERT($fixedAmount, $db, $promoCurrency, $displayCurrency);
                         $fixedAmount = $converted['price'];
                     }
-                    $couponDiscount = min($fixedAmount, $price);
+                    $couponDiscount = min($fixedAmount, $lineSubtotal);
                 }
             }
         }
 
-        $totalPrice = $price - $couponDiscount;
+        $totalPrice = $lineSubtotal - $couponDiscount;
         if ($totalPrice < 0) {
             $totalPrice = 0;
         }
 
         $displayFinalTotal = round($totalPrice, 2);
 
-        // Earning / commission = markup amount minus coupon discount (price with markup - supplier net - coupon discount)
-        $commission = round($price - $basePrice - $couponDiscount, 2);
+        // Earning / commission = order markup minus coupon discount
+        // (qty × sell − qty × supplier-net − coupon discount).
+        $commission = round($lineSubtotal - $lineBase - $couponDiscount, 2);
         if ($commission < 0) {
             $commission = 0;
         }
@@ -397,8 +405,11 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
                 'gateway_type' => (string) ($paymentGateway['type'] ?? ''),
             ],
             'pricing' => [
-                'subtotal' => round($price, 2),
-                'base_price' => round($basePrice, 2),
+                'unit_price' => round($price, 2),            // per-single-SIM sell
+                'unit_base_price' => round($basePrice, 2),   // per-single-SIM supplier net
+                'quantity' => $orderQuantity,
+                'subtotal' => round($lineSubtotal, 2),       // qty × unit sell
+                'base_price' => round($lineBase, 2),         // qty × unit net
                 'commission' => $commission,
                 'coupon_code' => $couponCodeStr,
                 'coupon_discount' => round($couponDiscount, 2),
@@ -420,7 +431,7 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
             'language' => getCurrentLanguage(),
             'booking_status' => 'pending',
             'payment_status' => 'unpaid',
-            'price_original' => round($basePrice, 2),
+            'price_original' => round($lineBase, 2),
             'price_markup' => round($totalPrice, 2),
             'agent_earning' => round($agentEarning, 2),
             'commission' => $commission,

@@ -193,7 +193,7 @@ function processCredentials() {
 
             // Parse XML response
             libxml_use_internal_errors(true);
-            $xml = @simplexml_load_string($bodyContent);
+            $xml = @simplexml_load_string($bodyContent, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
 
             if ($xml === false) {
                 $errors = libxml_get_errors();

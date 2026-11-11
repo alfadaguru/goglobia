@@ -7,6 +7,7 @@ class EmailService {
     private $password = '';
     private $from_email = '';
     private $from_name = 'Training Management System';
+    public $insecure_tls = false; // F-05: set true only for a self-signed SMTP relay
 
     /**
      * Send email using SMTP
@@ -17,11 +18,17 @@ class EmailService {
         }
 
         try {
+            // TLS verification (F-05): verify the SMTP server certificate so the
+            // credentials sent during AUTH LOGIN cannot be captured by a MITM.
+            // Opt-out for a self-signed relay via the public $insecure_tls property.
+            $insecureTls = !empty($this->insecure_tls);
             $context = stream_context_create([
                 'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                    'allow_self_signed' => true,
+                    'verify_peer'       => !$insecureTls,
+                    'verify_peer_name'  => !$insecureTls,
+                    'allow_self_signed' => $insecureTls,
+                    'peer_name'         => $this->smtp_host,
+                    'SNI_enabled'       => true,
                 ]
             ]);
 

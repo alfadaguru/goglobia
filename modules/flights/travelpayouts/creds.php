@@ -100,7 +100,7 @@ try {
             'Accept: application/json',
             'User-Agent: PHPTravels-v10/1.0'
         ],
-        CURLOPT_SSL_VERIFYPEER => false
+        CURLOPT_SSL_VERIFYPEER => true  // F-05: verify TLS (api.travelpayouts.com is HTTPS)
     ]);
 
     $result = curl_exec($curl);

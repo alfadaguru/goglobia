@@ -729,8 +729,10 @@ if (!function_exists('agent_api_webhook_new_secret')) {
     /** A fresh webhook signing secret (shown to the agent, stored as-is to sign). */
     function agent_api_webhook_new_secret(): string
     {
-        try { return 'whsec_' . bin2hex(random_bytes(24)); }
-        catch (\Throwable $e) { return 'whsec_' . bin2hex(md5((string)mt_rand(), true)); }
+        // F-06: webhook signing secrets MUST be CSPRNG. If random_bytes() is
+        // unavailable (it isn't on PHP 7+), fail loudly rather than fall back to a
+        // predictable mt_rand()/md5 secret an attacker could guess to forge signatures.
+        return 'whsec_' . bin2hex(random_bytes(32));
     }
 }
 

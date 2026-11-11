@@ -18,7 +18,7 @@
 $router->post('stays/stuba/rooms', function() use ($db) {
 
     function xmlToJson($xml) {
-        $xml = simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NOCDATA);
+        $xml = simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NOCDATA | LIBXML_NONET); // F-08: block external entities/network (XXE)
         $json = json_encode($xml);
         return $json;
     }

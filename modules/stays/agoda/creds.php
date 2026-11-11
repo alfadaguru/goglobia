@@ -54,8 +54,8 @@ $router->post('stays/agoda/creds', function() {
             $response['metadata']['environment'] = $environment;
             $response['debug']['validation_steps'][] = '[INFO] Parsing submitted credentials (input method: ' . (!empty($json_data) ? 'JSON' : 'FORM-DATA') . ')';
             
-            // Agoda uses HTTP endpoint (as shown in working code)
-            $base_endpoint = 'http://affiliateapi7643.agoda.com/affiliateservice/lt_v1';
+            // TLS (F-05): use HTTPS so the API key/secret are not sent in cleartext.
+            $base_endpoint = 'https://affiliateapi7643.agoda.com/affiliateservice/lt_v1';
             $response['debug']['validation_steps'][] = "[ENV] Environment: " . strtoupper($environment);
             
             // Validate required credentials
@@ -169,7 +169,8 @@ $router->post('stays/agoda/creds', function() {
                     'Accept-Encoding: gzip,deflate'
                 ],
                 CURLOPT_CONNECTTIMEOUT => 10,
-                CURLOPT_SSL_VERIFYPEER => false  // HTTP endpoint
+                CURLOPT_SSL_VERIFYPEER => true,  // F-05: verify TLS (endpoint is now HTTPS)
+                CURLOPT_SSL_VERIFYHOST => 2
             ]);
             
             // Execute the request

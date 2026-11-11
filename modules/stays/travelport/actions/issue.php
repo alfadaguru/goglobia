@@ -384,7 +384,7 @@ $router->post('stays/travelport/issue', function() use ($db) {
         }
 
         libxml_use_internal_errors(true);
-        $xml = simplexml_load_string($response);
+        $xml = simplexml_load_string($response, 'SimpleXMLElement', LIBXML_NONET); // F-08: block external entities/network (XXE)
         
         if ($xml === false) {
             throw new Exception('Invalid XML response from Travelport');

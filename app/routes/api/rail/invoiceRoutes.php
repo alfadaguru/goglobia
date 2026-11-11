@@ -80,6 +80,22 @@ $router->post('/api/rail/booking/order-status', function () use ($db) {
             _train_respond(false, 'invoice_id or main_order_id is required.', null, 422);
         }
 
+        // IDOR GUARD (F-01): this route returns customer PII (_train_invoice_view)
+        // AND mutates booking_status via _train_apply_order_result (keyed on the
+        // supplied PNR). Both must be gated to the owner/admin BEFORE the supplier
+        // call + mutation. Resolve the target booking now — by invoice_id if given,
+        // otherwise by PNR — and require ownership. enforceInvoiceAccess() emits a
+        // 403 JSON and exits for a non-owner on an /api/ route. If no booking row
+        // matches a supplied PNR there is nothing owned to leak or mutate (the
+        // update would match 0 rows), so only enforce when a booking is found.
+        $guardBooking = $booking;
+        if (!$guardBooking && $mainOrderId !== '') {
+            $guardBooking = $db->get('bookings', '*', ['pnr' => $mainOrderId, 'module_type' => 'rail']);
+        }
+        if ($guardBooking && function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $guardBooking);
+        }
+
         $res = _train_request('/ticket/orderResultData', ['main_order_id' => $mainOrderId], ['db' => $db]);
         $data = _train_order_result_data($res);
 
