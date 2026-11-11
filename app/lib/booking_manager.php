@@ -251,6 +251,22 @@ if (!function_exists('bm_module_is_issue_stub')) {
         if ($file === '') return false;
         $src = (string) @file_get_contents($file);
         if ($src === '') return true; // unreadable/empty → treat as non-functional
+        // DISPATCHER PATTERN: a real supplier may keep its booking logic in a lib
+        // the issue.php require()s (e.g. modules/cars/mozio/issue.php delegates to
+        // lib.php's mozioIssueReservation, which does the real cURL booking). The
+        // thin issue.php then has no curl/pnr/booking_status of its own and would be
+        // mis-flagged as a stub. So fold in the source of any local PHP file this
+        // issue.php requires (same module dir only — never follow arbitrary paths),
+        // so "does it book?" is judged on the WHOLE handler, not just the entry file.
+        if (preg_match_all('/(?:require|include)(?:_once)?\s*[^;]*?[\'"]([^\'"]+\.php)[\'"]/i', $src, $mm)) {
+            foreach ($mm[1] as $rel) {
+                $cand = @realpath(dirname($file) . '/' . $rel);
+                // Only pull in files that live under THIS module's directory.
+                if ($cand && strpos($cand, @realpath($base) . DIRECTORY_SEPARATOR) === 0 && is_file($cand)) {
+                    $src .= "\n" . (string) @file_get_contents($cand);
+                }
+            }
+        }
         $lc  = strtolower($src);
 
         // Does it actually CALL the supplier? (a real issue books over HTTP.)
