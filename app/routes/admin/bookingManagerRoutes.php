@@ -335,6 +335,13 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
     // ---- Pricing (staff enter the selling price; base currency) -------------
     $baseCurrency = (function () use ($db) { $c = $db->get('currencies', ['name'], ['default' => 1]); return $c['name'] ?? 'NGN'; })();
     $currency     = strtoupper(trim((string) ($_POST['currency'] ?? $baseCurrency))) ?: $baseCurrency;
+    // L3: validate the currency against the currencies table — a typo'd/unknown
+    // code must not be persisted on the booking's money fields. Fall back to the
+    // base currency rather than storing garbage.
+    if ($currency !== strtoupper($baseCurrency)) {
+        $known = $db->has('currencies', ['name' => $currency]);
+        if (!$known) { $currency = strtoupper($baseCurrency); }
+    }
     $sellPrice    = round((float) ($_POST['price'] ?? 0), 2);           // all-in selling price
     $costPrice    = round((float) ($_POST['cost_price'] ?? $sellPrice), 2); // optional net cost
     if ($sellPrice <= 0) { bmAdminJson(['status' => false, 'message' => 'Enter a selling price greater than zero.'], 422); }
@@ -445,6 +452,33 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         // booking_data (verified per supplier in bm_flight_offer_has_handle()).
         if ($serviceType === 'flights' && !bm_flight_offer_has_handle($offerBd)) {
             bmAdminJson(['status' => false, 'message' => 'That flight offer is missing its booking reference — reselect the flight from the live results and try again.'], 422);
+        }
+        // FLIGHTS passport gate (audit M1): an INTERNATIONAL live flight that is
+        // created + paid with no passport hard-fails at the supplier issue AFTER
+        // payment (stranded). Determine international authoritatively from the
+        // route's origin/destination countries (flights_airports); if that can't be
+        // resolved, fall back to the console's explicit international hint. When
+        // international, every adult & child must carry a passport number.
+        if ($serviceType === 'flights') {
+            $origin      = strtoupper(trim((string) ($_POST['origin'] ?? $_POST['from'] ?? '')));
+            $destination = strtoupper(trim((string) ($_POST['destination'] ?? $_POST['to'] ?? '')));
+            $intl = bm_flight_is_international($db, $origin, $destination, $offerBd);
+            if ($intl === null) {
+                // Could not resolve countries — honour the explicit UI hint only.
+                $hint = strtolower(trim((string) ($_POST['is_international'] ?? '')));
+                $intl = in_array($hint, ['1', 'true', 'yes', 'on'], true);
+            }
+            if ($intl) {
+                $missing = bm_flight_passengers_missing_passport($travellers);
+                if (!empty($missing)) {
+                    bmAdminJson([
+                        'status'  => false,
+                        'message' => 'This is an international flight — a passport number is required for: '
+                                   . implode(', ', $missing) . '. Add each passenger\'s passport and try again.',
+                        'missing_passport' => $missing,
+                    ], 422);
+                }
+            }
         }
         $moduleName  = $supplier;
         $bookingChannel = 'admin_live';
@@ -629,6 +663,25 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
                 bmAdminJson(['status' => false, 'message' => 'A manual insurance policy needs a policy number so the customer voucher references a real policy.'], 422);
             }
         }
+        // FLIGHT GUARD (L6): a manual flight voucher reads flight_data.routes[0].
+        // segments; with no FILLED segment (from+to) the ticket is blank. The UI
+        // guarantees ≥1 segment ROW but not that it is filled, so enforce here that
+        // at least one segment carries both a from and a to airport.
+        if ($serviceType === 'flights') {
+            $segChk = $_POST['segments'] ?? '[]';
+            if (is_string($segChk)) { $segChk = json_decode($segChk, true); }
+            $hasFilledSegment = false;
+            if (is_array($segChk)) {
+                foreach ($segChk as $s) {
+                    if (is_array($s) && trim((string) ($s['from'] ?? '')) !== '' && trim((string) ($s['to'] ?? '')) !== '') {
+                        $hasFilledSegment = true; break;
+                    }
+                }
+            }
+            if (!$hasFilledSegment) {
+                bmAdminJson(['status' => false, 'message' => 'Add at least one flight segment with a From and To airport before saving a manual flight.'], 422);
+            }
+        }
         $moduleName  = 'manual';
         $bookingChannel = 'admin_manual';
         $bookingData = bmBuildManualBookingData($serviceType, $_POST, $currency, $travellers);
@@ -793,7 +846,9 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
             'company_bank' => $company,                 // null for level-0 staff (hidden)
             'awaiting_verification' => true,
             'message' => $isSenior
-                ? 'Give the customer the company account below. After the transfer lands, verify the payment to confirm the booking.'
+                ? ($company
+                    ? 'Give the customer the company account below. After the transfer lands, verify the payment to confirm the booking.'
+                    : 'Manual transfer recorded, but NO company bank-transfer account is configured — set one up under Payment Gateways (a “bank_transfer” gateway) so the account can be shown. Verify the payment once the transfer lands.')
                 : 'Manual transfer recorded. A senior admin must confirm the company account details and verify the payment.',
         ]);
     }
@@ -834,12 +889,41 @@ $router->post(admin . '/booking-manager/verify', function () use ($SECURE, $db) 
         bmAdminJson(['status' => false, 'message' => 'This booking is not awaiting verification.'], 422);
     }
 
+    // AMOUNT RECONCILIATION (audit M2): previously Verify recorded PAID-IN-FULL at
+    // price_markup regardless of what actually landed, so a short transfer was
+    // silently booked as full payment. The senior may now enter the amount they
+    // actually received; if it is SHORT of the amount due we refuse unless they
+    // explicitly confirm_short (own the shortfall). Blank amount_received =
+    // "received the full amount" (backward compatible with the old one-click flow).
+    $amountDue      = round((float) ($booking['price_markup'] ?? 0), 2);
+    $amountRecvRaw  = $_POST['amount_received'] ?? '';
+    $hasAmountRecv  = ($amountRecvRaw !== '' && $amountRecvRaw !== null);
+    $amountReceived = $hasAmountRecv ? round((float) $amountRecvRaw, 2) : $amountDue;
+    $confirmShort   = in_array((string) ($_POST['confirm_short'] ?? ''), ['1', 'true', 'yes', 'on'], true);
+    if ($hasAmountRecv && $amountReceived < 0) {
+        bmAdminJson(['status' => false, 'message' => 'Amount received cannot be negative.'], 422);
+    }
+    if ($hasAmountRecv && $amountReceived < ($amountDue - 0.01) && !$confirmShort) {
+        // Short payment, not explicitly accepted — block rather than record full.
+        bmAdminJson([
+            'status'  => false,
+            'short_payment' => true,
+            'amount_due' => $amountDue,
+            'amount_received' => $amountReceived,
+            'message' => 'The amount received (' . number_format($amountReceived, 2) . ') is less than the amount due ('
+                       . number_format($amountDue, 2) . '). Re-enter the correct amount, or confirm the shortfall to record it as paid anyway.',
+        ], 422);
+    }
+
     $res = bm_settle_booking_payment($db, $invoiceId, 'manual_verified', [
-        'verified_by'   => $_SESSION['user_id'] ?? '',
-        'transaction_id'=> $txnRef,
-        'gateway_name'  => 'manual_payment',
-        'amount'        => (float) $booking['price_markup'],
-        'currency'      => $booking['currency_markup'] ?? 'NGN',
+        'verified_by'    => $_SESSION['user_id'] ?? '',
+        'transaction_id' => $txnRef,
+        'gateway_name'   => 'manual_payment',
+        // Record the amount ACTUALLY received (defaults to full due when not given).
+        'amount'         => $amountReceived,
+        'amount_due'     => $amountDue,
+        'short_paid'     => ($amountReceived < ($amountDue - 0.01)),
+        'currency'       => $booking['currency_markup'] ?? 'NGN',
     ]);
     bmAdminJson(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? '']);
 });
@@ -1181,6 +1265,23 @@ if (!function_exists('bmStoreManualDocument')) {
         $allowed = ['pdf', 'png', 'jpg', 'jpeg', 'webp'];
         if (!in_array($ext, $allowed, true)) return null;
         if ((int) ($file['size'] ?? 0) > 8 * 1024 * 1024) return null; // 8 MB cap
+        // L7: verify the CONTENT type, not just the extension — a mislabeled file
+        // (e.g. .pdf that is really HTML/SVG/script) must not be stored. Match the
+        // sniffed MIME against the allowed set for the claimed extension.
+        if (function_exists('finfo_open')) {
+            $fi = finfo_open(FILEINFO_MIME_TYPE);
+            $mime = $fi ? (string) finfo_file($fi, $file['tmp_name']) : '';
+            if ($fi) { finfo_close($fi); }
+            $mimeAllowed = [
+                'pdf'  => ['application/pdf'],
+                'png'  => ['image/png'],
+                'jpg'  => ['image/jpeg'],
+                'jpeg' => ['image/jpeg'],
+                'webp' => ['image/webp'],
+            ];
+            $okMimes = $mimeAllowed[$ext] ?? [];
+            if ($mime === '' || !in_array($mime, $okMimes, true)) return null;
+        }
         $dir = dirname(__DIR__, 3) . '/uploads/booking_manager';
         if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
         $name = 'slip_' . $invoiceId . '_' . substr(bin2hex(random_bytes(4)), 0, 8) . '.' . $ext;

@@ -295,4 +295,36 @@ Auth + CSRF on every endpoint (`ADMIN_AUTH`+`admin_require`+CSRF, senior-gating 
 
 **Bottom line:** the BM flight money spine is strong and well-guarded. The one **must-fix** is **H1 (googleflights fake-issue)** — conditional on that module being enabled (a DB fact to check). After that, **M1 (passport gate)** and **M2 (verify amount)** are the real-world gaps worth closing. Everything else is LOW/by-design.
 
-_Audit only — no code was changed. Fixes deferred to a separate, owner-approved pass._
+---
+
+## P7 — FIXES APPLIED + re-verification (2026-11-11)
+
+**The audit above was re-checked end-to-end against live source (every cited line re-read), the one DB-gated unknown was resolved, and all fixable findings were fixed and verified.** Fixes touch: `app/lib/booking_manager.php`, `app/routes/admin/bookingManagerRoutes.php`, `app/views/admin/booking-manager/manager.php`, `app/views/admin/booking-manager/verify.php`.
+
+### DB-gated unknown RESOLVED (the H1 severity question)
+- Read the live `modules` table (one factual state read): the BM-live picker query is `status=1 AND active=1` (route). **googleflights currently has `status=''` (not `'1'`)** → it does **not** appear in the BM live picker right now, so H1 was **dormant by data accident, not by design**. BUT `status` is inconsistently populated (only `adivaha`=1, `tiqwa`=0; every other real supplier is `''` too), so an admin setting googleflights `status=1` is **one click from exposing it.** → the **code defense was still required** and has been applied (it does not depend on the DB flag).
+
+### Findings — outcome
+| # | Finding | Status | Fix (file:line) + verification |
+|---|---|---|---|
+| **H1** | googleflights fake-issue passes the BM-live stub guard | ✅ **FIXED** | `bm_module_is_issue_stub` now also classifies a **confirm-without-API-call + redirect-affiliate** issue.php as a (non-bookable) stub (`booking_manager.php` — `$makesSupplierCall`/`$isRedirectAffiliate` logic). **Verified by running the full 16-dir gate matrix: googleflights → `is_stub=Y` → BLOCKED; all 12 real suppliers still bookable (each makes a `curl_` call, none is a redirect affiliate — confirmed per-supplier), travelpayouts/kayak still blocked.** No false-reject, no false-accept. |
+| **M1** | No passport gate for a live international flight | ✅ **FIXED** | New `bm_flight_is_international($db,...)` resolves origin/dest countries from `flights_airports` (authoritative), + `bm_flight_passengers_missing_passport()`. The live-flight create branch now **rejects** an international flight whose adults/children lack a passport (infants exempt). UI: airport picker auto-detects international (`acPick`→`autoDetectIntl`), passport field marked **required** + red when live+international, client-side pre-submit guard in `createBooking`, and the route is sent `origin/destination/is_international`. Unknown route → falls back to the explicit UI hint (fail-open on *detection*, never silently skipping when known-international). **Verified: passenger detector skips infant/primary; intl detector LOS→DXB=true, LOS→LOS=false, unknown=null.** |
+| **M2** | Verify records PAID-IN-FULL regardless of amount received | ✅ **FIXED** | verify.php adds an **Amount received** input (prefilled with amount due); `verify()` JS + the `/verify` route now **block a short payment** unless the senior explicitly confirms the shortfall (`confirm_short=1`), and the recorded transaction uses the **actual amount received** (not a blind `price_markup`). Blank = full (backward-compatible). **Verified: blank/full→settle full, short→block, short+confirm→records 900, overpay→records actual, negative→rejected.** |
+| **L3** | Currency not validated | ✅ **FIXED** | create route now checks the code via `$db->has('currencies',...)`, falls back to base currency on an unknown code. |
+| **L4** | No infant support in live search/pax | ✅ **FIXED** | added Infants field to live flight search + payload (`infants:live.infants`), `+ Infant` pax button, infant type/label plumbed through `addPax`/`buildPassengers`. |
+| **L6** | Blank-segment manual flight → blank ticket | ✅ **FIXED** | create route rejects a manual flight with no segment carrying both a From and To airport. |
+| **L7** | Manual doc upload extension-only | ✅ **FIXED** | `bmStoreManualDocument` now MIME-sniffs via `finfo` and must match the claimed extension (pdf/png/jpg/jpeg/webp). |
+| **L8** | Misleading "company account below" toast when no bank gateway configured | ✅ **FIXED** | the `/pay` manual_transfer message is now conditional on `$company` — tells the senior to configure a `bank_transfer` gateway when none exists. |
+| **L1, L2** | tax=0 / empty country-addr | ⚪ **NO CHANGE (by-design)** | sell is all-in; empty address is fine for a manual voucher. Left as documented NOTEs. |
+| **L5** | Live price editable after auto-fill | ⚪ **NO CHANGE** | auto-fill works (corrected earlier); an editable field is intended staff behaviour. Noted. |
+| **L9, L10, L11** | search UX opacity / hidden live button / invoice-id fallback | ⚪ **NO CHANGE (cosmetic/negligible)** | documented; not money-affecting. |
+| ~~Medoo stranded-query~~, ~~booked_date~~ | my own interim alarms | ⚫ **DISPROVEN** | already corrected to NONE above; nothing to fix. |
+
+### Re-verification run (all green)
+- `php -l` clean on all 4 touched files.
+- H1 gate matrix: 16/16 correct (googleflights blocked, 12 reals pass).
+- M1 helper unit tests: pass. M2 decision-logic tests: pass. L3/L4/L6/L7/L8 presence checks: pass.
+- Live page smoke test (PHP shim): `GET /admin/booking-manager/flights` and `/verify` → **302 to login (no fatal/parse errors)** — routes parse + register cleanly. `<template>` tags balanced (23/23); verify.php `colspan` updated to 8.
+- No regression: all 12 real suppliers remain bookable; the sound items (auth/CSRF, idempotency, tender-exclusion, settle primitive, supplier seam, reconcile) are untouched.
+
+**Net after P7:** H1 (the one must-fix) is closed in code and no longer reachable even if googleflights is enabled; M1 + M2 (the real-world gaps) are closed; 5 of the fixable LOWs are closed. Remaining items are by-design or cosmetic, documented honestly.

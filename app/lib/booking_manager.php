@@ -139,6 +139,81 @@ if (!function_exists('bm_flight_offer_has_handle')) {
     }
 }
 
+if (!function_exists('bm_flight_is_international')) {
+    /**
+     * Audit finding M1 (2026-11-11): a LIVE flight could be created + PAID with no
+     * passport, even when the route is INTERNATIONAL — then hard-fail at the
+     * supplier issue AFTER payment (stranded). The console's "International trip"
+     * checkbox was MANUAL (nothing set it from the actual route) and even then the
+     * passport field was optional. This resolves "is this route international?"
+     * authoritatively, server-side, from the origin/destination IATA codes by
+     * looking up each airport's country in flights_airports.
+     *
+     * Returns:
+     *   true  — origin + destination resolve to DIFFERENT countries (international)
+     *   false — same country (domestic)
+     *   null  — cannot determine (codes missing or not found) → caller must not
+     *           hard-block on an UNKNOWN (fail-open on detection, honest about it);
+     *           it falls back to the explicit UI hint.
+     *
+     * $origin / $destination are IATA codes (airport or city). The offer's
+     * departure_code / arrival_code are used when explicit codes aren't passed.
+     */
+    function bm_flight_is_international($db, string $origin, string $destination, array $offer = []): ?bool
+    {
+        $origin      = strtoupper(trim($origin));
+        $destination = strtoupper(trim($destination));
+        // Fall back to the offer's own codes when the form didn't carry them.
+        if ($origin === '' || $destination === '') {
+            $bd = (isset($offer['flight_data']) && is_array($offer['flight_data'])) ? $offer['flight_data'] : $offer;
+            if ($origin === '')      { $origin      = strtoupper(trim((string) ($bd['departure_code'] ?? $offer['departure_code'] ?? ''))); }
+            if ($destination === '') { $destination = strtoupper(trim((string) ($bd['arrival_code']   ?? $offer['arrival_code']   ?? ''))); }
+        }
+        if ($origin === '' || $destination === '') return null;
+
+        $countryOf = function (string $code) use ($db): ?string {
+            if ($code === '') return null;
+            try {
+                // Match the airport IATA code OR the city code column, whichever exists.
+                $row = $db->get('flights_airports', ['country'], ['code' => $code]);
+                $c = $row['country'] ?? '';
+                return $c !== '' ? strtolower(trim($c)) : null;
+            } catch (\Throwable $e) { return null; }
+        };
+        $co = $countryOf($origin);
+        $cd = $countryOf($destination);
+        if ($co === null || $cd === null) return null; // unknown → let caller fall back to the hint
+        return $co !== $cd;
+    }
+}
+
+if (!function_exists('bm_flight_passengers_have_passport')) {
+    /**
+     * Audit finding M1: for an international live flight every PASSENGER who needs
+     * a travel document (adult + child; infants travel on a parent doc for many
+     * carriers but most suppliers still want one — we require adults & children and
+     * treat infants as recommended-not-required to avoid false blocks) must carry a
+     * passport number. Returns the list of passenger labels MISSING a passport, so
+     * the caller can reject with a precise message. $travellers is the assembled
+     * adult_N/child_N/infant_N map (primary_guest excluded).
+     */
+    function bm_flight_passengers_missing_passport(array $travellers): array
+    {
+        $missing = [];
+        foreach ($travellers as $key => $p) {
+            if ($key === 'primary_guest' || !is_array($p)) continue;
+            // infants: recommended but not hard-required (parent-doc carriers).
+            if (strpos((string) $key, 'infant_') === 0) continue;
+            $passport = trim((string) ($p['passport_number'] ?? ''));
+            if ($passport === '') {
+                $name = trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? ''));
+                $missing[] = $name !== '' ? $name : $key;
+            }
+        }
+        return $missing;
+    }
+}
+
 if (!function_exists('bm_module_is_issue_stub')) {
     /**
      * True when a supplier's issue.php exists but is a NON-functional stub (an empty
@@ -151,6 +226,19 @@ if (!function_exists('bm_module_is_issue_stub')) {
      * supplier — its search.php emits redirect_url, not a bookable handle). Detect
      * generically (a tiny issue.php that never does the supplier booking work) so a
      * future stub is caught too, without hardcoding one supplier name.
+     *
+     * ALSO catches the FAKE-ISSUE / AFFILIATE-REDIRECT pattern (audit finding H1,
+     * 2026-11-11): modules/flights/googleflights/actions/issue.php is NOT a TODO
+     * stub — it *writes* booking_status='confirmed' + a fabricated md5 PNR and
+     * returns status:true WITHOUT ever calling the supplier, then hands back a
+     * redirect_url telling the customer to "complete the purchase" on the airline
+     * site. Because it contains the strings "'pnr'"/"booking_status", the old
+     * looksReal heuristic classified it as a real supplier, so a BM LIVE booking
+     * there would settle payment and email a fake-PNR ticket for a flight that was
+     * never booked. We now additionally treat an issue.php that (a) makes NO
+     * outbound supplier HTTP call AND (b) returns a redirect_url / tells the
+     * customer to complete the purchase elsewhere as a non-bookable stub — it
+     * cannot actually issue a ticket, so it must not be live-bookable.
      */
     function bm_module_is_issue_stub(string $moduleType, string $module): bool
     {
@@ -163,12 +251,37 @@ if (!function_exists('bm_module_is_issue_stub')) {
         if ($file === '') return false;
         $src = (string) @file_get_contents($file);
         if ($src === '') return true; // unreadable/empty → treat as non-functional
-        // A real issue handler books at the supplier: it will contain a cURL/HTTP
-        // call or write a PNR/booking_status. A stub has neither and carries a TODO.
-        $looksReal = (stripos($src, 'curl_') !== false)
+        $lc  = strtolower($src);
+
+        // Does it actually CALL the supplier? (a real issue books over HTTP.)
+        $makesSupplierCall = (stripos($src, 'curl_') !== false)
+                  || (stripos($src, 'file_get_contents(') !== false && stripos($lc, 'http') !== false)
+                  || (stripos($src, 'stream_context_create') !== false)
+                  || (stripos($src, '->request(') !== false)   // Guzzle/HTTP client
+                  || (stripos($lc, 'fsockopen') !== false);
+
+        // Is it an AFFILIATE REDIRECT that only sends the customer elsewhere?
+        // (returns a redirect_url and/or says "complete the purchase"/"no booking
+        //  api" — i.e. it never issues a real ticket itself).
+        $isRedirectAffiliate = (stripos($src, 'redirect_url') !== false)
+                  || (stripos($lc, 'complete the purchase') !== false)
+                  || (stripos($lc, 'no booking api') !== false)
+                  || (stripos($lc, 'does not provide a direct booking') !== false)
+                  || (stripos($lc, 'no direct booking') !== false);
+
+        // A real issue handler books at the supplier: it will make a supplier HTTP
+        // call AND/OR write a PNR/booking_status. A pure TODO stub has neither.
+        $looksReal = $makesSupplierCall
                   || (stripos($src, "'pnr'") !== false)
-                  || (stripos($src, 'booking_status') !== false)
-                  || (stripos($src, 'file_get_contents(') !== false && stripos($src, 'http') !== false);
+                  || (stripos($src, 'booking_status') !== false);
+
+        // Fake-issue override: even if it writes pnr/booking_status, a provider that
+        // makes NO supplier call AND is a redirect affiliate cannot truly issue →
+        // treat as a (non-bookable) stub so BM live rejects it.
+        if (!$makesSupplierCall && $isRedirectAffiliate) {
+            return true;
+        }
+
         return !$looksReal;
     }
 }

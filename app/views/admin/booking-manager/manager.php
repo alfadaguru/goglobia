@@ -155,6 +155,7 @@ $svcIcons = [
           <label class="form-control" x-show="live.type==='return'"><span class="form-label">Return</span><input type="date" class="input" x-model="live.return_date"></label>
           <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="live.adults"></label>
           <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="live.children"></label>
+          <label class="form-control"><span class="form-label">Infants</span><input type="number" min="0" class="input" x-model.number="live.infants"></label>
           <label class="form-control"><span class="form-label">Cabin</span>
             <select class="select input" x-model="live.class"><option value="economy">Economy</option><option value="business">Business</option><option value="first">First</option></select>
           </label>
@@ -610,20 +611,22 @@ $svcIcons = [
             <?php endif; ?>
             <button class="btn outline sm" @click="addPax('adult')"><span class="material-symbols-outlined">add</span>Adult</button>
             <button class="btn outline sm" @click="addPax('child')">+ Child</button>
+            <?php if ($svc === 'flights'): ?><button class="btn outline sm" @click="addPax('infant')">+ Infant</button><?php endif; ?>
           </div>
         </div>
         <p class="text-xs text-slate-500 mb-2" x-show="!isInternational">Domestic trip — name &amp; contact are enough; passport is not collected.</p>
-        <p class="text-xs text-amber-600 mb-2" x-show="isInternational">International trip — passport details recommended for ticketing.</p>
+        <p class="text-xs text-amber-600 mb-2" x-show="isInternational && mode!=='live'">International trip — passport details recommended for ticketing.</p>
+        <p class="text-xs text-red-600 mb-2" x-show="isInternational && mode==='live'">International live flight — a passport number is <strong>required</strong> for every adult and child (the supplier rejects the ticket without it).</p>
         <div class="space-y-2">
           <template x-for="(p,i) in pax" :key="i">
             <div class="grid sm:grid-cols-4 gap-2 items-end border border-slate-200 rounded-lg p-2">
-              <label class="form-control"><span class="form-label" x-text="p.type==='child'?'Child':'Adult'"></span>
+              <label class="form-control"><span class="form-label" x-text="p.type==='infant'?'Infant':(p.type==='child'?'Child':'Adult')"></span>
                 <select class="select input" x-model="p.title"><option>Mr</option><option>Mrs</option><option>Ms</option><option>Miss</option><option>Mstr</option></select></label>
               <label class="form-control"><span class="form-label">First</span><input class="input" x-model="p.first_name"></label>
               <label class="form-control"><span class="form-label">Last</span><input class="input" x-model="p.last_name"></label>
               <div class="flex gap-1 items-end">
                 <template x-if="isInternational">
-                  <input class="input" x-model="p.passport_number" placeholder="Passport #">
+                  <input class="input" :class="(mode==='live' && !(p.passport_number||'').trim() && p.type!=='infant') ? 'border-red-400' : ''" x-model="p.passport_number" :placeholder="(mode==='live' && p.type!=='infant') ? 'Passport # (required)' : 'Passport #'">
                 </template>
                 <button class="btn outline sm" @click="pax.splice(i,1)" x-show="pax.length>1"><span class="material-symbols-outlined">delete</span></button>
               </div>
@@ -742,7 +745,7 @@ function bookingMgr() {
     isSenior: <?= !empty($bm['is_senior']) ? 'true' : 'false' ?>,
 
     mode: 'manual',
-    live: { type:'oneway', origin:'', destination:'', destination_country:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', nationality:'', currency:'',
+    live: { type:'oneway', origin:'', destination:'', destination_country:'', origin_country_flt:'', destination_country_flt:'', departure_date:'', return_date:'', adults:1, children:0, infants:0, class:'economy', rooms:1, checkin:'', checkout:'', nationality:'', currency:'',
             car_pickup_location:'', car_dropoff_location:'', car_pickup_date:'', car_pickup_time:'10:00', car_dropoff_date:'', car_dropoff_time:'10:00', car_driver_age:30, car_driver_country:'',
             esim_country:'', esim_type:'global' },
     // Autocomplete state. Flights: origin/destination hold the resolved IATA code.
@@ -832,7 +835,7 @@ function bookingMgr() {
     },
     segPickAirport(seg,side,a){ if(side==='from'){ seg.from=a.code; seg._fromText=a.city+' ('+a.code+')'; seg._fromOpen=false; } else { seg.to=a.code; seg._toText=a.city+' ('+a.code+')'; seg._toOpen=false; } },
     segBlur(seg,which){ setTimeout(()=>{ if(which==='al')seg._alOpen=false; else if(which==='from')seg._fromOpen=false; else seg._toOpen=false; },150); },
-    addPax(t){ this.pax.push({ type:t, title: t==='child'?'Mstr':'Mr', first_name:'', last_name:'', passport_number:'', ticket_number:'' }); },
+    addPax(t){ this.pax.push({ type:t, title: (t==='child'||t==='infant')?'Mstr':'Mr', first_name:'', last_name:'', passport_number:'', ticket_number:'' }); },
 
     form(o){ const f=new FormData(); f.append('csrf_token',this.csrf); for(const k in o){ let v=o[k]; if(v===null||v===undefined) v=''; if(typeof v==='object') v=JSON.stringify(v); f.append(k,v);} return f; },
 
@@ -851,6 +854,20 @@ function bookingMgr() {
       this.ac[which].q = a.city+' ('+a.code+') · '+a.airport;
       this.ac[which].open=false;
       this.live[which]=a.code;            // the IATA code the supplier search needs
+      // Capture the airport's country so we can AUTO-DETECT an international route
+      // (audit M1 — the "International trip" flag was manual-only). which is
+      // 'origin' or 'destination'. Use flight-specific keys so we never collide
+      // with the hotel destination_country set by acPickCity().
+      this.live[which==='origin'?'origin_country_flt':'destination_country_flt']=(a.country||'').trim();
+      this.autoDetectIntl();
+    },
+    // Auto-set the international flag from the picked origin/destination countries.
+    // Only flips ON automatically (origin country ≠ destination country); never
+    // forces OFF, so an admin can still tick it manually for an edge case.
+    autoDetectIntl(){
+      const o=(this.live.origin_country_flt||'').toLowerCase();
+      const d=(this.live.destination_country_flt||'').toLowerCase();
+      if(o && d && o!==d){ this.intl=true; }
     },
     acBlur(which){ setTimeout(()=>{ this.ac[which].open=false; }, 150); },
 
@@ -937,7 +954,7 @@ function bookingMgr() {
         base = { service:this.service, origin:this.live.origin, destination:this.live.destination, type:this.live.type,
             class:this.live.class, departure_date:this.fmtDate(this.live.departure_date),
             return_date:this.fmtDate(this.live.return_date), adults:this.live.adults,
-            childrens:this.live.children, infants:0, currency:this.live.currency||this.baseCurrency };
+            childrens:this.live.children, infants:(this.live.infants||0), currency:this.live.currency||this.baseCurrency };
       }
 
       // Fan out to EVERY enabled supplier in parallel, exactly like the website,
@@ -1188,6 +1205,13 @@ function bookingMgr() {
       if(this.mode==='live' && this.service==='rail' && (this.rail.selTrain===null||this.rail.selSeat===null)){ alert('Search trains, then select a seat class'); return; }
       if(this.mode==='live' && this.service==='ferries' && this.ferry.sel===null){ alert('Search sailings, then select one'); return; }
       if(this.mode==='live' && this.service!=='rail' && this.service!=='ferries' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
+      // M1: an international live flight needs a passport for every adult & child
+      // (the backend enforces this authoritatively; this is the fast UX catch).
+      if(this.mode==='live' && this.service==='flights' && this.isInternational){
+        const miss=this.pax.filter(p=>p.type!=='infant' && !((p.passport_number||'').trim()))
+                           .map(p=>((p.first_name||'')+' '+(p.last_name||'')).trim()||'a passenger');
+        if(miss.length){ alert('International flight — add a passport number for: '+miss.join(', ')); return; }
+      }
       if(this.mode==='live' && this.isHotel && this.selectedRoom===null){ alert('Choose a room rate on the selected hotel first'); return; }
       if(this.mode==='manual' && this.service==='esim' && !((this.manual.iccid||'').trim() || (this.manual.reference||'').trim())){ alert('A manual eSIM needs a real credential — enter the ICCID or activation reference of an eSIM you already provisioned. To auto-issue a new eSIM, switch to Live mode.'); return; }
       if(this.mode==='manual' && this.service==='insurance' && !((this.manual.policy_number||'').trim())){ alert('A manual insurance policy needs a policy number so the voucher references a real policy.'); return; }
@@ -1252,6 +1276,15 @@ function bookingMgr() {
           } else {
             const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
             payload.offer_booking_data = JSON.stringify(seg.booking_data || r.booking_data || r);
+            // Flights: send the route + international hint so the backend can
+            // enforce the passport gate (audit M1). The backend re-derives
+            // international authoritatively from flights_airports; these are the
+            // reliable origin/destination codes + the console's detected hint.
+            if(this.service==='flights'){
+              payload.origin = this.live.origin||'';
+              payload.destination = this.live.destination||'';
+              payload.is_international = this.isInternational ? '1' : '0';
+            }
           }
         } else {
           if(this.isHotel){ Object.assign(payload,{hotel_name:this.manual.hotel_name,hotel_stars:this.manual.hotel_stars,hotel_address:this.manual.hotel_address,hotel_city:this.manual.hotel_city,hotel_country:this.manual.hotel_country,checkin:this.manual.checkin,checkout:this.manual.checkout,room_type:this.manual.room_type,board_type:this.manual.board_type,rooms:this.manual.rooms,nights:this.manual.nights}); }
