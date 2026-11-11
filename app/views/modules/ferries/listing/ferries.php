@@ -272,7 +272,7 @@ if (file_exists($routesCacheFile)) {
                                 <?= T::suppliers ?? 'suppliers' ?>...</span>
                             <span x-show="sailings.length > 0 && completedSuppliers < totalSuppliers">
                                 <?= T::showing ?? 'Showing' ?> <span x-text="filteredSailings.length"></span> sailings •
-                                <?= T::loading_more_results ?? 'loading more results' ?>...
+                                loading more results...
                             </span>
                         </span>
                         <span x-show="searchComplete" class="text-green-600">
@@ -312,7 +312,7 @@ if (file_exists($routesCacheFile)) {
                         <strong
                             x-show="!loading && activeRawSailings.length === 0 && searched"><?= T::no_results ?? 'No sailings found.' ?></strong>
                         <p class="text-xs text-gray-400 mt-0.5"
-                            x-text="loading ? '<?= T::searching_live_prices ?? 'Searching live prices' ?>...' : ''">
+                            x-text="loading ? 'Searching live prices...' : ''">
                         </p>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
