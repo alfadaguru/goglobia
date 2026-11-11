@@ -2236,6 +2236,39 @@ try {
                 return h * 60 + min;
             },
 
+            // refundable arrives as a STRING from the supplier ("Refundable" /
+            // "Non-Refundable" / "" ), set in modules/flights/adivaha/search.php:541.
+            // A bare `f.refundable ? …` is ALWAYS truthy for a non-empty string, so a
+            // Non-Refundable fare was being shown as Refundable. Returns true/false, or
+            // null when unknown (empty/unrecognised) so the UI can say "Check fare rules"
+            // instead of falsely asserting either way.
+            isRefundable(v) {
+                if (v === true) return true;
+                if (v === false) return false;
+                if (typeof v !== 'string') return null;
+                const s = v.trim().toLowerCase();
+                if (s === '') return null;
+                if (s.startsWith('non') || s.includes('not refund')) return false;
+                if (s.includes('refund')) return true;
+                return null;
+            },
+
+            // Layover between two consecutive segments, computed from the REAL
+            // arrival/departure times (the supplier sends no layover field). Returns ''
+            // when it can't be computed, so nothing fake is shown. Only used for
+            // connecting itineraries (segments >= 2); NG domestic is direct today.
+            layoverLabel(prevSeg, nextSeg) {
+                if (!prevSeg || !nextSeg || !prevSeg.arrival_time || !nextSeg.departure_time) return '';
+                const arr = this.getMinutesOfDay(prevSeg.arrival_time);
+                const dep = this.getMinutesOfDay(nextSeg.departure_time);
+                let diff = dep - arr;
+                if (diff < 0) diff += 24 * 60; // crosses midnight
+                if (diff <= 0 || diff > 24 * 60) return '';
+                const h = Math.floor(diff / 60), m = diff % 60;
+                const dur = ((h > 0 ? h + 'h ' : '') + (m > 0 ? m + 'm' : (h > 0 ? '' : '0m'))).trim();
+                return dur + (nextSeg.departure_code ? ' in ' + nextSeg.departure_code : '');
+            },
+
             getDurationMinutes(duration) {
                 const parts = duration.split(':');
                 return parseInt(parts[0]) * 60 + parseInt(parts[1] || 0);
@@ -2794,12 +2827,23 @@ try {
 
                             <!-- Fare Rules Tab -->
                             <div x-show="activeTab === 'fare'" class="space-y-3">
+                                ${f.fare_name ? `
+                                <div>
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="material-symbols-outlined text-blue-600" style="font-size: 20px;">sell</span>
+                                        <h5 class="font-semibold text-gray-900 dark:text-gray-100">Fare type</h5>
+                                    </div>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400 ml-8">${f.fare_name}</p>
+                                </div>` : ''}
                                 <div>
                                     <div class="flex items-center gap-2 mb-2">
                                         <span class="material-symbols-outlined text-red-600" style="font-size: 20px;">cancel</span>
                                         <h5 class="font-semibold text-gray-900 dark:text-gray-100"><?= T::cancellation ?></h5>
                                     </div>
-                                    <p class="text-sm text-gray-600 dark:text-gray-400 ml-8">${f.refundable ? '<?= T::refundable_with_fee ?>' : '<?= T::non_refundable ?>'}</p>
+                                    <p class="text-sm ml-8">${(() => { const r = this.isRefundable(f.refundable);
+                                        if (r === true) return '<span class="text-green-700 dark:text-green-400 font-medium"><?= T::refundable_with_fee ?></span>';
+                                        if (r === false) return '<span class="text-amber-700 dark:text-amber-400 font-medium"><?= T::non_refundable ?></span>';
+                                        return '<span class="text-gray-500">Check fare rules</span>'; })()}</p>
                                 </div>
                                 <div>
                                     <div class="flex items-center gap-2 mb-2">
@@ -2808,6 +2852,14 @@ try {
                                     </div>
                                     <p class="text-sm text-gray-600 dark:text-gray-400 ml-8"><?= T::date_changes_subject_to_fees ?></p>
                                 </div>
+                                ${(Number(f.seats_remaining) > 0 && Number(f.seats_remaining) <= 9) ? `
+                                <div>
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="material-symbols-outlined ${Number(f.seats_remaining) <= 5 ? 'text-orange-600' : 'text-gray-500'}" style="font-size: 20px;">event_seat</span>
+                                        <h5 class="font-semibold text-gray-900 dark:text-gray-100"><?= T::availability ?></h5>
+                                    </div>
+                                    <p class="text-sm ml-8 ${Number(f.seats_remaining) <= 5 ? 'text-orange-600 font-semibold' : 'text-gray-600 dark:text-gray-400'}">${Number(f.seats_remaining) <= 5 ? 'Only ' : ''}${Number(f.seats_remaining)} seat${Number(f.seats_remaining) === 1 ? '' : 's'} left at this price</p>
+                                </div>` : ''}
                             </div>
                         </div>
                     </div>
@@ -2876,7 +2928,11 @@ try {
                             <span class="material-symbols-outlined text-gray-500" style="font-size: 16px;">luggage</span>
                             <span class="font-medium">${checked}</span>
                         </div>
-                        ${f.refundable ? '<span class="text-green-600 inline-flex items-center gap-1"><span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span><?= T::refundable ?></span>' : ''}
+                        ${(() => { const r = this.isRefundable(f.refundable);
+                            if (r === true) return '<span class="text-green-600 inline-flex items-center gap-1"><span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span><?= T::refundable ?></span>';
+                            if (r === false) return '<span class="text-amber-600 inline-flex items-center gap-1"><span class="material-symbols-outlined" style="font-size: 14px;">cancel</span><?= T::non_refundable ?></span>';
+                            return ''; })()}
+                        ${(Number(f.seats_remaining) > 0 && Number(f.seats_remaining) <= 5) ? `<span class="text-orange-600 inline-flex items-center gap-1 font-semibold"><span class="material-symbols-outlined" style="font-size: 14px;">local_fire_department</span>Only ${Number(f.seats_remaining)} left</span>` : ''}
                     </div>
                 `;
             },
@@ -3082,7 +3138,11 @@ try {
                                 </div>
 
                                 <!-- Outbound Flight Segments -->
-                                ${f.segments.map((seg, i) => this.renderFlightSegment(seg, i, 'outbound')).join('')}
+                                ${f.segments.map((seg, i) => {
+                                    const body = this.renderFlightSegment(seg, i, 'outbound');
+                                    const lay = (i < f.segments.length - 1) ? this.layoverLabel(seg, f.segments[i + 1]) : '';
+                                    return body + (lay ? `<div class="flex items-center gap-2 my-2 ml-2"><span class="material-symbols-outlined text-amber-600" style="font-size:16px;">hourglass_empty</span><span class="text-xs font-medium text-amber-700 dark:text-amber-400"><?= T::layover ?>: ${lay}</span></div>` : '');
+                                }).join('')}
 
                                 <!-- Return Flight Details (if roundtrip) -->
                                 ${isRoundTrip && f.returnFlight ? `
@@ -3103,7 +3163,11 @@ try {
                                     </div>
 
                                     <!-- Return Flight Segments -->
-                                    ${f.returnSegments.map((seg, i) => this.renderFlightSegment(seg, i, 'return')).join('')}
+                                    ${f.returnSegments.map((seg, i) => {
+                                        const body = this.renderFlightSegment(seg, i, 'return');
+                                        const lay = (i < f.returnSegments.length - 1) ? this.layoverLabel(seg, f.returnSegments[i + 1]) : '';
+                                        return body + (lay ? `<div class="flex items-center gap-2 my-2 ml-2"><span class="material-symbols-outlined text-amber-600" style="font-size:16px;">hourglass_empty</span><span class="text-xs font-medium text-amber-700 dark:text-amber-400"><?= T::layover ?>: ${lay}</span></div>` : '');
+                                    }).join('')}
                                 ` : ''}
                             </div>
 
@@ -3127,12 +3191,23 @@ try {
 
                             <!-- Fare Rules Tab -->
                             <div x-show="activeTab === 'fare'" class="space-y-3">
+                                ${f.fare_name ? `
+                                <div>
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="material-symbols-outlined text-blue-600" style="font-size: 20px;">sell</span>
+                                        <h5 class="font-semibold text-gray-900 dark:text-gray-100">Fare type</h5>
+                                    </div>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400 ml-8">${f.fare_name}</p>
+                                </div>` : ''}
                                 <div>
                                     <div class="flex items-center gap-2 mb-2">
                                         <span class="material-symbols-outlined text-red-600" style="font-size: 20px;">cancel</span>
                                         <h5 class="font-semibold text-gray-900 dark:text-gray-100"><?= T::cancellation ?></h5>
                                     </div>
-                                    <p class="text-sm text-gray-600 dark:text-gray-400 ml-8">${f.refundable ? '<?= T::refundable_with_fee ?>' : '<?= T::non_refundable ?>'}</p>
+                                    <p class="text-sm ml-8">${(() => { const r = this.isRefundable(f.refundable);
+                                        if (r === true) return '<span class="text-green-700 dark:text-green-400 font-medium"><?= T::refundable_with_fee ?></span>';
+                                        if (r === false) return '<span class="text-amber-700 dark:text-amber-400 font-medium"><?= T::non_refundable ?></span>';
+                                        return '<span class="text-gray-500">Check fare rules</span>'; })()}</p>
                                 </div>
                                 <div>
                                     <div class="flex items-center gap-2 mb-2">
@@ -3141,6 +3216,14 @@ try {
                                     </div>
                                     <p class="text-sm text-gray-600 dark:text-gray-400 ml-8"><?= T::date_changes_subject_to_fees ?></p>
                                 </div>
+                                ${(Number(f.seats_remaining) > 0 && Number(f.seats_remaining) <= 9) ? `
+                                <div>
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="material-symbols-outlined ${Number(f.seats_remaining) <= 5 ? 'text-orange-600' : 'text-gray-500'}" style="font-size: 20px;">event_seat</span>
+                                        <h5 class="font-semibold text-gray-900 dark:text-gray-100"><?= T::availability ?></h5>
+                                    </div>
+                                    <p class="text-sm ml-8 ${Number(f.seats_remaining) <= 5 ? 'text-orange-600 font-semibold' : 'text-gray-600 dark:text-gray-400'}">${Number(f.seats_remaining) <= 5 ? 'Only ' : ''}${Number(f.seats_remaining)} seat${Number(f.seats_remaining) === 1 ? '' : 's'} left at this price</p>
+                                </div>` : ''}
                             </div>
                         </div>
                     </div>
