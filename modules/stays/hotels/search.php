@@ -563,13 +563,20 @@ $router->post('stays/hotels/search', function() use ($db) {
                         if (isset($option['price']) && $option['price'] > 0) {
                             $price_per_night_per_room = $option['price'];  // Base price from DB
 
+                            // Stable option id for this option. MUST be computed for EVERY
+                            // option (not only when rate rules exist) and surfaced in the
+                            // emitted option below — the booking submit + hold need it, and
+                            // without it the client payload fails with "Unpriceable room
+                            // selection" (UAT). Mirrors stays_room_option_ids()'s rule:
+                            // the stored option_id if >0, else the 1-based index.
+                            $__oid = isset($option['option_id']) && (int) $option['option_id'] > 0
+                                ? (int) $option['option_id'] : ($optionIndex + 1);
+
                             // Apply the same yield rules the charge uses, so the card's
                             // "from" estimate doesn't under/over-quote vs the booked price
                             // (audit #5). Occupancy rules no-op (occupancy_pct=null), as in
                             // the pricer's cheap path. Guarded on dates + loaded engine.
                             if (!empty($hotelRateRules) && function_exists('rate_rules_adjust_nightly')) {
-                                $__oid = isset($option['option_id']) && (int) $option['option_id'] > 0
-                                    ? (int) $option['option_id'] : ($optionIndex + 1);
                                 $price_per_night_per_room = rate_rules_adjust_nightly($hotelRateRules, (float) $price_per_night_per_room, [
                                     'room_id' => (int) $room['id'], 'option_id' => $__oid,
                                     'los' => $searchLos, 'lead_days' => $searchLead,
@@ -655,6 +662,7 @@ $router->post('stays/hotels/search', function() use ($db) {
 
                             $groupedRoomOptions[$roomTypeId]['options'][] = [
                                 'option_index' => $optionIndex,
+                                'option_id' => $__oid,
                                 'price_per_night' => $price_per_night_markup['price'],
                                 'price_per_night_details' => $price_per_night_markup,
                                 'total_price' => $total_price_markup['price'],
