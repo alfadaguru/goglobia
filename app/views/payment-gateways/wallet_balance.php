@@ -119,14 +119,21 @@ if (($freshStatus ?? '') === 'paid') {
 }
 
 // ============================================================================
-// CURRENCY GUARD (audit money): the wallet balance and the invoice must be in
-// the SAME currency — there is no FX conversion here, so a raw comparison
-// across currencies would let a user underpay.
+// CURRENCY GUARD (audit money): the wallet spent and the invoice must be in the
+// SAME currency — there is no FX conversion here, so a cross-currency spend
+// would let a user underpay. The authoritative question is NOT "what is
+// users.currency" (a single legacy field that is wrong for multi-currency
+// customers and unset for agents — it over-blocked a funded NGN wallet whenever
+// users.currency happened to be 'USD'). It is: does this user hold a wallet in
+// the INVOICE currency? wallet_spend() below locks WHERE user_id AND
+// currency=$paymentCurrency, so if no such wallet exists the spend already fails
+// safe — we check it here only to show a clear message instead of a cryptic one.
 // ============================================================================
-if (strtoupper(trim((string) $userCurrency)) !== strtoupper(trim((string) $paymentCurrency))) {
+$__payWallet = $db->get('wallets', ['id'], ['user_id' => (string) $userId, 'currency' => strtoupper(trim((string) $paymentCurrency))]);
+if (!$__payWallet) {
     echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #fecaca;">';
     echo '<h4 style="color:#dc2626;margin-top:0;">Currency Mismatch</h4>';
-    echo '<p style="color:#991b1b;margin-bottom:10px;">Your wallet is in ' . htmlspecialchars($userCurrency) . ' but this invoice is in ' . htmlspecialchars($paymentCurrency) . '. Wallet payment requires the same currency.</p>';
+    echo '<p style="color:#991b1b;margin-bottom:10px;">You do not have a ' . htmlspecialchars((string) $paymentCurrency) . ' wallet, and this invoice is in ' . htmlspecialchars((string) $paymentCurrency) . '. Wallet payment requires a wallet in the same currency.</p>';
     echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
     echo '</div>';
     return;

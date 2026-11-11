@@ -306,6 +306,29 @@ if (!$isUserLoggedIn) {
     });
 }
 
+// CURRENCY + ACTOR FILTER (customer-flow audit F-01): the server already blocks a
+// mismatched method at /payment/process (actor rule + currency rule), but the menu
+// used to SHOW methods that would then be rejected (e.g. Paystack on a USD invoice,
+// or a card gateway to an agent). Mirror the SAME two server guards here so the
+// customer only ever sees a method that will actually work. The booking settles in
+// base currency (currency_markup = $baseCurrencyCode), which is what the server
+// enforces. Fail-open if a helper is missing so we never hide a working method.
+$paymentGateways = array_filter($paymentGateways, function ($gateway) use ($db, $baseCurrencyCode) {
+    if (function_exists('payment_gateway_allowed_for_actor')
+        && !payment_gateway_allowed_for_actor($db, $gateway)) {
+        return false;
+    }
+    if (function_exists('payment_gateway_allowed_for_currency')
+        && $baseCurrencyCode !== ''
+        && !payment_gateway_allowed_for_currency($db, $gateway, (string) $baseCurrencyCode)) {
+        return false;
+    }
+    return true;
+});
+// Re-index: array_filter preserves keys, so without this the "fallback to first
+// gateway" below ($paymentGateways[0]) could miss when index 0 was filtered out.
+$paymentGateways = array_values($paymentGateways);
+
 // FIND DEFAULT GATEWAY ID
 $defaultGatewayId = '';
 foreach ($paymentGateways as $gateway) {
