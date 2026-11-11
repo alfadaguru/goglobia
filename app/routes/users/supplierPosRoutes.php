@@ -111,8 +111,17 @@ $router->post('/supplier/pos/menu-item', function () use ($SECURE, $db) {
     try {
         $db->insert('stays_menu_items', ['outlet_id' => $outletId, 'category' => trim((string) ($_POST['category'] ?? '')) ?: null,
             'name' => substr($name, 0, 191), 'price' => $price, 'active' => 1, 'created_at' => date('Y-m-d H:i:s')]);
+        // Verify the row actually landed — don't report a swallowed failure as success
+        // (audit #4: a failing insert on a stale table used to be silent, so the operator
+        // thought the item saved while the menu stayed empty).
+        if ((int) $db->id() <= 0) { throw new \RuntimeException('insert returned no id'); }
         $_SESSION['message'] = ['type' => 'success', 'text' => 'Menu item added.'];
-    } catch (\Throwable $e) { error_log('pos menu-item: ' . $e->getMessage()); $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not add item.']; }
+    } catch (\Throwable $e) {
+        error_log('pos menu-item: ' . $e->getMessage());
+        // This is an owner/staff back-office screen, so surfacing the real reason is safe
+        // and makes "nothing happened" diagnosable instead of mysterious.
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not add item: ' . $e->getMessage()];
+    }
     header('Location: ' . $back); exit;
 });
 

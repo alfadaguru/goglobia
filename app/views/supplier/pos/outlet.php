@@ -71,6 +71,11 @@ $activeMenu = array_values(array_filter($menu, fn($m) => (int) $m['active'] === 
               <input type="number" name="qty" min="1" value="1" class="input text-sm w-16">
               <button type="submit" class="btn secondary text-xs">Add</button>
             </form>
+            <?php else: ?>
+            <!-- Audit #4: never leave the order with NO way to add items. When the menu is
+                 empty, say so and point at the menu panel instead of silently omitting the
+                 add-item form (which read as "the POS does nothing"). -->
+            <p class="text-xs text-amber-600 border-t border-gray-100 pt-3">No menu items yet — add one in the <span class="font-medium">Menu</span> panel to start adding items to this order.</p>
             <?php endif; ?>
 
             <!-- Settle -->
