@@ -104,6 +104,13 @@ $router->post(admin . '/suppliers/approve/(.+)', function ($user_id) use ($SECUR
         error_log('Supplier approve: service/quota update failed: ' . $e->getMessage());
     }
 
+    // Seed the supplier's starter roles (currently "Front Desk") so they don't have to
+    // hand-build the common ones (audit #3). Idempotent — skips any role name they already
+    // have, so re-approving or re-running never duplicates. Fail-soft inside the helper.
+    if (function_exists('supplier_seed_default_roles')) {
+        supplier_seed_default_roles($db, (string) $user_id);
+    }
+
     // Notify the supplier they can now sign in — via the operator-editable template
     // (supplier_approved), with an inline fallback so an email always goes out.
     $apprSent = false;

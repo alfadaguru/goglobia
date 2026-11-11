@@ -10314,6 +10314,73 @@ function supplier_role_modules(): array
     ];
 }
 
+if (!function_exists('supplier_default_roles')) {
+    /**
+     * Ready-made starter roles every supplier should have so they don't have to hand-build
+     * the common ones. Each: ['name', 'scope_type'=>'all'|'selected', 'permissions'=>matrix].
+     * The permissions matrix mirrors the stored shape: [module => [action => '']] — a
+     * granted permission is just the KEY being present (value an empty string), exactly as
+     * the role-builder saves and supplier_can()/supplier_role_allows() read it.
+     *
+     * "Front Desk" grants the front-desk surface: VIEW + EDIT on 'reservations' (edit is
+     * what lets a clerk create walk-ins/guests/customers) and VIEW on 'rooms' (see the
+     * room board/housekeeping). Scope 'all' so it works across the owner's properties.
+     */
+    function supplier_default_roles(): array
+    {
+        return [
+            [
+                'name'       => 'Front Desk',
+                'scope_type' => 'all',
+                'permissions' => [
+                    'reservations' => ['view' => '', 'edit' => ''],
+                    'rooms'        => ['view' => ''],
+                ],
+            ],
+        ];
+    }
+}
+
+if (!function_exists('supplier_seed_default_roles')) {
+    /**
+     * Idempotently ensure the owner has the starter roles (currently "Front Desk").
+     * - Skips any role whose name already exists for this owner (case-insensitive), so it
+     *   is safe to call repeatedly (on approval AND from the admin backfill tool) and never
+     *   duplicates or overwrites a role the supplier has since customised.
+     * - Fail-soft: a DB error is logged, never thrown (seeding must not block approval).
+     * Returns the number of roles created this call.
+     */
+    function supplier_seed_default_roles($db, string $owner): int
+    {
+        $owner = trim($owner);
+        if ($owner === '') { return 0; }
+        $created = 0;
+        try {
+            // Existing role names for this owner (lower-cased) — the idempotency key.
+            $have = [];
+            foreach ($db->select('supplier_roles', ['name'], ['owner_user_id' => $owner]) ?: [] as $r) {
+                $have[strtolower(trim((string) ($r['name'] ?? '')))] = true;
+            }
+            foreach (supplier_default_roles() as $role) {
+                $key = strtolower(trim((string) $role['name']));
+                if ($key === '' || isset($have[$key])) { continue; } // already there — leave it
+                $db->insert('supplier_roles', [
+                    'owner_user_id' => $owner,
+                    'name'          => (string) $role['name'],
+                    'permissions'   => json_encode($role['permissions'] ?? []),
+                    'scope_type'    => ($role['scope_type'] ?? 'all') === 'selected' ? 'selected' : 'all',
+                    'created_at'    => date('Y-m-d H:i:s'),
+                ]);
+                $have[$key] = true;
+                $created++;
+            }
+        } catch (\Throwable $e) {
+            error_log('supplier_seed_default_roles (' . $owner . '): ' . $e->getMessage());
+        }
+        return $created;
+    }
+}
+
 // ============================================================================
 // GENERALIZED RBAC (inc S16; docs 01a §10) — a permission CATALOGUE + approval
 // limits that generalize the fixed supplier_role_modules() set WITHOUT changing

@@ -544,7 +544,10 @@ try {
         //      admin-defined plans sold as internal inventory (ensureInsurancePlansSchema).
         // v16: tiqwa FLIGHT supplier modules row (ensureTiqwaModule) — the new Tiqwa
         //      flight provider; seeded disabled so existing installs re-run + seed it.
-        define('APP_SCHEMA_ENSURE_VERSION', 16);
+        // v17: supplier_seed_default_roles backfill — seed the "Front Desk" starter role
+        //      for every existing ACTIVE supplier (new approvals get it in the approve
+        //      handler). Idempotent: skips owners who already have a role by that name.
+        define('APP_SCHEMA_ENSURE_VERSION', 17);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
@@ -707,6 +710,19 @@ try {
         if (function_exists('seedUmrahPhase1')) {
             seedUmrahPhase1($db);
         }
+    }
+    // Backfill the "Front Desk" starter role for EXISTING active suppliers (audit #3).
+    // New approvals get it in the approve handler; this covers suppliers approved before
+    // the feature shipped. Idempotent per owner (skips anyone who already has the role),
+    // so running it once via this gated block is enough. Fail-soft per owner.
+    if (function_exists('supplier_seed_default_roles')) {
+        try {
+            $__activeSuppliers = $db->select('users', ['user_id'],
+                ['role' => 'supplier', 'status' => 'active']) ?: [];
+            foreach ($__activeSuppliers as $__sup) {
+                supplier_seed_default_roles($db, (string) ($__sup['user_id'] ?? ''));
+            }
+        } catch (\Throwable $e) { error_log('supplier default-role backfill: ' . $e->getMessage()); }
     }
 
         // All ensures completed this request → stamp the applied version so the
