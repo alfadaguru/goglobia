@@ -435,9 +435,12 @@ include __DIR__ . '/rail/train/index.php';
 include __DIR__ . '/ai_trip/ai_trip/index.php';
 
 // ----------------------------------------
-// UMRAH MODULES - Religious travel
+// UMRAH - Religious travel
 // ----------------------------------------
-include __DIR__ . '/umrah/umrah/index.php';               // Umrah
+// v1→v2: the legacy umrah SUPPLIER gateway (modules/umrah/umrah/* search/details/
+// issue/cancel/refund/void) was removed. Umrah is own-inventory and books through
+// the v2 service layer (app/lib/umrah/* + api/umrah/v1Routes.php), not a /modules
+// supplier dispatch — so no include is needed here.
 
 // ----------------------------------------
 // INSURANCE MODULES - Flight compensation claims
