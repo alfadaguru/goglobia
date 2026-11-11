@@ -75,7 +75,53 @@
 - Persists `['flight_data'=>$offerBd,'booking_data'=>$offerBd,'admin_created'=>true]` (`:451`). **OK.**
 - `NOTE: the live branch does not re-validate the offer is still bookable at the supplier (offers expire). A stale offer selected, then paid via manual-transfer hours later, can fail at issue. This is the same timing risk flagged in the earlier flight audit (fares expire); handled only by the issue-time flow + stranded-issue recovery, not at create.`
 
-_(continues: manual flight branch + bmBuildManualBookingData + the bookings INSERT — reading next.)_
+**MANUAL branch (`:606–635`):**
+- eSIM/insurance credential guards (`:616–631`, not flight). Flight manual → `module='manual'`, `booking_channel='admin_manual'`, `booking_data = bmBuildManualBookingData(...)` (`:632–634`, audited in P3). **OK.**
+
+**`booked_date` (`:646–652`):** parses datetime-local / datetime, falls back to now (prior fix). **OK.**
+
+**The `bookings` INSERT (`:664–704`):**
+- `booking_status` = `confirmed` (manual) / `pending` (live) (`:667`); `payment_status='unpaid'` (`:668`). **OK.**
+- `price_original=$costPrice`, `price_markup=$sellPrice` (`:669–670`). `email=$recipientEmail` (`:675`). `user_id=null` (`:690`). `pnr`= typed (manual) / `''` (live) (`:696`). `created_by_admin=$adminId` (`:700`). `transaction_id='BMCT-'+token` dedup key (`:689`). **OK.**
+- `FINDING — GAP (LOW): tax=0 / tax_type='fixed' hardcoded (:671–672).` BM bookings never carry a tax line. The `:335` comment calls the sell price "all-in", so tax is presumably baked in — `NOTE this is likely by-design, but the invoice shows no tax breakdown and any jurisdiction that itemises tax is unsupported here.`
+- `FINDING — GAP (LOW): country / address / nationality stored EMPTY (:678–679, :692).` Fine for a manual voucher; a **live international** supplier issue may require them → another contributor to issue-time failure.
+- `FINDING — GAP (LOW): $currency is only uppercased (:337), never validated against the currencies table.` A typo'd/invalid currency code is persisted on the booking and its money fields.
+- Response returns invoice + mode + amount (`:706–715`). **OK.**
+
+### 1.7 `POST /booking-manager/pay` (`:726–813`)
+- Auth `ADMIN_AUTH` + `admin_require(bookings,edit)` + CSRF (`:727–729`). Already-paid short-circuit (`:735–737`). **OK.**
+- **Tender mutual-exclusion (`:741–758`):** refuses a 2nd tender while `awaiting_verification` (`:749–751`); refuses manual_transfer if a DVA is pending/paid (`:752–757`). **OK — real money-safety (prevents double-pay).**
+- `dva` (`:760–769`): `gia_bp_create_dva(..,'admin',..)`; 503 if unavailable, 422 on fail. **OK.**
+- `manual_transfer` (`:771–799`): sets `awaiting_verification`, fires `bm_notify_pending_verification` (prior fix, present). **OK.**
+- `mark_paid_offline` (`:801–810`): manual-only guard (`:804`) → settle `'offline'`. **OK.**
+- `FINDING — UX GAP (LOW): when no bank_transfer gateway is configured, bmCompanyBankAccount returns null (:775) so company_bank is null (:793), yet a senior still gets the message "Give the customer the company account below" (:795–796).` The message promises bank details the response does not contain.
+
+### 1.8 `POST /booking-manager/verify` (`:820–845`)
+- Auth + CSRF + **senior-only** (`:821–824`). Already-paid no-op (`:830–832`); must be `awaiting_verification` (`:833–835`). **OK — correct state guards.**
+- Settles `bm_settle_booking_payment(..,'manual_verified',..)` with `amount=price_markup` (`:837–843`). **OK structurally.**
+- `FINDING — GAP (MEDIUM, money): verify marks the booking PAID IN FULL at price_markup (:841) with NO check that the amount actually transferred matches.` The senior clicks Verify and it's fully paid regardless of what landed; `transaction_id` is optional (`:827`); there is no partial-payment / amount-reconciliation path. A short transfer is recorded as full payment.
+
+### 1.9 `POST /booking-manager/retry-issue` (`:852–888`)
+- Auth + CSRF + senior-only (`:853–856`). Must be `paid` (`:861–863`); already-has-PNR no-op (`:864–866`). `refund_if_fail` opt-in (`:875`). Settles via issue-only recovery (`:876–880`). **OK — sound recovery path.**
+
+### 1.10 `GET /booking-manager/verify` — verification queue (`:893–920`)
+- Auth + `admin_require(bookings,view)`; queues only for seniors (`:894–900`).
+- Pending = `payment_status='awaiting_verification'` (`:899`). **OK.**
+- **Stranded = `payment_status='paid' AND booking_status[!]='confirmed' AND booking_channel[~]='admin_live'` (`:908–913`).**
+- `FINDING — BUG CANDIDATE (HIGH): the stranded query filters booking_channel[~]='admin_live' (:911). The needle 'admin_live' CONTAINS an underscore.` Per the project's documented Medoo bug ([Medoo [~] underscore bug] — Medoo does NOT auto-wrap `%..%` when the needle contains `_`/other special chars), this LIKE may be sent as `LIKE 'admin_live'` (exact-ish, `_` = single-char wildcard) **instead of `LIKE '%admin_live%'`**, so it can **match nothing** → the stranded ops queue would be **empty even when paid-but-unissued live bookings exist**, hiding money-collected-nothing-bought bookings from the senior. **This is the same bug class the memory says hid ALL supplier reservations.** → **MUST confirm in P4** whether this exact call wraps; if it doesn't, it's a real HIGH (ops-blindness to stranded money). _Not asserted as confirmed — flagged for P4 verification._
+
+### 1.11 `bmBuildManualBookingData` — FLIGHT manual voucher (`:925–1172`, flight branch `:1111–1172`)
+- Parses `segments` JSON → per-segment from/to/datetimes/airline/code/flight#/class/baggage (`:1116–1132`). Builds `passengers` excluding `primary_guest` (`:1138–1147`). Builds `flight_data` incl. trip-level `departure_code`/`arrival_code` + `routes[0].segments` (`:1149–1169`). **OK.**
+- `FINDING — GAP (LOW, data integrity): no validation that manual flight segments exist/are ordered/from≠to (:1116–1132).` A manual flight submitted with zero valid segments yields empty `routes`/`flight_data` → a **blank ticket**. (The console should enforce ≥1 segment — verified in P2.)
+- `NOTE: departure_date = date('Y-m-d', strtotime($first['departure_datetime'])) (:1163) — a malformed typed datetime silently becomes ''.`
+
+### 1.12 `bmStoreManualDocument` (`:1175–1191`)
+- `is_uploaded_file` (`:1179`), **extension-only** allow-list pdf/png/jpg/jpeg/webp (`:1180–1182`), 8 MB cap (`:1183`), random name (`:1186`), `move_uploaded_file` (`:1188`).
+- `FINDING — NOTE (LOW): extension-only validation, no MIME/content check (:1180–1182)` — inconsistent with `handleFileUpload` (which checks MIME). Low risk (admin-gated, non-`.php` extension, stored under uploads/), but a mislabeled file passes.
+
+**P1 COMPLETE — entire 1191-line route read line-by-line.** Route findings: 2 MEDIUM (hand-typed live price; passport optional for live intl), 1 MEDIUM money (verify = full-paid regardless of amount), **1 HIGH candidate (stranded-queue Medoo `[~]` — pending P4 confirm)**, several LOW (currency unvalidated, tax=0, empty country/addr, search loopback opacity, blank-segment manual, extension-only doc, misleading no-bank message). Clean: all auth+CSRF, idempotency, tender exclusion, live stub/handle guards, verify/retry state guards.
+
+_(Next: P2 — the console UI, manager.php, 1303 lines.)_
 
 ---
 
