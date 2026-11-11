@@ -1400,7 +1400,11 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/calendar/save', function 
             }
         }
 
-        // Availability counts + closed flag → stays_inventory (upsert).
+        // Availability counts + closed flag → stays_inventory. Route EVERY write
+        // through stays_inventory_set(), which locks the night FOR UPDATE and refuses
+        // to drop available_count below the rooms already committed (held + consumed)
+        // that night — the no-retro-oversell invariant. Writing stays_inventory
+        // directly here would bypass that guard (audit HIGH-1), so we never do.
         $dateKeys = [];
         foreach ([$avail, $closed] as $src) {
             foreach ($src as $oid => $byDate) {
@@ -1408,6 +1412,7 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/calendar/save', function 
                 foreach ($byDate as $date => $_v) { $dateKeys[(int) $oid . '|' . $date] = [(int) $oid, (string) $date]; }
             }
         }
+        $invRejects = [];
         foreach ($dateKeys as $pair) {
             [$oid, $date] = $pair;
             if (empty($validOptionIds[$oid])) { continue; }
@@ -1416,24 +1421,28 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/calendar/save', function 
             $isClosed = !empty($closed[$oid][$date]) ? 1 : 0;
             // If nothing to set for this cell, skip.
             if ($cntRaw === '' && $isClosed === 0) { continue; }
-            $count = ($cntRaw === '' || $cntRaw === null) ? null : max(0, (int) $cntRaw);
-            $exists = $db->has('stays_inventory',
-                ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid, 'date' => $date]);
-            if ($exists) {
-                $upd = ['closed' => $isClosed, 'updated_at' => $now];
-                if ($count !== null) { $upd['available_count'] = $count; }
-                $db->update('stays_inventory', $upd,
-                    ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid, 'date' => $date]);
+            // Only the keys actually supplied are written (blank count → closed-only).
+            $fields = ['closed' => $isClosed];
+            if ($cntRaw !== '' && $cntRaw !== null) { $fields['available_count'] = max(0, (int) $cntRaw); }
+            $res = stays_inventory_set($db, $stayId, $roomId, (int) $oid, $date, $date, $fields);
+            if (!empty($res['ok'])) {
+                $savedInv += (int) ($res['updated'] ?? 1);
             } else {
-                $db->insert('stays_inventory', [
-                    'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid, 'date' => $date,
-                    'available_count' => $count !== null ? $count : 0, 'closed' => $isClosed, 'created_at' => $now,
-                ]);
+                // Carry the guard's reason (e.g. "N room(s) already committed") up to the operator.
+                $invRejects[] = $res['message'] ?? ('Could not update ' . $date);
             }
-            $savedInv++;
         }
 
-        $_SESSION['message'] = ['type' => 'success', 'text' => "Saved {$savedPrices} price(s) and {$savedInv} availability cell(s)."];
+        if (!empty($invRejects)) {
+            // Partial save: prices/other cells applied, but some availability edits were
+            // refused to protect existing bookings. Tell the operator exactly what.
+            $first = $invRejects[0];
+            $more = count($invRejects) > 1 ? (' (+' . (count($invRejects) - 1) . ' more)') : '';
+            $_SESSION['message'] = ['type' => 'error',
+                'text' => "Saved {$savedPrices} price(s) and {$savedInv} availability cell(s). Some were rejected: {$first}{$more}"];
+        } else {
+            $_SESSION['message'] = ['type' => 'success', 'text' => "Saved {$savedPrices} price(s) and {$savedInv} availability cell(s)."];
+        }
     } catch (\Throwable $e) {
         error_log('supplier calendar save: ' . $e->getMessage());
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not save the calendar.'];
