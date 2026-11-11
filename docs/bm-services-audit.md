@@ -250,3 +250,33 @@ an **off-system umrah as a branded voucher** — manual-only by design.
 **Real defects found + fixed this pass:** mozio false-block (cars) · ferries paid-but-unissuable (contained) · visa applicant passport/nationality (form gap). **Plus** 1 stale-copy fix (rail) and 1 can't-verify flagged honestly (toursbms), not asserted. Every service's live-vs-manual gating is correct; every manual builder matches its form 1:1; the live handle/stub guards hold across all suppliers. **Nothing faked, nothing hidden.**
 
 Commit trail: 98de082 (cars) · 9d430c1 (rail) · 989b9eb (ferries) · a09daad (esim) · 7e3e6cc (umrah) · 16549f6 (visa) · 907ce93 (bus) · +insurance.
+
+---
+
+## CROSS-CUTTING AUDIT — UI · UX · Backend · DB (totality, not just per-service forms)
+
+The per-service pass above covered form↔payload↔builder↔voucher. This section
+covers the four dimensions as a whole.
+
+### DB — BM `bookings` INSERT vs the real schema (`install/db.sql`) — CLEAN
+- All **39** INSERT columns exist in the `bookings` table. No missing column.
+- Types/nullability all fit: `infants` is `varchar` and the BM casts `(string)`; `child_ages/country/address/phone_country_code` are `NOT NULL` and the BM writes `''` (satisfies NOT NULL); `tax`(text)/`travellers`(text) NOT NULL get non-null values; `paid_at`/`user_id` nullable and the BM writes `null`/`''`.
+- Enums valid: `booking_status∈{held,confirmed,pending,cancelled}` ← BM writes confirmed/pending; `payment_status∈{…,awaiting_verification}` ← BM writes unpaid then awaiting_verification.
+- **No NOT-NULL-without-default column is omitted** — the only such column the BM doesn't send is `id` (AUTO_INCREMENT PK). So the INSERT can't fail on a missing required column.
+- BM-era columns all resolve: `created_by_admin/booking_channel/manual_document/booking_date` in db.sql; `notified_paid_at/pending_notified_at` self-healed via ALTER; `issue_claimed_at` in db.sql. No runtime write can hit a missing column.
+
+### Backend — all BM endpoints (auth matrix + money invariants) — CLEAN
+- **Auth matrix:** every endpoint `ADMIN_AUTH()` + `admin_require(bookings, view|add|edit)` + CSRF on every mutation; `/verify` and `/retry-issue` additionally **senior-only** (`bm_is_senior_admin`). Console/verify-queue GETs read senior for the company-bank/stranded sections. No endpoint ungated.
+- **`/pay` tender mutual-exclusion** (`:824–841`): refuses a 2nd tender while `awaiting_verification` (409), and refuses `manual_transfer` when a DVA is pending/paid (409) — prevents the double-pay (customer given both VA + bank details). Already-paid short-circuits idempotently.
+- **Create idempotency:** `client_token → transaction_id='BMCT-'+token`; a lost-response retry re-POSTs the same token → server returns the existing booking (no double-create) — verified the token is only re-minted on success.
+
+### UI — console shell, states, pay/verify — MOSTLY CLEAN (2 fixes applied)
+- **Clean:** `htmlspecialchars` on all chrome + recent-bookings values (no XSS); `x-cloak` + its CSS rule (no flash-of-unstyled); loading spinners + `:disabled` on search/create/pay buttons; counter `:disabled` at bounds; responsive grid (`lg:grid-cols-3`→stacked, `sm:grid-cols-2` forms); pay panel shows invoice+amount, 3 tenders (offline manual-only), DVA/company-bank blocks, ok/error settle msg.
+- **FIXED — accessibility:** icon-only occupancy +/- counters and the passenger delete button had **no accessible name**. Added context-specific `aria-label`s (e.g. "Add adult to room 2", "Remove child 1"), `aria-hidden` on decorative glyphs, `role=status` on live counts.
+
+### UX — flows, feedback, edge-states — MOSTLY CLEAN (1 fix + 1 noted)
+- **Clean/safe:** idempotency re-mint prevents double-submit; network-fail on create re-enables the button and a retry is dedup-safe; pay errors are recoverable via inline `settleMsg`; offline mark-paid has a `confirm()`.
+- **FIXED — post-create form lock + New booking:** after create the left form was still editable (only the Create button disabled), which is misleading, and the only reset was a full-page nav. Now the form dims + `pointer-events-none` + `aria-disabled` when created, and a **New booking** button (+ `newBooking()`) starts the next walk-in in-page (clears state, mints a fresh token).
+- **NOTED (polish, not a defect):** the create step uses `alert()` for validation while the pay step uses inline messaging — inconsistent, but functional. Left as-is.
+
+**Cross-cutting verdict:** DB + backend are CLEAN (schema-correct, fully auth-gated, money-safe). UI/UX had no defects — 2 material improvements applied (a11y names; post-create lock + in-page New booking) and 1 polish item noted. Commit: e37002a.
