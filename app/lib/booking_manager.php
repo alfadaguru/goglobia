@@ -187,7 +187,7 @@ if (!function_exists('bm_flight_is_international')) {
     }
 }
 
-if (!function_exists('bm_flight_passengers_have_passport')) {
+if (!function_exists('bm_flight_passengers_missing_passport')) {
     /**
      * Audit finding M1: for an international live flight every PASSENGER who needs
      * a travel document (adult + child; infants travel on a parent doc for many
