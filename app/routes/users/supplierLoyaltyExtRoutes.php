@@ -30,7 +30,7 @@ $router->get('/supplier/loyalty', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $c = _loyalty_ext_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $ctx = supplier_acting_context($db);
     $isOwner = !empty($ctx['is_owner']);
@@ -88,7 +88,7 @@ $router->post('/supplier/loyalty/occasion/save', function () use ($SECURE, $db) 
     $c = _loyalty_ext_ctx($db);
     $back = root . 'supplier/loyalty';
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     if ($c['org'] <= 0) { _supplier_stays_deny('No organisation.'); }
 
     // The guest must have a real booking with this owner (no arbitrary email rows).
@@ -108,7 +108,7 @@ $router->post('/supplier/loyalty/occasion/grant', function () use ($SECURE, $db)
     $c = _loyalty_ext_ctx($db);
     $back = root . 'supplier/loyalty';
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     if ($c['org'] <= 0) { _supplier_stays_deny('No organisation.'); }
 
     $email = guest_email_key((string) ($_POST['email'] ?? ''));
@@ -128,7 +128,7 @@ $router->post('/supplier/loyalty/referral', function () use ($SECURE, $db) {
     $c = _loyalty_ext_ctx($db);
     $back = root . 'supplier/loyalty';
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     if ($c['org'] <= 0) { _supplier_stays_deny('No organisation.'); }
 
     // The referred booking must be one of this owner's bookings.
@@ -156,7 +156,7 @@ $router->post('/supplier/loyalty/member-rate', function () use ($SECURE, $db) {
     $c = _loyalty_ext_ctx($db);
     $back = root . 'supplier/loyalty';
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     if ($c['org'] <= 0) { _supplier_stays_deny('No organisation.'); }
 
     $invoice = trim((string) ($_POST['invoice_id'] ?? ''));

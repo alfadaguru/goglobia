@@ -29,7 +29,7 @@ $router->get('/supplier/guests-crm', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $c = _guestcrm_ext_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $c['owner']);
     $seg     = trim((string) ($_GET['segment'] ?? ''));
@@ -76,7 +76,7 @@ $router->get('/supplier/guests/([A-Za-z0-9_-]+)/360', function ($token) use ($SE
     SUPPLIER_OR_STAFF_AUTH($db);
     $c = _guestcrm_ext_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $email = function_exists('guest_token_decode') ? guest_email_key(guest_token_decode($token)) : '';
     if ($email === '') { _supplier_stays_deny('Unknown guest.'); }
@@ -89,7 +89,7 @@ $router->get('/supplier/guests/([A-Za-z0-9_-]+)/360', function ($token) use ($SE
     $consent  = ($c['org'] > 0 && function_exists('guestcrm_consent_get')) ? guestcrm_consent_get($db, $c['org'], $email) : (function_exists('guestcrm_consent_defaults') ? guestcrm_consent_defaults() : []);
     $comms    = function_exists('guestcrm_comm_history') ? guestcrm_comm_history($db, $stayIds, $email) : [];
     $complaints = function_exists('guestcrm_complaint_history') ? guestcrm_complaint_history($db, $stayIds, $data['stays'], (string) ($profile['name'] ?? '')) : [];
-    $canEdit  = supplier_can($db, 'reservations', 'edit');
+    $canEdit  = supplier_can_orgwide($db, 'reservations', 'edit');
     $token    = htmlspecialchars($token);
 
     $title = 'Guest 360'; $description = ''; $header = true; $footer = true;
@@ -104,7 +104,7 @@ $router->post('/supplier/guests/([A-Za-z0-9_-]+)/consent', function ($token) use
     CSRF::guard();
     $c = _guestcrm_ext_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
 
     $email = function_exists('guest_token_decode') ? guest_email_key(guest_token_decode($token)) : '';
     $back  = root . 'supplier/guests/' . rawurlencode($token) . '/360';

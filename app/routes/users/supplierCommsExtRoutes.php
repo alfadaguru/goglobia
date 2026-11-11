@@ -12,7 +12,7 @@ $router->get('/supplier/guest-comms', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $templates   = function_exists('msgtpl_list')  ? msgtpl_list($db, $stayIds)  : [];
@@ -26,7 +26,7 @@ $router->get('/supplier/guest-comms', function () use ($SECURE, $db) {
     $ready = [];
     foreach (['email', 'sms', 'whatsapp'] as $c) { $ready[$c] = function_exists('guestmsg_channel_ready') ? guestmsg_channel_ready($db, $c) : false; }
 
-    $canEdit  = supplier_can($db, 'reservations', 'edit');
+    $canEdit  = supplier_can_orgwide($db, 'reservations', 'edit');
     $triggers = function_exists('msgauto_triggers') ? msgauto_triggers() : [];
     $channels = function_exists('msgtpl_channels')  ? msgtpl_channels()  : [];
     $title = 'Guest communication'; $description = ''; $header = true; $footer = true;
