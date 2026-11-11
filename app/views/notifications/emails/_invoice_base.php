@@ -176,7 +176,7 @@ if (!function_exists('goglobia_invoice_render')) {
     .vs { font-size: 8pt; color: <?= $p['slate'] ?>; }
     .big { font-size: 18pt; font-weight: bold; color: <?= $p['ink'] ?>; }
     .mid { font-size: 11pt; font-weight: bold; color: <?= $p['ink'] ?>; }
-    .tag { font-size: 7pt; font-weight: bold; color: <?= $p['primary'] ?>; background: <?= $p['sky'] ?>; padding: 2pt 6pt; border-radius: 3pt; }
+    .tag { font-size: 7pt; font-weight: bold; color: <?= $p['primary'] ?>; background: <?= $p['panel'] ?? $p['hair'] ?>; padding: 2pt 6pt; border-radius: 3pt; }
     .infotable { width: 100%; border-collapse: collapse; border: 0.5pt solid <?= $p['hair'] ?>; border-radius: 6pt; }
     .infotable td { border-bottom: 0.5pt solid <?= $p['hair'] ?>; padding: 8pt 11pt; }
     .infotable tr:last-child td { border-bottom: none; }
