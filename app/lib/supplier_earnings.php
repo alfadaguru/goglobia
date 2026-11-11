@@ -178,12 +178,39 @@ if (!function_exists('supplier_earning_accrue_for_booking')) {
             // store NULL (the listing is identified by the booking, not this column).
             $stayId = ($res['module'] === 'stays') ? (int) $res['listing_id'] : null;
 
-            // Amounts: supplier earns the NET rate (price_original). Server-stored only.
-            $net = round((float) ($b['price_original'] ?? 0), 2);
-            if ($net <= 0) { return ['ok' => false, 'message' => 'No net amount']; }
+            // Amounts (server-stored only):
+            //   gross           = what the customer paid (price_markup)
+            //   price_original  = the supplier's own listed rate (their gross revenue)
+            //   commission      = any per-booking commission already stored on the row
+            // The supplier's NET is their own rate MINUS the platform commission that the
+            // admin configured on this service (supplier_services.commission_pct). That
+            // percentage was advertised to the supplier ("Platform commission: X%") but
+            // was previously display-only and never withheld (audit HIGH-2) — so own-
+            // inventory suppliers were credited their full rate and the platform kept 0.
+            // We now withhold it here, recording it on commission_amount.
+            $priceOriginal = round((float) ($b['price_original'] ?? 0), 2);
+            if ($priceOriginal <= 0) { return ['ok' => false, 'message' => 'No net amount']; }
             $gross = round((float) ($b['price_markup'] ?? 0), 2);
             $commission = round((float) ($b['commission'] ?? 0), 2);
             $currency = strtoupper(trim((string) ($b['currency_markup'] ?? ''))) ?: 'USD';
+
+            // Platform commission on the supplier's own rate (service-level pct).
+            $platformPct = 0.0;
+            if (function_exists('supplier_service_quota')) {
+                $quota = supplier_service_quota($db, $owner, (string) $res['module']);
+                if (isset($quota['commission_pct']) && $quota['commission_pct'] !== null) {
+                    $platformPct = max(0.0, min(100.0, (float) $quota['commission_pct']));
+                }
+            }
+            $platformCommission = round($priceOriginal * $platformPct / 100.0, 2);
+            // Never let commission exceed the supplier's own rate (floors net at 0).
+            if ($platformCommission > $priceOriginal) { $platformCommission = $priceOriginal; }
+
+            // Supplier keeps their rate less the platform commission; both the existing
+            // per-booking commission and the new platform commission are recorded.
+            $commission = round($commission + $platformCommission, 2);
+            $net = round($priceOriginal - $platformCommission, 2);
+            if ($net < 0) { $net = 0.0; }
 
             $result = ['ok' => false, 'message' => 'Accrual failed'];
             $db->action(function ($db) use ($invoiceId, $owner, $orgId, $stayId, $net, $gross, $commission, $currency, &$result) {
