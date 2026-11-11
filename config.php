@@ -597,6 +597,12 @@ try {
     if (function_exists('ensureFlightShellCarriers')) {
         ensureFlightShellCarriers($db);
     }
+    // DB-driven authoritative airline name overrides (fixes stale flights_airlines
+    // names, e.g. UN→United Nigeria not defunct "Transaero"). Self-heals; also
+    // ensured lazily inside airline_name_override() so a dropped call here is safe.
+    if (function_exists('ensureAirlineNameOverrides')) {
+        ensureAirlineNameOverrides($db);
+    }
     // Brand/legal content self-heal — replaces shipped PHPTRAVELS boilerplate in
     // the CMS legal pages with GoGlobia content (only while still tainted; never
     // clobbers admin edits). Idempotent.

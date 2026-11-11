@@ -36,6 +36,90 @@ if (!function_exists('adivaha_getduration_from_minutes')) {
     }
 }
 
+// AUTHORITATIVE airline-name override — GATEWAY-LOCAL copy.
+// The /modules/ gateway deliberately does NOT load app/lib/functions.php (see
+// CLAUDE.md §2b), so airline_name_override() defined there is NOT callable here.
+// This self-contained copy resolves a carrier CODE to the correct display name
+// from the SAME `airline_name_overrides` table (created/seeded by the app side via
+// ensureAirlineNameOverrides, and self-healed here too so the gateway works even
+// if the app bootstrap hasn't run yet). Country-scoped: a row's name only applies
+// when the flight touches that country, so an IATA code reused by a foreign carrier
+// is never mislabelled. Behaviour is byte-identical to the functions.php resolver.
+if (!function_exists('adivaha_airline_name_override')) {
+    function adivaha_airline_name_override($db, string $code, string $origin = '', string $dest = ''): string
+    {
+        $code = strtoupper(trim($code));
+        if ($code === '') return '';
+
+        // Self-heal: ensure the table exists + is seeded (mirrors ensureAirlineNameOverrides).
+        static $ensured = false;
+        if (!$ensured) {
+            $ensured = true;
+            try {
+                $db->query(
+                    "CREATE TABLE IF NOT EXISTS `airline_name_overrides` (
+                        `id` int(11) NOT NULL AUTO_INCREMENT,
+                        `code` varchar(8) NOT NULL,
+                        `country` varchar(64) NOT NULL DEFAULT '',
+                        `name` varchar(120) NOT NULL,
+                        `active` tinyint(1) NOT NULL DEFAULT 1,
+                        `note` varchar(191) DEFAULT NULL,
+                        `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                        PRIMARY KEY (`id`),
+                        UNIQUE KEY `uq_code_country` (`code`,`country`),
+                        KEY `code` (`code`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+                );
+                if ((int) $db->count('airline_name_overrides') === 0) {
+                    $db->insert('airline_name_overrides', [
+                        ['code' => 'UN', 'country' => 'Nigeria', 'name' => 'United Nigeria Airlines', 'active' => 1, 'note' => 'IATA UN; stale seed showed defunct Transaero.'],
+                        ['code' => 'QI', 'country' => 'Nigeria', 'name' => 'Ibom Air',                'active' => 1, 'note' => 'IATA QI; stale seed showed defunct Cimber Air.'],
+                        ['code' => 'VK', 'country' => 'Nigeria', 'name' => 'ValueJet',                'active' => 1, 'note' => 'IATA VK (ICAO FVJ); shown as raw code.'],
+                        ['code' => 'P4', 'country' => 'Nigeria', 'name' => 'Air Peace',               'active' => 1, 'note' => 'IATA P4; already correct, pinned.'],
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                error_log('adivaha_airline_name_override (ensure): ' . $e->getMessage());
+            }
+        }
+
+        static $rules = null;
+        if ($rules === null) {
+            $rules = [];
+            try {
+                foreach (($db->select('airline_name_overrides', ['code', 'country', 'name'], ['active' => 1]) ?: []) as $r) {
+                    $rules[strtoupper(trim((string) $r['code']))][] = [
+                        'country' => trim((string) ($r['country'] ?? '')),
+                        'name'    => trim((string) ($r['name'] ?? '')),
+                    ];
+                }
+            } catch (\Throwable $e) {
+                error_log('adivaha_airline_name_override (load): ' . $e->getMessage());
+            }
+        }
+        if (empty($rules[$code])) return '';
+
+        $inCountry = function (string $airport, string $country) use ($db): bool {
+            $airport = strtoupper(trim($airport));
+            if ($airport === '' || $country === '') return false;
+            try {
+                $c = $db->get('flights_airports', 'country', ['code' => $airport]);
+                return $c !== null && strcasecmp(trim((string) $c), $country) === 0;
+            } catch (\Throwable $e) { return false; }
+        };
+
+        $globalName = '';
+        foreach ($rules[$code] as $r) {
+            if ($r['country'] === '') { $globalName = $r['name']; continue; }
+            if ($r['name'] === '') continue;
+            if ($inCountry($origin, $r['country']) || $inCountry($dest, $r['country'])) {
+                return $r['name'];
+            }
+        }
+        return $globalName;
+    }
+}
+
 $router->post('flights/adivaha/search', function () use ($db) {
 
     // search_guard: release the session lock before the (potentially long) async
@@ -360,22 +444,50 @@ $router->post('flights/adivaha/search', function () use ($db) {
             // customer actually flies rather than the shell's wrong/foreign name.
             $legCode    = (string) ($leg['code'] ?? $meta['code'] ?? '');
             $legAirline = (string) ($leg['airline'] ?? $meta['airline'] ?? '');
-            // Shell-carrier correction. (a) The original heuristic: an empty name, or a
-            // name that equals the code, is clearly a ticketing/virtual shell (e.g. W1)
-            // → use the real operating carrier. (b) A DB-DRIVEN rule (flight_shell_carriers,
-            // scoped per SUPPLIER + COUNTRY + match_mode) catches named shells the
-            // heuristic misses — e.g. Adivaha's A1 ("Atifly"/"APG Airline") on Nigerian
-            // flights → United Nigeria. The rule set is fully admin/DB-controlled so a
-            // different supplier's shell codes never leak across providers.
             $legOrigin = strtoupper(trim((string) ($leg['origin'] ?? '')));
             $legDest   = strtoupper(trim((string) ($leg['destination'] ?? '')));
-            $shellCarrier = ($legAirline === '' || $legAirline === $legCode);
+
+            // CARRIER RESOLUTION (rewritten 2026-11-11, verified against 842 live NG
+            // offers — docs/research/ng-domestic-airline-mapping.md).
+            //
+            // Adivaha ALWAYS carries the TRUE operating carrier in segments[].operated_by
+            // (0/842 offers were missing it). The displayed meta.code/airline is often a
+            // ticketing SHELL (A1 "APG Airline", W1 "World Ticket") OR a correct code with
+            // a STALE name (UN→"Transaero", QI→"Cimber Air"). So:
+            //  (1) prefer operated_by as the operating code whenever it is present and
+            //      differs from a detected shell — but NEVER invent a carrier (operated_by
+            //      comes straight from Adivaha). The old code only swapped for codes the
+            //      shell heuristic/DB-rule flagged; that missed named-shell cases.
+            //  (2) resolve the final code to an AUTHORITATIVE name via
+            //      airline_name_override() (country-scoped) so a stale flights_airlines row
+            //      can't surface a defunct/foreign airline. '' = no override → keep what we
+            //      have (Adivaha name, else the code for client-side lookup).
+            // Shell detection: an empty name, a name equal to the code, or a known
+            // ticketing-shell code (A1 = APG/GDS consolidator, W1 = World Ticket) — all
+            // are NOT the airline the customer flies. flight_shell_rule_matches() lives in
+            // functions.php which the gateway does not load, so we detect the known NG
+            // shells inline too (self-contained).
+            $__knownShell = in_array(strtoupper($legCode), ['A1', 'W1'], true);
+            $shellCarrier = ($legAirline === '' || $legAirline === $legCode || $__knownShell);
             if (!$shellCarrier && function_exists('flight_shell_rule_matches')) {
                 $shellCarrier = flight_shell_rule_matches($db, 'adivaha', $legCode, $legOrigin, $legDest);
             }
+            // Prefer the TRUE operating carrier (operated_by). Verified against 842 live
+            // offers: operated_by is always present and is the real operator. Swap when it
+            // differs from a shell display code; never invent (operated_by is Adivaha's).
             if ($operatingCarrierCode !== '' && $operatingCarrierCode !== $legCode && $shellCarrier) {
                 $legCode    = $operatingCarrierCode;
-                $legAirline = $operatingCarrierCode; // bare code -> resolved to real name client-side
+                $legAirline = $operatingCarrierCode; // bare code; name resolved just below
+            }
+
+            // Authoritative name override on the FINAL operating code (fixes the stale
+            // UN→Transaero / QI→Cimber / VK→raw-code names). Country-scoped so it only
+            // applies on the intended routes and can never mislabel a foreign carrier
+            // that happens to share the IATA code. Uses the gateway-local resolver
+            // (functions.php is not loaded in /modules/).
+            $__ovName = adivaha_airline_name_override($db, $legCode, $legOrigin, $legDest);
+            if ($__ovName !== '') {
+                $legAirline = $__ovName;
             }
 
             $flight = (object) [

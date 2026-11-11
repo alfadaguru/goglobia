@@ -2207,6 +2207,110 @@ function flight_shell_rule_matches($db, string $supplier, string $code, string $
     return false;
 }
 
+/**
+ * AUTHORITATIVE airline name override (code → correct display name).
+ *
+ * Why: the global `flights_airlines` seed is stale for several live carriers — an
+ * IATA code that a defunct/foreign airline once held now belongs to a current
+ * carrier, so a lookup returns the WRONG airline name. Verified live against 842
+ * real Adivaha NG-domestic offers (docs/research/ng-domestic-airline-mapping.md):
+ *   UN → shown "Transaero" (defunct RU)  → is United Nigeria Airlines
+ *   QI → shown "Cimber Air" (defunct DK)  → is Ibom Air
+ *   VK → shown raw "VK"                   → is ValueJet
+ *   P4 → "Air Peace"                      → correct (included for completeness)
+ * These overrides WIN over both the supplier-supplied name and the stale DB row.
+ *
+ * Scoped like the shell rules: a row carries an optional `country` so the override
+ * only applies when the flight touches that country (an IATA code can be reused by
+ * a different airline elsewhere — never mislabel a foreign carrier that shares it).
+ * Country '' = global. Admin/DB-controlled, self-healing seed, same pattern as
+ * ensureFlightShellCarriers(). This resolves the CODE; it never fabricates an
+ * operator — callers pass the real operating code (operated_by) they already hold.
+ */
+function ensureAirlineNameOverrides($db): void
+{
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+
+    try {
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS `airline_name_overrides` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `code` varchar(8) NOT NULL,
+                `country` varchar(64) NOT NULL DEFAULT '',
+                `name` varchar(120) NOT NULL,
+                `active` tinyint(1) NOT NULL DEFAULT 1,
+                `note` varchar(191) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_code_country` (`code`,`country`),
+                KEY `code` (`code`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    } catch (Throwable $e) {
+        error_log('ensureAirlineNameOverrides (create): ' . $e->getMessage());
+        return;
+    }
+
+    // Seed the verified Nigerian carriers ONLY when empty (never clobber admin edits).
+    try {
+        if ((int) $db->count('airline_name_overrides') === 0) {
+            $db->insert('airline_name_overrides', [
+                ['code' => 'UN', 'country' => 'Nigeria', 'name' => 'United Nigeria Airlines', 'active' => 1, 'note' => 'IATA UN; stale seed showed defunct Transaero. Verified live (operated_by=UN).'],
+                ['code' => 'QI', 'country' => 'Nigeria', 'name' => 'Ibom Air',                'active' => 1, 'note' => 'IATA QI; stale seed showed defunct Cimber Air. Verified live (operated_by=QI).'],
+                ['code' => 'VK', 'country' => 'Nigeria', 'name' => 'ValueJet',                'active' => 1, 'note' => 'IATA VK (ICAO FVJ); shown as raw code. Verified live (W1 shell operated_by=VK).'],
+                ['code' => 'P4', 'country' => 'Nigeria', 'name' => 'Air Peace',               'active' => 1, 'note' => 'IATA P4; already correct, pinned for completeness.'],
+            ]);
+        }
+    } catch (Throwable $e) {
+        error_log('ensureAirlineNameOverrides (seed): ' . $e->getMessage());
+    }
+}
+
+/**
+ * Resolve an airline CODE to its authoritative display name, or '' if no override
+ * applies. Country-scoped: a row with a country only applies when origin/dest is in
+ * that country. Returns '' when there is no override (caller keeps its own name /
+ * the normal flights_airlines lookup). Cached per request.
+ */
+function airline_name_override($db, string $code, string $origin = '', string $dest = ''): string
+{
+    $code = strtoupper(trim($code));
+    if ($code === '') return '';
+    ensureAirlineNameOverrides($db);
+
+    static $rules = null;
+    if ($rules === null) {
+        $rules = [];
+        try {
+            $rows = $db->select('airline_name_overrides', ['code', 'country', 'name'], ['active' => 1]) ?: [];
+            foreach ($rows as $r) {
+                $rules[strtoupper(trim((string) $r['code']))][] = [
+                    'country' => trim((string) ($r['country'] ?? '')),
+                    'name'    => trim((string) ($r['name'] ?? '')),
+                ];
+            }
+        } catch (Throwable $e) {
+            error_log('airline_name_override (load): ' . $e->getMessage());
+        }
+    }
+
+    if (empty($rules[$code])) return '';
+    // Prefer a country-scoped match (flight must touch that country); fall back to a
+    // global ('') override only if no country-scoped rule applies.
+    $globalName = '';
+    foreach ($rules[$code] as $r) {
+        if ($r['country'] === '') { $globalName = $r['name']; continue; }
+        if ($r['name'] === '') continue;
+        if (flight_airport_in_country($db, $origin, $r['country'])
+            || flight_airport_in_country($db, $dest, $r['country'])) {
+            return $r['name'];
+        }
+    }
+    return $globalName;
+}
+
 /** True when an airport code's country (flights_airports.country) matches $country. Cached. */
 function flight_airport_in_country($db, string $airportCode, string $country): bool
 {
