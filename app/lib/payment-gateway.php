@@ -64,7 +64,14 @@ function pg_confirms_on_payment_module($module): bool
     // NOTE: scoped to the own-inventory module NAME, not module_type='insurance', so
     // a future real insurance supplier (travelsure) with its own issue.php still
     // auto-issues normally.
-    return in_array(strtolower((string) $module), ['flight', 'flights', 'visa', 'visas', 'goglobia'], true);
+    // OWN-INVENTORY modules store `module` = the SERVICE name (flights/visa/cars/
+    // stays/bus/goglobia-insurance) and have NO supplier /issue endpoint, so they
+    // confirm the moment payment verifies. REAL supplier bookings store `module` =
+    // the SUPPLIER name (cartrawler/hotelbeds/stuba/adivaha/…), which never matches
+    // this list, so they still go through the supplier issue loopback. Verified via
+    // UAT: own cars/stays/bus were auto-cancelled+refunded after payment because the
+    // settler curled a non-existent modules/{svc}/{svc}/issue (403) → issue "failed".
+    return in_array(strtolower((string) $module), ['flight', 'flights', 'visa', 'visas', 'cars', 'stays', 'bus', 'goglobia'], true);
 }
 
 /**
