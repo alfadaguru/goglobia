@@ -78,4 +78,34 @@
 
 ---
 
-_(Next: Rail.)_
+## 3. RAIL (live + manual) — AUDITED + 1 stale-copy fix
+
+Rail is special: its create path goes through the shared **`rail_create_order()`**
+money path and returns **before** the generic stub/handle gate
+(`bookingManagerRoutes.php:394→421`, gate is at `:446`). So the stub detector
+never applies to rail (confirmed in the Cars audit sweep too).
+
+### Live path
+- **Form** (`manager.php:351–396`): From/To station code, travel date, adults, children → `railSearch()` posts to the real supplier endpoint `/ticket/trainQuery` (`:1495`). Train results expand to seat classes; `railSelect` prefills the sell price from the chosen seat (`:1504–1510`). **OK.**
+- **Order assembly** `buildRailOrder()` (`:1511–1542`): builds the exact `rail_create_order` input (journey leg + train-format passengers via `buildPassengers`), carrying `price_total_limit` from the chosen seat (which the server then re-validates). **OK.**
+- **Create** (`bookingManagerRoutes.php:394–423`): requires `journey` + `passengers` (`:397`), injects contact name/email/phone, delegates to `rail_create_order($db,$input,{sell_price,created_by_admin,booking_channel:'admin_live',grant_session:false,is_agent:false})`, returns here. **No money-logic duplication — one shared audited path.** ✅
+
+### Money-safety of `rail_create_order` (`app/routes/rail/bookingRoutes.php:87+`) — VERIFIED
+- **Server-side fare re-validation** (`:101–118`): re-derives the supplier fare via `_train_revalidate_journey_pricing` (fresh `/ticket/trainQuery`), **overwrites the client's `price_total_limit`**, and is **FAIL-CLOSED** — returns a 409 if the fare can't be verified. The client-typed price is never trusted. ✅
+- **Sell-price floor** (`:198–199`): `$sellPrice = max($totalPrice, round($opts['sell_price'],2))` — a BM staff sell price can never go **below** the supplier net → no under-charge/loss. ✅
+- Markup (`:127`) + promo (idempotent `:252–253`) applied; `price_original=net`, `price_markup=sell` (`:211–212`); `created_by_admin` + `booking_channel='admin_live'` stamped (`:243–244`); `grant_session` honoured (BM passes false → the staff session doesn't own the customer's invoice). Single insert (`:246`). ✅
+
+### Findings
+- **FIX (LOW, stale copy) — misleading manual banner:** `manager.php:615` told staff *"Live train search & ticketing … a staff live-rail tool is planned"* — but the live-rail tab already exists (`:351–396`, catalogue `rail=>live:true`). Corrected the banner to point staff to the Live supplier search tab. (Copy-only; no logic change.)
+- **NO money/functional issues.** Empty-passenger rail correctly fails-closed with a clear message (`buildPassengers` adds no lead fallback → backend rejects at `:397`) — right behaviour, not a bug.
+- **CAN'T-VERIFY-FROM-CODE:** whether a rail module row is enabled (`type=rail,status=1,active=1`) — the live tab is correctly gated on `suppliers.length`, so it only shows when one is enabled.
+
+### Manual path
+- **Form** (`manager.php:612–626`): from/to station + code, departs/arrives (datetime-local), seat/class, train #, optional booking reference.
+- **Builder** (`bookingManagerRoutes.php:1119+`): reads those fields 1:1 (depart/arrive → `from_date_time`/`to_date_time` via `strtotime`; codes uppercased). **OK.**
+
+**RAIL verdict: SOUND.** The money path is the strongest in the BM (server-verified fare, fail-closed, sell-floor, shared not duplicated). One stale banner fixed.
+
+---
+
+_(Next: Ferries.)_
