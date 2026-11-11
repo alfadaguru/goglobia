@@ -62,8 +62,10 @@ $svcIcons = [
   </div>
 
   <div class="grid lg:grid-cols-3 gap-5">
-    <!-- LEFT: the working form (mode-dependent) -->
-    <div class="lg:col-span-2 space-y-5">
+    <!-- LEFT: the working form (mode-dependent). Once the booking is created it is
+         persisted and immutable here, so lock the form (dim + non-interactive) to
+         signal that — the next walk-in uses "New booking" / Reset. -->
+    <div class="lg:col-span-2 space-y-5 transition-opacity" :class="created ? 'opacity-50 pointer-events-none select-none' : ''" :aria-disabled="created ? 'true' : 'false'">
 
       <!-- ============ LIVE MODE: supplier search (generic; rail + ferries have their own) ============ -->
       <?php if (!$isRail && !$isFerries): ?>
@@ -193,16 +195,16 @@ $svcIcons = [
                   </div>
                   <div class="flex items-center gap-4 flex-wrap">
                     <div class="flex items-center gap-1.5">
-                      <span class="text-xs text-slate-500 w-14">Adults</span>
-                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.adults<=1" @click="hotelDecGuest(ri,'adults')"><span class="material-symbols-outlined" style="font-size:14px;">remove</span></button>
-                      <span class="w-5 text-center text-sm font-medium tabular-nums" x-text="room.adults"></span>
-                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.adults>=8" @click="hotelIncGuest(ri,'adults')"><span class="material-symbols-outlined" style="font-size:14px;">add</span></button>
+                      <span class="text-xs text-slate-500 w-14" :id="'rm'+ri+'-ad'">Adults</span>
+                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.adults<=1" @click="hotelDecGuest(ri,'adults')" :aria-label="'Remove adult from room '+(ri+1)"><span class="material-symbols-outlined" style="font-size:14px;" aria-hidden="true">remove</span></button>
+                      <span class="w-5 text-center text-sm font-medium tabular-nums" x-text="room.adults" :aria-labelledby="'rm'+ri+'-ad'" role="status"></span>
+                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.adults>=8" @click="hotelIncGuest(ri,'adults')" :aria-label="'Add adult to room '+(ri+1)"><span class="material-symbols-outlined" style="font-size:14px;" aria-hidden="true">add</span></button>
                     </div>
                     <div class="flex items-center gap-1.5">
-                      <span class="text-xs text-slate-500 w-14">Children</span>
-                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.children<=0" @click="hotelDecGuest(ri,'children')"><span class="material-symbols-outlined" style="font-size:14px;">remove</span></button>
-                      <span class="w-5 text-center text-sm font-medium tabular-nums" x-text="room.children"></span>
-                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.children>=6" @click="hotelIncGuest(ri,'children')"><span class="material-symbols-outlined" style="font-size:14px;">add</span></button>
+                      <span class="text-xs text-slate-500 w-14" :id="'rm'+ri+'-ch'">Children</span>
+                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.children<=0" @click="hotelDecGuest(ri,'children')" :aria-label="'Remove child from room '+(ri+1)"><span class="material-symbols-outlined" style="font-size:14px;" aria-hidden="true">remove</span></button>
+                      <span class="w-5 text-center text-sm font-medium tabular-nums" x-text="room.children" :aria-labelledby="'rm'+ri+'-ch'" role="status"></span>
+                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.children>=6" @click="hotelIncGuest(ri,'children')" :aria-label="'Add child to room '+(ri+1)"><span class="material-symbols-outlined" style="font-size:14px;" aria-hidden="true">add</span></button>
                     </div>
                   </div>
                   <template x-if="room.children>0">
@@ -733,7 +735,7 @@ $svcIcons = [
                 <template x-if="showApplicantDocs">
                   <input class="input" :class="(mode==='live' && !(p.passport_number||'').trim() && p.type!=='infant') ? 'border-red-400' : ''" x-model="p.passport_number" :placeholder="(mode==='live' && p.type!=='infant') ? 'Passport # (required)' : 'Passport #'">
                 </template>
-                <button class="btn outline sm" @click="pax.splice(i,1)" x-show="pax.length>1"><span class="material-symbols-outlined">delete</span></button>
+                <button class="btn outline sm" @click="pax.splice(i,1)" x-show="pax.length>1" :aria-label="'Remove '+(p.type==='infant'?'infant':(p.type==='child'?'child':'adult'))+' '+(i+1)"><span class="material-symbols-outlined" aria-hidden="true">delete</span></button>
               </div>
               <?php if ($svc === 'visa'): ?>
               <!-- VISA: applicants need a nationality (the visa builder reads
@@ -817,6 +819,11 @@ $svcIcons = [
         </div>
 
         <div class="mt-3 text-sm" :class="settleMsgOk ? 'text-emerald-700' : 'text-red-600'" x-show="settleMsg" x-text="settleMsg"></div>
+
+        <!-- Start the next walk-in without a full page reload. -->
+        <button class="btn outline w-full justify-center mt-4" @click="newBooking()">
+          <span class="material-symbols-outlined">add</span><span>New booking</span>
+        </button>
       </div>
 
       <!-- Recent admin bookings -->
@@ -1733,6 +1740,24 @@ function bookingMgr() {
         this.settleMsgOk=!!data.status; this.settleMsg=data.message||'';
       }catch(e){ this.settleMsgOk=false; this.settleMsg='Payment step failed'; }
       this.paying=false;
+    },
+
+    // Start a fresh walk-in booking in-page (no full reload). Clears the created
+    // lock, the payment state, the chosen offer/rooms, and the customer+passenger
+    // inputs, and mints a new idempotency token so the next create is independent.
+    newBooking(){
+      this.created=false; this.creating=false; this.invoiceId='';
+      this.dva=null; this.manualPay=false; this.paying=false; this.settleMsg=''; this.settleMsgOk=false;
+      this.results=[]; this.searched=false; this.searchErrors=[];
+      this.selectedOffer=null; this.selectedRaw=null; this.selectedSupplier=''; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null; this.selectedRoomName='';
+      this.hotelPicks=[]; this.hotelPickSlot=0;
+      this.rail.selTrain=null; this.rail.selSeat=null; this.rail.trains=[];
+      this.ferry.sel=null; this.ferry.sailings=[];
+      this.cust={ first_name:'', last_name:'', email:'', phone:'', ticket_email:'' };
+      this.pax=[{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', nationality:'', ticket_number:'' }];
+      this.price={ sell:0, cost:0, currency:'' };
+      this.clientToken=this.newToken();
+      try{ window.scrollTo({ top:0, behavior:'smooth' }); }catch(e){}
     },
   };
 }
