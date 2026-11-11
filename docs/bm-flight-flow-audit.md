@@ -121,7 +121,55 @@
 
 **P1 COMPLETE — entire 1191-line route read line-by-line.** Route findings: 2 MEDIUM (hand-typed live price; passport optional for live intl), 1 MEDIUM money (verify = full-paid regardless of amount), **1 HIGH candidate (stranded-queue Medoo `[~]` — pending P4 confirm)**, several LOW (currency unvalidated, tax=0, empty country/addr, search loopback opacity, blank-segment manual, extension-only doc, misleading no-bank message). Clean: all auth+CSRF, idempotency, tender exclusion, live stub/handle guards, verify/retry state guards.
 
-_(Next: P2 — the console UI, manager.php, 1303 lines.)_
+## P2 — `app/views/admin/booking-manager/manager.php` (1303 lines) — console UI/UX
+
+### 2.1 Header / picker / mode toggle (`:1–60`)
+- Reads `$bm` globals, `$csrf` session, escapes `$svcLabel` (`:7–8,30`). Service picker with "manual" badges (`:41–49`). **OK.**
+- `FINDING — UX (LOW): the "Live supplier search" button is x-show="suppliers.length" (:58).` If no flight suppliers are enabled, the live button **silently vanishes** — staff get no "live unavailable, enable a supplier" hint; it looks like live mode doesn't exist.
+
+### 2.2 Live flight search form (`:121–188`)
+- Trip type, From/To airport autocomplete, depart/return, adults/children, cabin (`:122–160`). Search button w/ spinner (`:184–188`). **Live-fare-expiry amber warning present (`:191–196`, prior fix). OK.**
+- `FINDING — GAP (LOW): live flight search has adults + children only, NO infants field (:156–157)` — yet the backend + ticket handle `infant_N`. An infant booking can't be priced via live search.
+- `NOTE: offer cards show the supplier name (:205) — ADMIN/staff-facing console, so NOT a customer supplier leak (consistent with the supplier-hiding mandate, which is customer-facing only).`
+
+### 2.3 Manual flight form (`:340–443`)
+- Booked-date field (`:342–348`, prior fix). AI ticket reader, flights only (`:350–373`, prior feature). Segment grid: airline autocomplete + flight#/code + from/to autocomplete + departs/arrives + cabin + baggage + add/delete segment + PNR (`:380–443`). **OK — comprehensive.**
+- `FINDING — GAP (LOW, confirms P1 :1116): the UI guarantees ≥1 segment ROW (delete hidden when length==1, :438) but does NOT require the row to be FILLED` — an all-blank segment still submits, and neither UI nor backend requires a non-empty from/to → a blank-flight ticket is possible.
+
+### 2.4 Customer + passengers (`:585–643`)
+- Customer first/last/email/phone + separate ticket_email (`:585–597`). **OK.**
+- Passenger grid: adult/child add (`:611–612`), **"International trip" checkbox** (`:606–610`), passport shown only `x-if="isInternational"` (`:625–627`), optional e-ticket number (`:634–637`).
+- `FINDING — GAP (MEDIUM, confirmed in UI): passport is (a) gated behind a MANUAL "International trip" checkbox (:608) that nothing auto-sets from the actual route, and (b) even when shown, is optional — label says "recommended" (:616), the input has NO required (:626).` → a **LIVE international flight** can be created and paid with **no passport**, then **fail at the supplier issue** after payment. No route-based auto-detect of international.
+- `FINDING — GAP (LOW): passenger grid has no "Add infant" (:611–612)` despite backend `infant_N` support.
+
+### 2.5 Price + pay (`:645–699`)
+- Sell / net-cost / currency (`:649–651`) — **confirms P1: sell price is HAND-TYPED for both manual AND live (:649).** (Whether live `price.sell` is auto-filled from the selected offer is in the JS — §2.6.)
+- Pay buttons: DVA / manual transfer / offline (offline only for manual, `:674`). DVA + company-bank result blocks (`:680–699`).
+- `NOTE: the company-account block is x-if="companyBank" (:690) so it correctly hides when no bank gateway is configured — but the /pay toast still says "give the customer the account below" (P1 :795). UI-vs-toast mismatch confirmed.`
+
+### 2.6 Alpine `bookingMgr()` component (`:731–1302`)
+
+**`runSearch()` (`:887–955`):** validates From/To/depart (`:899–902`), requires suppliers (`:903`), builds flight params (`:936–941`), **fans out to ALL enabled suppliers in parallel, merges + sorts by price** (`:945–952`). One supplier failing is swallowed (`:951`). **OK — good parallel fan-out.**
+- `FINDING — GAP (LOW): flight search hardcodes infants:0 (:940)` — no infant pricing (consistent with §2.2).
+- `FINDING — GAP (LOW): per-supplier errors are swallowed (:951)` — "no offers" is indistinguishable from "every supplier errored"; no staff diagnostics.
+
+**`normalize()` (`:956–993`):** flight offer reads `it.segments[0][0]` or `it`, price `it.price||seg.price` (`:989–990`). `NOTE: assumes the segments[0][0] shape; a supplier returning a different offer shape yields a blank/0-price card (per-supplier shapes verified in P5).`
+
+**`selectOffer()` (`:994–999`) — CORRECTION to P1 §1.6:**
+- `this.price.sell = Number(r.price||seg.price||r.display_price||0) || this.price.sell` (`:997`) + currency (`:998`).
+- **CORRECTION: the live sell price IS auto-filled from the selected offer (:997), it is NOT purely hand-typed as P1 first stated.** The accurate finding: `GAP (LOW, was MED): the price field stays EDITABLE after auto-fill (:649), and the ||this.price.sell fallback (:997) keeps any previously-typed value when the offer price is 0/missing. So the normal live path prices correctly; the residual risk is a staff edit or a 0-price offer creating a mispriced live booking — narrower than "hand-typed".` _(The earlier MEDIUM is downgraded; no false reporting — the create route does accept whatever price is in the field, but the UI auto-fills it.)_
+
+**`createBooking()` (`:1185–1285`):**
+- Validates name/email (`:1186`), `price.sell>0` (`:1187`), live offer selected (`:1190`). **OK.**
+- `FINDING — GAP (MEDIUM, confirmed at submit): createBooking does NOT require passport for an international live flight (:1185–1193)` — no client-side gate; combined with §2.4 (optional passport field) and P1 §1.6, a live international flight can be created + paid with no passport → supplier issue fails after payment. **This is the strongest, most consistent finding across P1+P2.**
+- Live flight payload: `offer_booking_data = seg.booking_data || r.booking_data || r` (`:1252–1254`) — carries the handle (backend-validated by `bm_flight_offer_has_handle`). Manual: clean segment strip (`:1258–1262`). Idempotency token re-minted on success (`:1280`). **OK.**
+- `NOTE (UX): after one create the form locks (created flag, :653 :disabled); a second booking needs the Reset link (full reload). Acceptable, but no inline "new booking".`
+
+**`pay()` (`:1290–1300`):** posts method; DVA / manual_transfer handled (`:1293–1297`). `manual_transfer` keeps old `companyBank` if response null (`:1296`). **Confirms the company-account UX mismatch (block hidden when null, but backend message still promises it).**
+
+**P2 COMPLETE — manager.php read (header, forms, passenger grid, price/pay, all key JS methods).** UI findings: 1 MEDIUM (no passport gate for international live, confirmed at UI + submit), several LOW (no infants, swallowed search errors, blank-segment, hidden live button, company-account message mismatch). **Corrected P1's live-price finding (auto-filled, not hand-typed).**
+
+_(Next: P3 — booking_manager.php lib + verify.php, line-by-line.)_
 
 ---
 
