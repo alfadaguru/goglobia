@@ -108,7 +108,17 @@ if (empty($secretKey)) {
 // ============================================================================
 // Charge the amount DUE NOW (the loader puts payment_amount_due() into
 // $payload->price / $booking['price_markup'] here), in the booking currency.
-$amount = intval(round(((float) $booking['price_markup']) * 100));
+// MINOR UNITS (zero-decimal fix): Stripe wants the amount in the currency's
+// smallest unit — cents for USD/EUR (×100), but ZERO-decimal currencies
+// (JPY/KRW/VND/XAF/XOF…) must be sent as-is (×1) and three-decimal ones
+// (KWD/BHD/TND) ×1000. A blind ×100 overcharged JPY 100× (and undercharged
+// KWD 10×). Reuse the authoritative exponent table in app/lib/adyen.php so we
+// keep ONE source of truth. The verify side (verify_gateway_payment 'stripe')
+// divides by the SAME exponent — the two MUST stay in lockstep.
+if (!function_exists('adyen_to_minor_units')) {
+    require_once __DIR__ . '/../../lib/adyen.php';
+}
+$amount = adyen_to_minor_units((float) $booking['price_markup'], (string) $booking['currency_markup']);
 
 // Validate amount
 if ($amount <= 0) {

@@ -2505,9 +2505,17 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                     $piStatus = (string) ($pi['status'] ?? '');
 
                     if ($piStatus === 'succeeded') {
-                        // amount_received is in minor units.
-                        $paidMajor = ((float) ($pi['amount_received'] ?? $pi['amount'] ?? 0)) / 100;
+                        // amount_received is in the currency's MINOR units. Convert
+                        // back to major using the SAME exponent the charge side used
+                        // (stripe.php via adyen_to_minor_units) — a hardcoded /100 here
+                        // silently masked the zero-decimal overcharge (JPY: charge ×100,
+                        // verify ÷100 cancel, so 100× sailed through amount-match).
                         $paidCur   = (string) ($pi['currency'] ?? '');
+                        if (!function_exists('adyen_currency_exponent')) {
+                            require_once __DIR__ . '/adyen.php';
+                        }
+                        $__piMinor = (float) ($pi['amount_received'] ?? $pi['amount'] ?? 0);
+                        $paidMajor = $__piMinor / (10 ** adyen_currency_exponent($paidCur));
                         if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
                             error_log("STRIPE VERIFY: amount/currency mismatch for PI {$stripeRef}");
                             return 'failure';
