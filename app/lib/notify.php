@@ -553,10 +553,20 @@ class NOTIFY {
                     } else {
                         error_log("NOTIFY_ERROR: Failed to send email to Customer: $customerEmail (Subject: $subject)");
                     }
+                    // Record the attempt so delivery is visible (Fix 1 send-log).
+                    if (function_exists('notify_log')) {
+                        notify_log((string) $invoiceId, 'email', (string) $event, (string) $customerEmail, (bool) $sent, $sent ? null : 'provider returned false');
+                    }
                 } else {
+                    if (function_exists('notify_log')) {
+                        notify_log((string) $invoiceId, 'email', (string) $event, '', false, 'no customer email on booking');
+                    }
                 }
             } catch (\Throwable $e) {
                 error_log("NOTIFY_EXCEPTION (Customer): " . $e->getMessage());
+                if (function_exists('notify_log')) {
+                    notify_log((string) $invoiceId, 'email', (string) $event, (string) $customerEmail, false, $e->getMessage());
+                }
             }
 
             // IF RESEND, DO NOT SEND TO OWNER OR ADMIN
@@ -692,11 +702,23 @@ class NOTIFY {
                 );
                 if (trim($warm) !== '') { $outMsg = $warm; }
             }
+            // Capture the result (Fix 2) so a silent WhatsApp failure is visible.
             if ($ticketFile !== null) {
                 $ticketUrl = ($invoiceId !== '' && function_exists('ticket_public_url')) ? ticket_public_url((string) $invoiceId) : null;
-                SENDWHATSAPP($formattedPhone, $customerName, $outMsg, $ticketFile, $ticketUrl);
+                $waOk = (bool) SENDWHATSAPP($formattedPhone, $customerName, $outMsg, $ticketFile, $ticketUrl);
             } else {
-                SENDWHATSAPP($formattedPhone, $customerName, $outMsg);
+                $waOk = (bool) SENDWHATSAPP($formattedPhone, $customerName, $outMsg);
+            }
+            if (function_exists('notify_log')) {
+                notify_log((string) $invoiceId, 'whatsapp', (string) $event, (string) $formattedPhone, $waOk, $waOk ? null : 'green api send failed (or provider not greenapi)');
+            }
+        } else {
+            // The customer WhatsApp was SKIPPED because the booking's phone did not
+            // format to a usable number — previously silent. Record it so staff can
+            // see the booking has no reachable WhatsApp number.
+            if (function_exists('notify_log')) {
+                $rawPhone = (string) ($templateData['phone'] ?? $templateData['customerPhone'] ?? '');
+                notify_log((string) $invoiceId, 'whatsapp', (string) $event, $rawPhone, false, 'no usable phone (empty/invalid after formatting) — WhatsApp skipped');
             }
         }
 

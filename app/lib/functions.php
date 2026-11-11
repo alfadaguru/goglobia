@@ -5035,6 +5035,66 @@ function LOG_EMAIL_SENT($bookingId, $notificationType, $recipientEmail, $status 
 
 /**
  * ============================================================================
+ * notify_log — GENERIC, CHANNEL-AWARE NOTIFICATION SEND LOG
+ * ============================================================================
+ * Records EVERY notification send attempt (email / whatsapp / sms), success OR
+ * failure, so delivery is no longer invisible. Writes to the existing
+ * `logs_notification` table, extending it idempotently with `channel` +
+ * `recipient` columns (self-healing, the pattern used across this codebase).
+ * The legacy `recipient_email` column is kept populated (with the email OR phone)
+ * so old tooling that reads it still works.
+ *
+ * Best-effort: never throws, never blocks a send. Safe to call from any sender.
+ *
+ * @param string      $bookingId  invoice_id / booking ref (may be '')
+ * @param string      $channel    'email' | 'whatsapp' | 'sms' | 'push'
+ * @param string      $type       event/template name (e.g. 'booking_payment')
+ * @param string      $recipient  the email address or phone number sent to
+ * @param bool        $ok         true = delivered/accepted by provider
+ * @param string|null $error      failure reason when $ok is false
+ */
+if (!function_exists('notify_log')) {
+    function notify_log(string $bookingId, string $channel, string $type, string $recipient, bool $ok, ?string $error = null): void
+    {
+        global $db;
+        if (!($db ?? null)) { return; }
+        try {
+            // Self-heal the two extra columns ONCE per request (idempotent ALTERs;
+            // swallow "already exists"). Keeps install/db.sql as the source of truth
+            // while working on un-migrated installs.
+            static $ensured = false;
+            if (!$ensured) {
+                $ensured = true;
+                foreach ([
+                    "ALTER TABLE `logs_notification` ADD COLUMN `channel` VARCHAR(16) NOT NULL DEFAULT 'email'",
+                    "ALTER TABLE `logs_notification` ADD COLUMN `recipient` VARCHAR(255) NOT NULL DEFAULT ''",
+                    "ALTER TABLE `logs_notification` ADD INDEX `idx_booking_channel` (`booking_id`, `channel`)",
+                ] as $sql) {
+                    try { $db->query($sql); } catch (\Throwable $e) { /* exists */ }
+                }
+            }
+            $channel = strtolower(trim($channel)) ?: 'email';
+            $recipient = mb_substr(trim($recipient), 0, 255);
+            $db->insert('logs_notification', [
+                'booking_id'       => mb_substr($bookingId, 0, 50),
+                'notification_type'=> mb_substr($type, 0, 50),
+                'channel'          => $channel,
+                'recipient'        => $recipient,
+                // keep the legacy email column populated so old reports still read
+                'recipient_email'  => $recipient,
+                'sent_at'          => date('Y-m-d H:i:s'),
+                'status'           => $ok ? 'success' : 'failed',
+                'error_message'    => $error !== null ? mb_substr($error, 0, 1000) : null,
+            ]);
+        } catch (\Throwable $e) {
+            // A logging failure must NEVER affect the send path.
+            error_log('notify_log: ' . $e->getMessage());
+        }
+    }
+}
+
+/**
+ * ============================================================================
  * SENDWHATSAPP - SEND WHATSAPP NOTIFICATION
  * ============================================================================
  */
