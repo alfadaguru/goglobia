@@ -122,6 +122,93 @@ if (!function_exists('group_member_add')) {
     }
 }
 
+if (!function_exists('group_member_assign_room')) {
+    /**
+     * Assign a real physical room NUMBER to a group member (same capability a walk-in has).
+     * Validation REUSES the one canonical set the booking path uses — no parallel rules:
+     *   - the member exists and belongs to a group owned by $stayId;
+     *   - the room belongs to $stayId, is active, and in an assignable hk_status;
+     *   - the room is NOT taken for the member's BLOCK dates by any live booking OR any
+     *     other group member — via hk_rooms_blocking (which now unions in group members),
+     *     excluding THIS member's own current assignment;
+     *   - the room has no active OOO block over those dates.
+     * Serialized by a FOR UPDATE lock on the stays_physical_rooms row (same shared lock
+     * point hk_assign_room_to_booking uses) so two concurrent assigns of the same room
+     * can't both win. Returns ['ok'=>bool,'message'=>string].
+     */
+    function group_member_assign_room($db, int $memberId, int $stayId, int $physicalRoomId): array
+    {
+        if ($memberId <= 0 || $stayId <= 0 || $physicalRoomId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        try {
+            // Member + its group (ownership) + its block (dates).
+            $m = $db->get('stays_group_members', ['id', 'group_id', 'block_id'], ['id' => $memberId]);
+            if (!$m) { return ['ok' => false, 'message' => 'Member not found']; }
+            $blk = $db->get('stays_group_blocks', ['id', 'stay_id', 'date_from', 'date_to', 'room_id', 'state'],
+                ['id' => (int) $m['block_id'], 'group_id' => (int) $m['group_id'], 'stay_id' => $stayId]);
+            if (!$blk) { return ['ok' => false, 'message' => 'This member is not part of a block for your property.']; }
+            if (($blk['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'That block is no longer held.']; }
+
+            // Room must be this property's, active, assignable status.
+            $room = $db->get('stays_physical_rooms', ['id', 'hk_status', 'active', 'room_id'],
+                ['id' => $physicalRoomId, 'stay_id' => $stayId]);
+            if (!$room || (int) $room['active'] !== 1) { return ['ok' => false, 'message' => 'That room is not available for this property.']; }
+            $assignable = function_exists('hk_assignable_statuses') ? hk_assignable_statuses() : ['clean', 'inspected'];
+            if (!in_array((string) ($room['hk_status'] ?? ''), $assignable, true)) {
+                return ['ok' => false, 'message' => 'That room is occupied or not ready. Pick an available room.'];
+            }
+
+            $from = (string) ($blk['date_from'] ?? ''); $to = (string) ($blk['date_to'] ?? '');
+
+            $result = ['ok' => false, 'message' => 'Could not assign the room.'];
+            $db->action(function ($db) use ($memberId, $stayId, $physicalRoomId, $from, $to, &$result) {
+                // Shared lock point: serialize concurrent assigns of THIS physical room.
+                try { $db->query('SELECT id FROM stays_physical_rooms WHERE id = :id FOR UPDATE', [':id' => $physicalRoomId]); }
+                catch (\Throwable $e) { error_log('group_member_assign_room lock: ' . $e->getMessage()); $result = ['ok' => false, 'message' => 'Lock error']; return false; }
+
+                // Active OOO block over the member's dates?
+                if (function_exists('hk_room_has_ooo_overlap') && hk_room_has_ooo_overlap($db, $physicalRoomId, $from, $to)) {
+                    $result = ['ok' => false, 'message' => 'That room is out of order for those dates.']; return false;
+                }
+                // Taken by any live booking OR another group member over the member's dates?
+                // (hk_rooms_blocking now unions in group members.) Exclude THIS member's own
+                // current assignment so re-saving the same room is a no-op, not a self-conflict.
+                $blocking = function_exists('hk_rooms_blocking') ? hk_rooms_blocking($db, $stayId, $from, $to, '') : [];
+                if (isset($blocking[$physicalRoomId]) && $blocking[$physicalRoomId] !== ('GRP:member:' . $memberId)) {
+                    $result = ['ok' => false, 'message' => 'That room is already taken for those dates. Pick another.']; return false;
+                }
+
+                $db->update('stays_group_members',
+                    ['physical_room_id' => $physicalRoomId],
+                    ['id' => $memberId]);
+                $result = ['ok' => true, 'message' => 'Room assigned.'];
+                return true;
+            });
+            return $result;
+        } catch (\Throwable $e) {
+            error_log('group_member_assign_room: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Assign error'];
+        }
+    }
+}
+
+if (!function_exists('group_member_unassign_room')) {
+    /** Clear a group member's physical-room assignment (frees the room). Owner-scoped via
+     *  the member's group/block belonging to $stayId. Returns bool. */
+    function group_member_unassign_room($db, int $memberId, int $stayId): bool
+    {
+        if ($memberId <= 0 || $stayId <= 0) { return false; }
+        try {
+            $m = $db->get('stays_group_members', ['id', 'group_id', 'block_id'], ['id' => $memberId]);
+            if (!$m) { return false; }
+            $blk = $db->get('stays_group_blocks', ['id'],
+                ['id' => (int) $m['block_id'], 'group_id' => (int) $m['group_id'], 'stay_id' => $stayId]);
+            if (!$blk) { return false; } // not this property's member
+            $db->update('stays_group_members', ['physical_room_id' => null], ['id' => $memberId]);
+            return true;
+        } catch (\Throwable $e) { error_log('group_member_unassign_room: ' . $e->getMessage()); return false; }
+    }
+}
+
 if (!function_exists('group_rooming_import')) {
     /**
      * BULK ROOMING LIST IMPORT (PMS completion #08). Add many guests to a block at once

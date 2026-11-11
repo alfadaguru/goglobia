@@ -12574,11 +12574,20 @@ function ensureSupplierStaysSchema($db): void
             `block_id` INT(11) NOT NULL,
             `guest_name` VARCHAR(120) NOT NULL,
             `email` VARCHAR(191) DEFAULT NULL,
+            `physical_room_id` INT(11) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
             KEY `idx_group` (`group_id`),
             KEY `idx_block` (`block_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Existing installs: add the per-member physical-room assignment (a group member
+        // can be given a real room number, same as a walk-in). Idempotent.
+        try {
+            $__gmCols = $db->query("SHOW COLUMNS FROM `stays_group_members` LIKE 'physical_room_id'")->fetchAll();
+            if (!$__gmCols) {
+                $db->query("ALTER TABLE `stays_group_members` ADD COLUMN `physical_room_id` INT(11) DEFAULT NULL AFTER `email`");
+            }
+        } catch (\Throwable $e) { error_log('stays_group_members.physical_room_id ensure: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_group_items` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,

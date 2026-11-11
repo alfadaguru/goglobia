@@ -268,6 +268,65 @@ if (!function_exists('hk_rooms_blocking')) {
                 }
                 $out[$prid] = $inv;
             }
+
+            // ALSO union-in GROUP-MEMBER room assignments (a group member can hold a real
+            // physical room number too — stays_group_members.physical_room_id). Without
+            // this, the canonical guard would see only `bookings` and a walk-in could be
+            // handed a room a group member already holds for overlapping dates (double-book
+            // across the two subsystems). ONE guard, both paths — no parallel check. A
+            // member's window is its block's [date_from,date_to); only 'held' blocks of a
+            // group belonging to THIS property count. Keyed by prid; value is a 'GRP:*' tag
+            // so callers can tell a group holder from a booking invoice.
+            try {
+                // Two plain queries (no Medoo join) for clarity + version-safety: the
+                // assigned members for THIS property's non-cancelled groups, then their
+                // blocks' dates/state. A member blocks iff its block is 'held' and its
+                // block window overlaps the subject window.
+                $gMembers = $db->select('stays_group_members',
+                    ['id', 'block_id', 'physical_room_id'],
+                    ['physical_room_id[!]' => null]) ?: [];
+                if ($gMembers) {
+                    $blockIds = array_values(array_unique(array_map(
+                        fn($m) => (int) ($m['block_id'] ?? 0), $gMembers)));
+                    $blockIds = array_values(array_filter($blockIds, fn($b) => $b > 0));
+                    $blocksById = [];
+                    if ($blockIds) {
+                        foreach ($db->select('stays_group_blocks',
+                            ['id', 'stay_id', 'date_from', 'date_to', 'state', 'group_id'],
+                            ['id' => $blockIds, 'stay_id' => $stayId, 'state' => 'held']) ?: [] as $b) {
+                            $blocksById[(int) $b['id']] = $b;
+                        }
+                    }
+                    // Exclude members whose group is cancelled.
+                    $groupIds = array_values(array_unique(array_map(
+                        fn($b) => (int) ($b['group_id'] ?? 0), $blocksById)));
+                    $cancelledGroups = [];
+                    if ($groupIds) {
+                        foreach ($db->select('stays_groups', ['id'],
+                            ['id' => $groupIds, 'status' => 'cancelled']) ?: [] as $cg) {
+                            $cancelledGroups[(int) $cg['id']] = true;
+                        }
+                    }
+                    foreach ($gMembers as $m) {
+                        $prid = (int) ($m['physical_room_id'] ?? 0);
+                        if ($prid <= 0) { continue; }
+                        $blk = $blocksById[(int) ($m['block_id'] ?? 0)] ?? null;
+                        if (!$blk) { continue; }                                  // block not held / not this property
+                        if (isset($cancelledGroups[(int) ($blk['group_id'] ?? 0)])) { continue; }
+                        if ($haveWindow) {
+                            $gf = (string) ($blk['date_from'] ?? ''); $gt = (string) ($blk['date_to'] ?? '');
+                            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $gf) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $gt)) {
+                                $gStart = strtotime($gf); $gEnd = strtotime($gt);
+                                if (!($aStart < $gEnd && $gStart < $aEnd)) { continue; } // disjoint → no conflict
+                            }
+                            // else: block has no/invalid dates → conservative, treat as conflict.
+                        }
+                        if (!isset($out[$prid])) { $out[$prid] = 'GRP:member:' . (int) ($m['id'] ?? 0); }
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log('hk_rooms_blocking group members: ' . $e->getMessage());
+            }
         } catch (\Throwable $e) {
             error_log('hk_rooms_blocking: ' . $e->getMessage());
         }

@@ -30758,6 +30758,7 @@ CREATE TABLE `stays_group_members` (
   `block_id` int(11) NOT NULL,
   `guest_name` varchar(120) NOT NULL,
   `email` varchar(191) DEFAULT NULL,
+  `physical_room_id` int(11) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_group` (`group_id`),
