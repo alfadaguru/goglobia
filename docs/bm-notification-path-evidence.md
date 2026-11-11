@@ -81,7 +81,36 @@ Read fully.
 - A **LIVE** BM flight, once verified → notifies ONLY if the supplier issue succeeds (3b); if issue fails → **no notify until retry succeeds. PROVEN-BROKEN (conditional).**
 - `bm_notify_paid` notifies **at most once** (idempotency `:409–423`) — a prior stamped `notified_paid_at` permanently suppresses it. **PROVEN.**
 
-_(Files 3–9 below — in progress.)_
+## FILE 3 — `app/lib/notify.php` (1015 lines) — `NOTIFY::payment` → `send` → WhatsApp fan-out
+
+`bm_notify_paid` calls `NOTIFY::payment($svc,$b,[...],$invoicePdf,$ticketPdf)` → `send($module,'booking_payment',$customerData=$b,$bookingData,$pdfPath=$invoicePdf,$customerPdfPath=$ticketPdf)`.
+
+### 3a. Customer phone derivation (`:220–229`)
+- `:224 $customerPhone = $customerData['phone']` — `$b` (bookings row) HAS `phone` (BM insert, File 1 `:676`). **→ PROVEN: phone present.**
+- `:225 $countryCode = $customerData['country_code'] ?? $customerData['phone_country_code']` — row has `phone_country_code` (BM insert `:677`), so it resolves via the 2nd key. **→ PROVEN: country code read from the correct key.**
+- `:228 $numericCode = getPhoneCode($countryCode,$db)` → `:229 $formattedPhone = formatPhoneNumber($customerPhone,$numericCode)`.
+- **→ UNPROVABLE-FROM-CODE for YOUR booking: whether `$formattedPhone` is a VALID dialable number depends on the exact `phone` + `phone_country_code` the staff typed on your row.** If `phone_country_code` is blank / an unrecognised ISO / a local number, `formatPhoneNumber` can yield an empty or malformed number. This can only be confirmed by reading your actual booking row (needs the DB). **I will NOT guess it is fine.**
+
+### 3b. WhatsApp gate (`:441–465`)
+- `:446 $enableWhatsApp = $whatsappConfig['booking_enabled'] ?? true` — **PROVEN: WhatsApp is ON by default** (suppressed only if an admin set `settings.whatsapp_providers_config.booking_enabled=false`). _UNPROVABLE-FROM-CODE whether it's been set false on this install — needs the settings row._
+- `:462 if ($enableWhatsApp && $event !== 'resend')` — event is `booking_payment`, so **PROVEN: `sendWhatsAppNotifications` IS invoked** with `$formattedPhone` + the ticket pdf (`:464`).
+
+### 3c. Customer WhatsApp send (`:673–701`)
+- **`:678 if (!empty($formattedPhone))`** — **THE ENTIRE CUSTOMER WHATSAPP IS GATED ON A NON-EMPTY FORMATTED PHONE.** If 3a produced an empty string, this block is **skipped silently — no WhatsApp, no log.** **→ PROVEN: this is the single most likely BM-specific silent-failure point.**
+- `:695–697` with ticket → `SENDWHATSAPP($formattedPhone,$customerName,$outMsg,$ticketFile,$ticketUrl)` — message + ticket document. **→ PROVEN: when the phone is valid, the customer WhatsApp + ticket IS attempted.**
+- **`:697` the return value of `SENDWHATSAPP` is NOT captured.** **→ PROVEN: NOTIFY never learns whether the WhatsApp succeeded or failed, and (File 2) never logs it. Delivery is invisible.**
+
+### 3d. Email + SMS (same `send`)
+- Email always attempted (`:452–453`); SMS attempted if `smsConfig.booking_enabled` (`:447`, default true) and not resend.
+- Email fan-out (`sendEmailNotifications`, audited earlier): customer (price-free body + ticket) + owner + admins. **→ PROVEN: the EMAIL to your address is attempted unconditionally once settle calls `bm_notify_paid`.** (So if you got NO email either, the cause is upstream — settle never ran — not the email code.)
+
+**FILE 3 verdict:**
+- PROVEN: once `bm_notify_paid` runs, email + WhatsApp + SMS are all **attempted** (WhatsApp/SMS on by default).
+- PROVEN: the customer WhatsApp is **gated on `!empty($formattedPhone)`** — a bad/blank phone-country-code on the BM row = silent no-WhatsApp.
+- PROVEN: no send result is captured or logged → delivery invisible.
+- UNPROVABLE-FROM-CODE (needs the live row/settings): (1) whether YOUR row's phone formats to a valid number; (2) whether `booking_enabled` was turned off. These are the only two WhatsApp unknowns, and both are data, not code.
+
+_(Files 4–9 below — in progress.)_
 
 ---
 
