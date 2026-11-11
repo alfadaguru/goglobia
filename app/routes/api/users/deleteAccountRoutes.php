@@ -162,7 +162,8 @@ $router->post('/api/users/delete-account', function () use ($db) {
     $db->update('flights', ['user_id' => null], ['user_id' => $user_id_str]);
     $db->update('stays', ['user_id' => null], ['user_id' => $user_id_str]);
     $db->update('tours', ['user_id' => null], ['user_id' => $user_id_str]);
-    $db->update('umrah', ['user_id' => null], ['user_id' => $user_id_str]);
+    // v1→v2: the legacy `umrah` product table was removed; v2 umrah bookings live
+    // in umrah_bookings (handled by the generic bookings cleanup elsewhere).
 
     // Hard delete personal data from other linked tables
     $db->delete('agencies', ['user_id' => $user_id_str]);

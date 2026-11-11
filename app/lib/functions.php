@@ -9240,6 +9240,31 @@ if (!function_exists('agent_api_charge_wallet')) {
 if (!function_exists('ensureUmrahSchema')) {
     function ensureUmrahSchema($db): void
     {
+        // v1→v2 MIGRATION (runs on every boot after the update lands, incl. via
+        // /updates or the admin Database Update tool). The legacy v1 `umrah` product
+        // table and its `umrah_settings` companion are fully unreferenced by the code
+        // now (all v1 admin/customer/gateway/promo paths were removed). Retire them
+        // here, idempotently and NON-DESTRUCTIVELY: RENAME to a *_v1_removed_backup
+        // table rather than DROP, so the data is preserved in-DB and the change is
+        // reversible, while the live `umrah`/`umrah_settings` names are freed. Guarded
+        // so it runs at most once (skips if already backed up or already gone).
+        try {
+            foreach (['umrah' => 'umrah_v1_removed_backup', 'umrah_settings' => 'umrah_settings_v1_removed_backup'] as $__live => $__bak) {
+                $__exists = $db->query("SHOW TABLES LIKE '" . $__live . "'")->fetchColumn();
+                $__bakExists = $db->query("SHOW TABLES LIKE '" . $__bak . "'")->fetchColumn();
+                if ($__exists && !$__bakExists) {
+                    $db->pdo->exec("RENAME TABLE `" . $__live . "` TO `" . $__bak . "`");
+                    error_log("umrah v1→v2 migration: renamed legacy table `{$__live}` → `{$__bak}` (data preserved; drop it manually once confident).");
+                } elseif ($__exists && $__bakExists) {
+                    // Both exist (e.g. a new empty `umrah` was recreated by old code
+                    // before this shipped) — leave them; an operator can reconcile.
+                    error_log("umrah v1→v2 migration: both `{$__live}` and `{$__bak}` exist — left as-is for manual review.");
+                }
+            }
+        } catch (\Throwable $__e) {
+            error_log('umrah v1→v2 migration (rename legacy tables): ' . $__e->getMessage());
+        }
+
         try {
             $db->query("CREATE TABLE IF NOT EXISTS `umrah_package_templates` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
