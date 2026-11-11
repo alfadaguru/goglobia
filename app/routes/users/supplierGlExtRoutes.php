@@ -146,8 +146,9 @@ $router->post('/supplier/finance/ledger/period/close', function () use ($SECURE,
 $router->post('/supplier/finance/ledger/period/reopen', function () use ($SECURE, $db, $__glxBack) {
     $orgId = _glx_ctx($db); CSRF::guard();
     $pid = (int) ($_POST['period_id'] ?? 0);
-    $res = function_exists('glx_period_reopen') ? glx_period_reopen($db, $orgId, $pid) : ['ok' => false, 'message' => 'Unavailable'];
-    if (!empty($res['ok']) && function_exists('audit_log')) { audit_log($db, 'gl.period.reopened', 'fiscal_periods', $pid, [], $orgId); }
+    $reason = trim((string) ($_POST['reason'] ?? ''));
+    $res = function_exists('glx_period_reopen') ? glx_period_reopen($db, $orgId, $pid, $reason) : ['ok' => false, 'message' => 'Unavailable'];
+    if (!empty($res['ok']) && function_exists('audit_log')) { audit_log($db, 'gl.period.reopened', 'fiscal_periods', $pid, ['reason' => $res['reason'] ?? $reason], $orgId); }
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => ($res['message'] ?? 'Done')];
     header('Location: ' . $__glxBack('periods')); exit;
 });

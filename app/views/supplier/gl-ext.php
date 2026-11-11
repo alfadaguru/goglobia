@@ -209,8 +209,8 @@ $fmt = fn($n) => number_format((float) $n, 2);
                   <button class="btn-secondary text-xs">Close</button>
                 </form>
               <?php else: ?>
-                <form method="post" action="<?= $base ?>/period/reopen" class="inline" onsubmit="return confirm('Reopen this period?');">
-                  <?= CSRF::tokenField() ?><input type="hidden" name="period_id" value="<?= (int) $p['id'] ?>">
+                <form method="post" action="<?= $base ?>/period/reopen" class="inline" onsubmit="var r=prompt('Reopening a CLOSED period lets back-dated entries post into it again. State a reason (required):'); if(r===null||r.trim()===''){return false;} this.reason.value=r.trim(); return true;">
+                  <?= CSRF::tokenField() ?><input type="hidden" name="period_id" value="<?= (int) $p['id'] ?>"><input type="hidden" name="reason" value="">
                   <button class="text-violet-600 hover:underline text-xs">Reopen</button>
                 </form>
               <?php endif; ?>

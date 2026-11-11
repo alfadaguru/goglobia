@@ -378,14 +378,35 @@ if (!function_exists('glx_period_close')) {
 }
 
 if (!function_exists('glx_period_reopen')) {
-    /** Reopen a closed period (an owner control; audited by the caller). Returns array. */
-    function glx_period_reopen($db, int $orgId, int $periodId): array
+    /**
+     * Reopen a CLOSED period so back-dated entries can post again. This erases the
+     * close control (gl_post refuses entries dated inside a closed range), so it is a
+     * sensitive action and is guarded accordingly (audit MED):
+     *   - STATE-GUARDED: only a period whose status is actually 'closed' can be
+     *     reopened. Reopening an already-open (or non-existent) period is refused,
+     *     not silently "succeeded" — so the audit trail never records a phantom reopen.
+     *   - REASON-REQUIRED: the caller must pass a non-empty $reason; it is returned so
+     *     the route logs it. A reopen without a stated reason is rejected.
+     * The owner-only gate lives in the route (_glx_ctx denies staff). Returns array.
+     */
+    function glx_period_reopen($db, int $orgId, int $periodId, string $reason = ''): array
     {
         if ($orgId <= 0 || $periodId <= 0) { return ['ok' => false, 'message' => 'Bad period']; }
+        $reason = trim($reason);
+        if ($reason === '') { return ['ok' => false, 'message' => 'A reason is required to reopen a closed period.']; }
         try {
-            $db->update('fiscal_periods', ['status' => 'open', 'closed_at' => null],
-                ['id' => $periodId, 'org_id' => $orgId]);
-            return ['ok' => true, 'message' => 'Period reopened'];
+            $p = $db->get('fiscal_periods', ['id', 'status'], ['id' => $periodId, 'org_id' => $orgId]);
+            if (!$p) { return ['ok' => false, 'message' => 'Period not found']; }
+            if (($p['status'] ?? '') !== 'closed') {
+                return ['ok' => false, 'message' => 'Only a closed period can be reopened.'];
+            }
+            // CAS on status='closed' so a concurrent reopen/close can't double-fire.
+            $stmt = $db->update('fiscal_periods', ['status' => 'open', 'closed_at' => null],
+                ['id' => $periodId, 'org_id' => $orgId, 'status' => 'closed']);
+            if (!$stmt || $stmt->rowCount() < 1) {
+                return ['ok' => false, 'message' => 'Period was not reopened (state changed).'];
+            }
+            return ['ok' => true, 'message' => 'Period reopened', 'reason' => $reason];
         } catch (\Throwable $e) { error_log('glx_period_reopen: ' . $e->getMessage()); return ['ok' => false, 'message' => 'Reopen error']; }
     }
 }
