@@ -154,4 +154,26 @@ Wiring the full Kikoto draft-creation (`POST /bookings` with the sailings + pass
 
 ---
 
-_(Next: Umrah — manual-only.)_
+## 6. UMRAH (manual-only) — AUDITED (no change)
+
+Umrah's real inventory is the dedicated **Umrah Manager v2** (quote → hold →
+`umrah_booking_create` → `umrah_bookings` + installments). The BM only records
+an **off-system umrah as a branded voucher** — manual-only by design.
+
+### Manual-only containment — VERIFIED on BOTH layers
+- **Catalogue** `umrah => live:false` (`bookingManagerRoutes.php:88`) → `service_live` false (`:164`) → the UI live tab never renders.
+- **Server-side mode-forcing** (`:306–308`): `if ($mode==='live' && empty($svcCat[$service]['live'])) { $mode='manual'; }` — a crafted `mode=live` POST for umrah is **forced back to manual before any live branch runs**. So even though `modules/umrah/umrah/actions/issue.php` exists (`bm_module_has_issue_endpoint('umrah','umrah')=Y`, for the real v2 flow), the BM **can never reach it**. ✅ Belt-and-braces.
+
+### No v2-table pollution — VERIFIED
+- The BM create route's **only insert is into `bookings`** (`:747`) — it never writes `umrah_bookings`/holds/installments.
+- A BM umrah lands in `bookings` with `module_type='umrah'` and **no `departure_id`**. The Umrah Manager v2 reads **exclusively** from `umrah_bookings` keyed by `departure_id`/`departure_tier_id` (`umrahV2Routes.php:70–72,489,550,618`) — so a BM voucher is **invisible** to its pax/revenue/capacity sums. Clean separation. ✅
+
+### Manual path — SOUND
+- **Form** (`manager.php:598–611`): a banner correctly routing real departures to the **Umrah Manager** (working link, `:601`), then package name, location, duration, departure date, adults, children, optional reference.
+- **Builder** (`bookingManagerRoutes.php:1121–1135`): reads those 1:1 (`adults→total_adults`, `children→total_children`) + empty `flights/stays/transfers` arrays so the voucher's `count()` reads right. **OK.**
+
+**UMRAH verdict: SOUND — no change.** Manual-only on both UI and backend; no collision with the real umrah v2 inventory; the form correctly redirects real-departure bookings to the Umrah Manager.
+
+---
+
+_(Next: Visa — manual-only.)_
