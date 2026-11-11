@@ -255,6 +255,57 @@ class CRUD {
             exit();
         }
 
+        // Handle UNSET default — clear the default flag on one row so an admin can
+        // turn the default OFF (not only switch it to another row). Writes the
+        // enum-valid string '0' (same strict-mode-safe convention as set_default).
+        if ($action === 'unset_default') {
+            try {
+                $id = (int) $id;
+                if ($id <= 0) {
+                    throw new Exception('Invalid ID for unset_default action: ' . $id);
+                }
+                // Some tables REQUIRE a default (checkout/currency/lang code reads
+                // `['default' => 1]` everywhere) — clearing it there would break the
+                // app. Only allow a zero-default state where it is harmless. Payment
+                // gateways are offered at checkout by status=1, NOT by `default`, so
+                // clearing the gateway default is safe.
+                $clearableTables = ['payment_gateways'];
+                if (!in_array($table, $clearableTables, true)) {
+                    ob_end_clean();
+                    echo json_encode(['status' => 'error', 'message' => 'One item must stay the default here — set a different one as default instead of turning this off.']);
+                    exit();
+                }
+                $record = $db->get($table, '*', [$id_column => $id]);
+                if (!$record) {
+                    throw new Exception('Record not found in table: ' . $table . ' with ID: ' . $id);
+                }
+                // Already not default → nothing to do (success, idempotent).
+                if (!isset($record['default']) || !($record['default'] == 1 || $record['default'] === '1')) {
+                    ob_end_clean();
+                    echo json_encode(['status' => 'success', 'message' => 'Default already cleared']);
+                    exit();
+                }
+                try {
+                    $result = $db->update($table, ['default' => '0'], [$id_column => $id]);
+                } catch (Exception $ex) {
+                    $result = $db->update($table, ['default' => 0], [$id_column => $id]);
+                }
+                if ($result === false) {
+                    throw new Exception('Failed to clear default for table: ' . $table . ', id: ' . $id);
+                }
+                ob_end_clean();
+                echo json_encode(['status' => 'success', 'message' => 'Default cleared']);
+            } catch (Exception $e) {
+                ob_end_clean();
+                echo json_encode([
+                    'status'  => 'error',
+                    'message' => 'Unset default error: ' . $e->getMessage(),
+                    'context' => ['table' => $table, 'id' => $id],
+                ]);
+            }
+            exit();
+        }
+
         // Handle check default action (before delete)
         if ($action === 'check_default') {
             try {
@@ -1970,6 +2021,10 @@ class CRUD {
                     // Disable all switches during request
                     defaultSwitches.forEach(s => s.disabled = true);
 
+                    // Checking = set this as default; UNchecking = clear the default
+                    // (so an admin can turn the default OFF, not only switch it).
+                    const defAction = isChecked ? "set_default" : "unset_default";
+
                     // Send AJAX request
                     fetch("' . root . 'ajax", {
                         method: "POST",
@@ -1978,7 +2033,7 @@ class CRUD {
                             "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         },
                         body: JSON.stringify({
-                            action: "set_default",
+                            action: defAction,
                             table: table,
                             id: id,
                             csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""

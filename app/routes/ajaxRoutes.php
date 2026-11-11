@@ -15,7 +15,7 @@ $router->post('/ajax', function () use ($SECURE,$db) {
     $action = $input['action'] ?? '';
 
     // CRUD-related actions - delegate to CRUD library
-    $crud_actions = ['toggle_status', 'set_default', 'check_default', 'delete_record'];
+    $crud_actions = ['toggle_status', 'set_default', 'unset_default', 'check_default', 'delete_record'];
     if (in_array($action, $crud_actions)) {
         
         // 1. Authentication & Role Check

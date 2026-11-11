@@ -196,6 +196,11 @@ $defaultCategory = array_key_first($categoriesWithCount) ?? 'all';
                         <form method="POST" action="<?= root.admin ?>/settings/modules/toggle#<?= $module['type'] ?>" class="flex items-center"
                               x-data="{ isSubmitting: false }"
                               @submit="isSubmitting = true">
+                            <?php // CSRF token embedded directly — the toggle fires form.submit()
+                                  // programmatically via onchange, which does NOT dispatch the
+                                  // global submit-interceptor that injects the token, so a
+                                  // missing field caused "CSRF token validation failed". ?>
+                            <?= CSRF::tokenField() ?>
                             <input type="hidden" name="module_id" value="<?= $module['id'] ?>">
                             <input type="hidden" name="status" value="<?= $module['status'] ? 0 : 1 ?>">
 
@@ -204,7 +209,7 @@ $defaultCategory = array_key_first($categoriesWithCount) ?? 'all';
                                        class="switch-input"
                                        <?= $module['status'] ? 'checked' : '' ?>
                                        :disabled="isSubmitting"
-                                       onchange="this.form.submit()">
+                                       onchange="this.form.requestSubmit ? this.form.requestSubmit() : this.form.submit()">
                                 <div class="switch-track">
                                     <div class="switch-thumb"></div>
                                 </div>
