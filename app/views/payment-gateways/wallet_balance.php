@@ -380,7 +380,16 @@ try {
     // never calls handle_payment_callback (where the card/bank path consumes), so
     // without this a WALLET-paid own-inventory stay would lose its hold after ~20 min
     // and the seat could be resold. Idempotent by invoice ref; best effort.
-    if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+    // module_type must come from the DB, NOT $booking: the legacy base64 payload
+    // branch (top of this file) builds $booking without module_type, so trusting
+    // $booking['module_type'] here silently skipped the consume on the wallet path
+    // → wallet-paid own-inventory stays never released their hold (UAT oversell bug).
+    $__mtForHold = strtolower((string) ($booking['module_type'] ?? ''));
+    if ($__mtForHold === '') {
+        try { $__mtForHold = strtolower((string) ($db->get('bookings', 'module_type', ['invoice_id' => $booking['invoice_id']]) ?? '')); }
+        catch (\Throwable $e) { $__mtForHold = ''; }
+    }
+    if (in_array($__mtForHold, ['stays', 'hotels'], true)) {
         if (!function_exists('stays_hold_consume_ref')) {
             $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
             if (is_file($invLib)) { require_once $invLib; }

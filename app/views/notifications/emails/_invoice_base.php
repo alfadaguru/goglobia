@@ -88,7 +88,7 @@ if (!function_exists('goglobia_invoice_render')) {
         // Status accent: green when paid, amber when due.
         $sealC  = $paid ? $p['okC']  : $p['pendC'];
         $sealBg = $paid ? $p['okBg'] : $p['pendBg'];
-        $bandGrad = 'linear-gradient(115deg, ' . $p['ink'] . ' 0%, ' . $p['ink2'] . ' 55%, ' . $p['primary'] . ' 165%)';
+        $bandGrad = 'linear-gradient(115deg, ' . $p['ink'] . ' 0%, ' . ($p['deep'] ?? $p['ink']) . ' 55%, ' . $p['primary'] . ' 165%)';
 
         // Logo (resolved once by GENERATE_BOOKING_PDF).
         $__pdfLogoSrc = (string) ($cfg['pdfLogoSrc'] ?? '');
@@ -183,7 +183,7 @@ if (!function_exists('goglobia_invoice_render')) {
 
     /* notes + footer */
     .guide { background: #EEF4FF; border: 0.5pt solid #CFE0FF; border-left: 3pt solid <?= $p['primary'] ?>; border-radius: 7pt; padding: 10pt 12pt; margin-top: 12pt; }
-    .gt { font-size: 8.5pt; font-weight: bold; color: <?= $p['ink2'] ?>; margin-bottom: 4pt; }
+    .gt { font-size: 8.5pt; font-weight: bold; color: <?= $p['ink'] ?>; margin-bottom: 4pt; }
     .guide ul { margin: 0; padding-left: 11pt; } .guide li { font-size: 7.6pt; color: #28406B; line-height: 1.5; }
     .foot { border-top: 0.5pt solid <?= $p['hair'] ?>; margin-top: 12pt; padding-top: 8pt; }
     .foot table { width: 100%; border-collapse: collapse; } .foot td { border: none; }
