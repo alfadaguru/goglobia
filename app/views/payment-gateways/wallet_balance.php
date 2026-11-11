@@ -85,7 +85,15 @@ if (!$user) {
 }
 
 $userCurrency = $user['currency'] ?? 'USD';
-$paymentAmount = floatval($booking['price_markup']);
+// DEPOSIT-AWARE CHARGE (E-01): charge the amount DUE NOW (deposit / next
+// installment), not always the full contract total. Every other rail (card token,
+// Stripe, PaySmallSmall, pay_view) charges payment_amount_due(); wallet + credits
+// were the only two that debited the full price_markup, silently collapsing an
+// umrah/installment plan into a 100%-upfront charge. Mirror the card path here so
+// both the wallet_spend() below AND umrah_settle_payment() use the due slice.
+$paymentAmount = function_exists('payment_amount_due')
+    ? (float) payment_amount_due($booking, $db)
+    : floatval($booking['price_markup']);
 $paymentCurrency = $booking['currency_markup'];
 
 // AUTHORITATIVE BALANCE (audit money-integrity): read the balance from the money

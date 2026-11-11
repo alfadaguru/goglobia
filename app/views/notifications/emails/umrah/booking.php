@@ -3,6 +3,10 @@ if (!isset($SECURE)) die('Direct access not permitted');
 
 $umrahName = $umrahName ?? $umrah_name ?? 'Umrah Package';
 $umrahLocation = $umrahLocation ?? $umrah_location ?? $location ?? '';
+// E-05: escape every interpolated value (matches ticket.php/booking_pdf.php). The
+// invoice id/url and numeric fields were previously echoed raw — low attacker
+// control (server-generated), but this keeps the template consistent and safe.
+$e = static function ($v): string { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
 ?>
 
 <?php if ($paymentStatus === 'paid'): ?>
@@ -23,9 +27,9 @@ $umrahLocation = $umrahLocation ?? $umrah_location ?? $location ?? '';
     </div>
     
     <div style="font-size: 14px; color: #4a5568; margin-bottom: 32px; line-height: 1.6;">
-        <?= ($paymentStatus === 'paid') 
-            ? "We've received your payment for Umrah booking <strong>#$invoiceId</strong>. Your package is now officially confirmed!" 
-            : "Thank you for choosing us! We've received your Umrah booking request <strong>#$invoiceId</strong>. Please complete your payment to secure your reservation." 
+        <?= ($paymentStatus === 'paid')
+            ? "We've received your payment for Umrah booking <strong>#" . $e($invoiceId) . "</strong>. Your package is now officially confirmed!"
+            : "Thank you for choosing us! We've received your Umrah booking request <strong>#" . $e($invoiceId) . "</strong>. Please complete your payment to secure your reservation."
         ?>
     </div>
 
@@ -48,7 +52,7 @@ $umrahLocation = $umrahLocation ?? $umrah_location ?? $location ?? '';
             </tr>
         </table>
         <div style="padding: 12px 16px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #4a5568;">
-            For <?= $adults ?> Adults<?= $children > 0 ? ", $children Children" : "" ?>
+            For <?= $e((int) $adults) ?> Adults<?= ((int) $children) > 0 ? ", " . $e((int) $children) . " Children" : "" ?>
         </div>
     </div>
 
@@ -61,7 +65,7 @@ $umrahLocation = $umrahLocation ?? $umrah_location ?? $location ?? '';
             <tr>
                 <td style="padding: 8px 0; color: #718096;">Amount Paid:</td>
                 <td style="padding: 8px 0; color: #2d3748; font-weight: 600; text-align: right;">
-                    <?= $currency ?> <?= number_format($finalTotal, 2) ?>
+                    <?= $e($currency) ?> <?= $e(number_format((float) $finalTotal, 2)) ?>
                 </td>
             </tr>
             <?php endif; ?>
@@ -77,7 +81,7 @@ $umrahLocation = $umrahLocation ?? $umrah_location ?? $location ?? '';
     <!-- CTA Button -->
     <?php if (empty($hide_price)): ?>
     <div style="text-align: center; margin: 32px 0;">
-        <a href="<?= $invoiceUrl ?>" style="display: inline-block; background: <?= ($paymentStatus === 'paid') ? '#10b981' : '#f59e0b' ?>; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 600;">
+        <a href="<?= $e($invoiceUrl) ?>" style="display: inline-block; background: <?= ($paymentStatus === 'paid') ? '#10b981' : '#f59e0b' ?>; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 600;">
             View Invoice
         </a>
     </div>

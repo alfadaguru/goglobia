@@ -1173,6 +1173,14 @@ if (!function_exists('umrah_settle_payment')) {
                 // count, derives a different key OR matches the first's row, and the
                 // re-fire is treated as 'already' instead of double-crediting.
                 if ($txnId === '') {
+                    // E-02 WARNING: an empty txn id cannot be made reliably idempotent
+                    // here — the AUTO-key below is derived from the live settled-count,
+                    // so a RE-FIRED callback for the same no-txn payment would derive a
+                    // DIFFERENT key and double-credit. All real callers now pass a
+                    // non-empty, stable-per-payment ref (gateway txn id or the payment
+                    // token / wallet ref), so this branch should be unreachable; log it
+                    // loudly if a future caller reintroduces an empty txn id.
+                    error_log('umrah_settle_payment: EMPTY txn id for invoice ' . $invoiceId . ' — caller must pass a stable payment reference (E-02); AUTO-key is not re-fire-safe.');
                     $prior = (int) $db->count('umrah_installments', [
                         'umrah_booking_id'  => $ubId,
                         'transaction_id[!]' => null,
@@ -1453,10 +1461,22 @@ if (!function_exists('umrah_quote_request_create')) {
         // queue if present; otherwise silently skips.
         if (function_exists('umrah_notify')) {
             try {
-                umrah_notify($db, null, 'umrah_quote_request',
-                    'New Umrah customize request ' . $ref,
-                    "New personalized Umrah request {$ref} from {$name} ({$email}{$phone}). Pax {$pax}.",
-                    'email', false);
+                // E-03: the 7th arg of umrah_notify is the RECIPIENT ($customer array),
+                // not a boolean — passing `false` resolved to no email/'' phone, so the
+                // staff alert silently went nowhere. Resolve the ops inbox from settings
+                // (booking_notification_email → contact_email → admin_email) and pass it
+                // as a real recipient so staff actually get notified of the request.
+                $__st = $db->get('settings',
+                    ['booking_notification_email', 'contact_email', 'admin_email'], ['id' => 1]) ?: [];
+                $__staffEmail = trim((string) ($__st['booking_notification_email'] ?? ''))
+                    ?: trim((string) ($__st['contact_email'] ?? ''))
+                    ?: trim((string) ($__st['admin_email'] ?? ''));
+                if ($__staffEmail !== '') {
+                    umrah_notify($db, null, 'umrah_quote_request',
+                        'New Umrah customize request ' . $ref,
+                        "New personalized Umrah request {$ref} from {$name} ({$email}, {$phone}). Pax {$pax}.",
+                        'email', ['email' => $__staffEmail, 'name' => 'Umrah Team']);
+                }
             } catch (\Throwable $e) { /* non-fatal */ }
         }
 

@@ -950,10 +950,16 @@ function handle_payment_callback($token, $action, $data = [])
 
                         // Umrah: settle installment + price-lock even on dev-mode mismatch (money collected).
                         if (($booking['module_type'] ?? '') === 'umrah' && function_exists('umrah_settle_payment')) {
+                            // E-02: always pass a NON-EMPTY, stable-per-payment txn id.
+                            // The gateway's transaction_id when present, else the payment
+                            // token (unique per attempt, identical across a re-fired
+                            // callback). An empty txn id makes umrah_settle_payment
+                            // synthesize an AUTO-key from a mutable settlement count, which
+                            // a webhook RE-FIRE would derive differently → double-credit.
                             umrah_settle_payment($db, (string) $tokenData['invoice_id'],
                                 (float) ($tokenData['amount'] ?? ($booking['price_markup'] ?? 0)),
                                 (string) ($tokenData['currency'] ?? 'NGN'),
-                                (string) ($data['transaction_id'] ?? ''));
+                                (string) (($data['transaction_id'] ?? '') ?: $token));
                         }
 
                         // Rail: still place supplier order even when dev_mode blocks auto-issue curl
@@ -1624,12 +1630,15 @@ function handle_payment_callback($token, $action, $data = [])
             // the price. Runs only for umrah bookings; no-op otherwise.
             // ============================================================
             if (($booking['module_type'] ?? '') === 'umrah' && function_exists('umrah_settle_payment')) {
+                // E-02: pass a NON-EMPTY, stable-per-payment txn id (gateway txn id,
+                // else the payment token) so a re-fired webhook dedupes instead of
+                // double-crediting via the mutable-count AUTO-key path.
                 umrah_settle_payment(
                     $db,
                     (string) $tokenData['invoice_id'],
                     (float) ($tokenData['amount'] ?? ($booking['price_markup'] ?? 0)),
                     (string) ($tokenData['currency'] ?? ($booking['currency_markup'] ?? 'NGN')),
-                    (string) ($data['transaction_id'] ?? '')
+                    (string) (($data['transaction_id'] ?? '') ?: $token)
                 );
             }
 

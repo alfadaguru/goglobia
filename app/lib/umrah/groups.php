@@ -686,7 +686,32 @@ if (!function_exists('umrah_group_set_visa')) {
             }
             if ($want === 'approved') {
                 if ($m['visa_status'] !== 'approved') {
-                    $db->update('umrah_group_members', ['visa_status' => 'approved', 'updated_at' => $now], ['id' => $mid]);
+                    // L-02: if this member was previously REJECTED and already REFUNDED,
+                    // flipping to approved must CLAW BACK that refund — otherwise the
+                    // agent keeps a refund for a pilgrim who is now travelling. Re-debit
+                    // the exact refunded amount, idempotency-keyed per member so a repeat
+                    // approve can't double-charge, then decrement refunded_total.
+                    if (($m['visa_status'] ?? '') === 'refunded') {
+                        $clawed = (float) ($m['refund_amount'] ?? 0);
+                        if ($clawed <= 0) { $clawed = $refundPerPax; }
+                        if ($clawed > 0 && function_exists('wallet_spend')) {
+                            try {
+                                $cb = wallet_spend($db, $agent, $clawed, (string) $currency, [
+                                    'reason' => 'refund_reversal', 'invoice_id' => $g['invoice_id'],
+                                    'ref_type' => 'umrah_member', 'ref_id' => (string) $mid,
+                                    'idempotency_key' => 'UMRAH-VISA-REFUND-REVERSE-' . $g['invoice_id'] . '-' . $mid,
+                                    'note' => 'Umrah visa refund reversal (re-approved) ' . $g['group_ref'] . ' — pilgrim #' . $mid . ' (' . $g['invoice_id'] . ')',
+                                ]);
+                                if (!empty($cb['ok'])) {
+                                    $db->update('umrah_groups',
+                                        ['refunded_total' => max(0, (float) $g['refunded_total'] - $clawed), 'updated_at' => $now],
+                                        ['id' => $groupId]);
+                                    $g['refunded_total'] = max(0, (float) $g['refunded_total'] - $clawed);
+                                }
+                            } catch (\Throwable $e) { error_log('umrah_group_set_visa reverse: ' . $e->getMessage()); }
+                        }
+                    }
+                    $db->update('umrah_group_members', ['visa_status' => 'approved', 'refund_amount' => 0, 'refunded_at' => null, 'updated_at' => $now], ['id' => $mid]);
                     if ((int) $m['traveller_id']) { $db->update('umrah_booking_travellers', ['visa_status' => 'approved'], ['id' => (int) $m['traveller_id']]); }
                 }
                 $approved++;
