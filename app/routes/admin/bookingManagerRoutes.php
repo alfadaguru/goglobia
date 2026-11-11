@@ -94,7 +94,14 @@ if (!function_exists('bm_service_catalogue')) {
             // refactored into a shared BM-callable money path (planned). Manual
             // records an off-system rail booking as a branded voucher.
             'rail'    => ['type' => 'rail',    'label' => 'Rail',    'live' => true],
-            'ferries' => ['type' => 'ferries', 'label' => 'Ferries', 'live' => true],
+            // Ferries live is DISABLED here (audit 2026-11-11): kikoto/issue only
+            // CONFIRMS a pre-existing Kikoto draft (reads booking_data['reference'],
+            // hard-fails without it, issue.php:35–39). That reference is minted only
+            // by the customer submit path's POST /bookings call; the BM never creates
+            // the draft, so a BM live ferry would be paid-then-unissuable. Manual-only
+            // until the draft-creation step is wired into the BM. (Backend also guards
+            // the create path belt-and-braces.)
+            'ferries' => ['type' => 'ferries', 'label' => 'Ferries', 'live' => false],
             'esim'    => ['type' => 'esim',    'label' => 'eSIM',    'live' => true],
             'visa'    => ['type' => 'visa',    'label' => 'Visa',    'live' => false],
             'bus'     => ['type' => 'bus',     'label' => 'Bus',     'live' => false],
@@ -620,10 +627,20 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
                 'validity'      => (string) ($offerBd['validity'] ?? ($ctx['validity'] ?? '')),
             ];
         } elseif ($serviceType === 'ferries') {
+            // ⚠️ CONTAINMENT (audit 2026-11-11): BM live ferries is NOT safe to issue.
+            // modules/ferries/kikoto/actions/issue.php only CONFIRMS a pre-existing
+            // Kikoto DRAFT — it reads $bookingData['reference'] and HARD-FAILS with
+            // "No Kikoto reference found" when it is absent (issue.php:35–39). The
+            // reference is minted only by the CUSTOMER submit path, which calls
+            // _kikoto_request('POST','/bookings',…) and stores the returned reference
+            // (api/ferries/bookingRoutes.php:675,762,1057). The BM path NEVER creates
+            // that draft, so it would persist reference='' → a BM live ferries booking
+            // would be PAID then fail at issue (stranded). Until the Kikoto draft-
+            // creation step is wired into the BM, block it here and route staff to
+            // Manual mode (which records an off-system ferry voucher safely).
+            bmAdminJson(['status' => false, 'message' => 'Live ferry booking isn’t available here yet — the sailing must be drafted with the supplier first. Use Manual mode to record a ferry booking made on the supplier’s own system.'], 422);
+            // (unreached — kept for when draft-creation is added:)
             // LIVE FERRIES: persist the chosen sailing + passenger ticket-types.
-            // kikoto/issue re-prices at issue (reconcilePostPaymentPrice) and books,
-            // so here we only persist selected_sailing + passengers + the display
-            // ports/date. $offerBd is the chosen sailing offer card.
             $ctx = $_POST['ferry_context'] ?? '';
             if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
             if (!is_array($ctx)) { $ctx = []; }

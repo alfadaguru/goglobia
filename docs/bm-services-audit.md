@@ -108,4 +108,30 @@ never applies to rail (confirmed in the Cars audit sweep too).
 
 ---
 
-_(Next: Ferries.)_
+## 4. FERRIES (live + manual) — AUDITED + 1 HIGH defect CONTAINED
+
+### The defect (CONFIRMED against source — paid-but-unissuable)
+- **`modules/ferries/kikoto/actions/issue.php:35–39`** reads `$bookingData['reference']` and **HARD-FAILS** ("No Kikoto reference found") when it's absent. kikoto/issue only **CONFIRMS** a pre-existing Kikoto draft (`POST /bookings/{reference}/confirm`, `:58`) — it does NOT create the booking.
+- The **reference is minted only by the CUSTOMER submit path**: `app/routes/api/ferries/bookingRoutes.php:675` calls `_kikoto_request('POST','/bookings',…)`, reads `reference` from the response (`:762`), and stores it (`:1057`).
+- The **BM ferries create persisted `'reference' => ''`** (`bookingManagerRoutes.php:650`) and **never called `POST /bookings`** — so a BM live ferry had no reference.
+- **Chain for a BM live ferry:** create (reference='') → pay → `bm_settle` → `bm_fire_supplier_issue(ferries,kikoto)` → kikoto/issue reads reference='' → **FAILS**. Money collected, nothing issued → stranded. (The create comment at `:624` claiming "kikoto/issue re-prices and books" was **inaccurate** — issue.php's own docblock `:47–57` says there is no re-price/book at that step, only confirm.)
+- **Severity:** HIGH (paid-but-unissuable), conditional on ferries being live-enabled (a DB fact — **CAN'T-VERIFY-FROM-CODE**), but the code path was unsafe regardless.
+
+### Fix (honest containment — not a faked booking call)
+Wiring the full Kikoto draft-creation (`POST /bookings` with the sailings + passenger-refs body) into the BM is a substantial feature, not a one-liner — so I did NOT fabricate it. Instead:
+1. **Catalogue** `ferries => 'live' => false` (`bookingManagerRoutes.php:97`) → `service_live` false (`:164`) → the UI **live tab no longer renders** (`manager.php:57 if($svcLive)`). Ferries is now manual-only, consistent with visa/bus.
+2. **Backend belt-and-braces:** the ferries live create branch now `bmAdminJson`-rejects at entry (`:622`) with a clear message routing staff to Manual mode — so even a crafted POST can't create a stranded ferry. The original persist code is kept below the guard (unreached) for when draft-creation is added.
+- **Follow-up (owner, when desired):** to restore BM live ferries, replicate the customer draft step — build the `/bookings` body from the chosen sailing + `ferry_passengers`, call Kikoto, store the returned `reference`, then remove the guard + flip `live` back to true.
+
+### Live path (now disabled) — what existed
+- Form (`manager.php:400–436`): port dropdowns (loaded via `ferries/kikoto/ports`), date, adults, children; `ferrySearch` → `ferries/kikoto/search`; `ferrySelect` prefills price. The search/UI itself worked — only the **issue** was broken. Supplier gate: kikoto `has=Y, stub=N` (real confirm + `reconcilePostPaymentPrice` present but, per its docblock, not actually re-pricing at issue).
+
+### Manual path (the supported path) — SOUND
+- Form (`manager.php:640–648`): departure/arrival port, sailing date, departure time, vehicles, pets, optional reference.
+- Builder (`bookingManagerRoutes.php:1171–1188`): reads those 1:1 into the `draft.*` voucher shape the ferries ticket template expects, `confirmed:true`, vehicles/pets as count-placeholder arrays. **OK.**
+
+**FERRIES verdict: manual SOUND; live was a real paid-but-unissuable defect — now CONTAINED (manual-only + backend guard).** Not hidden, not faked — the draft-creation gap is documented for a proper future fix.
+
+---
+
+_(Next: eSIM.)_
