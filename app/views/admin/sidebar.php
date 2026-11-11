@@ -261,14 +261,13 @@ if ($umrah_count > 0) {
     $adminMenu[] = [
         'icon' => 'mosque',
         'name' => T::umrah ?? 'Umrah',
-        'url' => root.admin.'/umrah',
+        'url' => root.admin.'/umrah-manager',
         'submenu' => [
-            // Full CRUD console (packages, tiers, plans, departures, images).
+            // v2 Umrah Manager console (departures, tiers, plans, bookings, groups).
+            // The legacy v1 admin (/umrah, /umrah/settings) was removed in v1→v2.
             ['name' => 'Umrah Manager', 'icon' => 'tune', 'url' => root.admin.'/umrah-manager'],
             ['name' => 'Bookings', 'icon' => 'list_alt', 'url' => root.admin.'/umrah-manager/bookings'],
             ['name' => 'Agent groups', 'icon' => 'groups', 'url' => root.admin.'/umrah-manager/groups'],
-            ['name' => T::umrah_settings ?? 'Umrah Settings', 'icon' => 'settings', 'url' => root.admin.'/umrah/settings'],
-            ['name' => (T::umrah ?? 'Umrah') . ' (legacy)', 'icon' => 'mosque', 'url' => root.admin.'/umrah'],
         ]
     ];
 }

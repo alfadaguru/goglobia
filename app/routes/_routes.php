@@ -274,7 +274,9 @@ require_once 'app/routes/admin/flightShellCarriersRoutes.php'; // DB-driven shel
 require_once 'app/routes/admin/airportsRoutes.php';
 require_once 'app/routes/admin/locationsRoutes.php';
 require_once 'app/routes/admin/toursRoutes.php';
-require_once 'app/routes/admin/umrahRoutes.php';
+// v1→v2: the legacy admin umrahRoutes.php (/admin/umrah CRUD over the `umrah`
+// product table) was removed; the v2 Umrah Manager (umrahV2Routes.php) is the
+// single admin surface now.
 require_once 'app/routes/admin/umrahV2Routes.php';
 require_once 'app/routes/admin/carsRoutes.php';
 require_once 'app/routes/admin/busRoutes.php';
