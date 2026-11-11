@@ -46,7 +46,7 @@
               <th class="px-3 py-2 font-medium">Area</th>
               <th class="px-3 py-2 font-medium text-center">View</th>
               <th class="px-3 py-2 font-medium text-center">Add</th>
-              <th class="px-3 py-2 font-medium text-center">Edit</th>
+              <th class="px-3 py-2 font-medium text-center">Edit / create</th>
               <th class="px-3 py-2 font-medium text-center">Delete</th>
             </tr>
           </thead>
@@ -72,6 +72,11 @@
           </tbody>
         </table>
       </div>
+      <p class="text-xs text-gray-500 mt-2">
+        For <span class="font-medium">Front desk &amp; reservations</span>, <span class="font-medium">Edit / create</span> is what lets staff
+        <span class="font-medium">create</span> walk-ins, guests and customers — not just edit existing ones. Grant both
+        <span class="font-medium">View</span> and <span class="font-medium">Edit / create</span> for a working front-desk clerk.
+      </p>
     </div>
 
     <!-- Property scope -->

@@ -10305,7 +10305,11 @@ function supplier_role_modules(): array
         'hotels'       => ['label' => 'Properties',    'actions' => ['view', 'add', 'edit', 'delete']],
         'rooms'        => ['label' => 'Rooms',         'actions' => ['view', 'add', 'edit', 'delete']],
         'rates'        => ['label' => 'Rates & availability', 'actions' => ['view', 'edit']],
-        'reservations' => ['label' => 'Reservations',  'actions' => ['view', 'edit']],
+        // 'reservations' gates the WHOLE front-desk surface: the front-desk console,
+        // reservations inbox, guests, customers, walk-ins, POS. 'edit' is what grants
+        // CREATE (walk-ins/guests/customers), not just editing — so label it so a
+        // supplier building a "Front Desk" role actually ticks it (audit #3).
+        'reservations' => ['label' => 'Front desk & reservations',  'actions' => ['view', 'edit']],
         'staff'        => ['label' => 'Staff & roles', 'actions' => ['view', 'add', 'edit', 'delete']],
     ];
 }
