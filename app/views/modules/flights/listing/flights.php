@@ -872,13 +872,18 @@ try {
                             <div x-show="filteredFlights.length > 0" x-cloak
                                 class="grid grid-cols-3 gap-2.5 sm:gap-3 mb-4">
                                 <template x-for="s in fareSummary()" :key="s.key">
-                                    <div class="rounded-xl border px-3 py-2.5 flex flex-col gap-0.5"
-                                        :class="s.best ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'">
-                                        <span class="text-[9.5px] sm:text-[10px] uppercase tracking-wider font-bold text-gray-400 dark:text-gray-500" x-text="s.label"></span>
+                                    <button type="button"
+                                        @click="setSort(s.sort)"
+                                        :aria-pressed="s.best ? 'true' : 'false'"
+                                        :aria-label="'Sort by ' + s.label.toLowerCase()"
+                                        class="text-left rounded-xl border px-3 py-2.5 flex flex-col gap-0.5 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 hover:border-blue-300 dark:hover:border-blue-600"
+                                        :class="s.best ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600 ring-1 ring-blue-200 dark:ring-blue-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'">
+                                        <span class="text-[9.5px] sm:text-[10px] uppercase tracking-wider font-bold" x-text="s.label"
+                                            :class="s.best ? 'text-blue-500 dark:text-blue-300' : 'text-gray-400 dark:text-gray-500'"></span>
                                         <span class="text-sm sm:text-[17px] font-extrabold tabular-nums leading-tight"
                                             :class="s.best ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'" x-text="s.value"></span>
                                         <span class="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 truncate" x-text="s.sub"></span>
-                                    </div>
+                                    </button>
                                 </template>
                             </div>
 
@@ -1930,7 +1935,11 @@ try {
                         case 'price_high':
                             return b.price - a.price;
                         case 'duration':
-                            return this.getDurationMinutes(a.duration_time) - this.getDurationMinutes(b.duration_time);
+                            // durationToMinutes handles BOTH "1h 20m" (what Adivaha
+                            // actually sends) and "H:MM"; getDurationMinutes only did
+                            // split(':') so "1h 20m" collapsed to the hour and dropped
+                            // the minutes — fastest-sort was wrong. Use the robust one.
+                            return this.durationToMinutes(a.duration_time) - this.durationToMinutes(b.duration_time);
                         case 'departure':
                             return this.getHour(a.departure_time) - this.getHour(b.departure_time);
                         case 'price_low':
@@ -2061,7 +2070,7 @@ try {
             // (this.flights), so it reflects everything found, not the current filter.
             // Cheapest / Fastest / Earliest tiles for the summary strip. Computed from
             // the CURRENTLY FILTERED results so it tracks whatever the customer filtered
-            // to. Reuses the same getDurationMinutes/getHour helpers the sort uses.
+            // to. Uses the same durationToMinutes/getHour helpers the sort now uses.
             // Robust duration -> minutes. Real data is "1h 20m"; some paths use "H:MM".
             durationToMinutes(s) {
                 if (!s) return 0;
@@ -2087,11 +2096,22 @@ try {
                 }
                 const nm = f => (f.airlineName || f.airline || '');
                 const dur = f => f.duration_time || (fastestMin > 0 ? Math.floor(fastestMin/60)+'h '+(fastestMin%60)+'m' : '');
+                // Each tile is a real sort control: `sort` is the sortBy value it sets,
+                // `best` is true when that sort is the ACTIVE one (so the active tile
+                // highlights and stays in sync with the sort dropdown).
                 return [
-                    { key: 'cheapest', best: true,  label: 'Cheapest', value: this.money(cheapest.price, cheapest.currency), sub: nm(cheapest) + (cheapest.stops === 0 ? ' · Direct' : '') },
-                    { key: 'fastest',  best: false, label: 'Fastest',  value: dur(fastest), sub: nm(fastest) + (fastest.stops === 0 ? ' · Direct' : '') },
-                    { key: 'earliest', best: false, label: 'Earliest', value: (earliest.departure_time || '').toUpperCase(), sub: nm(earliest) + ' · ' + (earliest.departure_code || '') },
+                    { key: 'cheapest', sort: 'price_low', best: this.sortBy === 'price_low', label: 'Cheapest', value: this.money(cheapest.price, cheapest.currency), sub: nm(cheapest) + (cheapest.stops === 0 ? ' · Direct' : '') },
+                    { key: 'fastest',  sort: 'duration',  best: this.sortBy === 'duration',  label: 'Fastest',  value: dur(fastest), sub: nm(fastest) + (fastest.stops === 0 ? ' · Direct' : '') },
+                    { key: 'earliest', sort: 'departure', best: this.sortBy === 'departure', label: 'Earliest', value: (earliest.departure_time || '').toUpperCase(), sub: nm(earliest) + ' · ' + (earliest.departure_code || '') },
                 ];
+            },
+
+            // Clicking a summary tile sorts by it (Cheapest/Fastest/Earliest) and keeps
+            // the sort dropdown in sync. Mouse + keyboard (the tiles are real buttons).
+            setSort(sortValue) {
+                if (!sortValue || this.sortBy === sortValue) return;
+                this.sortBy = sortValue;
+                this.sortAndFilterResults();
             },
 
             priceMatrix() {
