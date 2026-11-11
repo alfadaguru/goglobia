@@ -180,6 +180,8 @@ $router->post('flights/tiqwa/issue', function () use ($db) {
             $confirmedId = (string) ($confOffer['id'] ?? $flightId);
             $confCurrency = strtoupper((string) ($confOffer['currency'] ?? $displayCurrency));
             $confTotal = (float) ($confOffer['amount'] ?? 0);
+            // Per-offer passport requirement (international routes true, domestic false).
+            $documentRequired = !empty($confOffer['document_required']);
 
             // Reconcile: never pay a higher all-in fare than the customer paid.
             if (function_exists('reconcilePostPaymentPrice') && $confTotal > 0) {
@@ -187,6 +189,23 @@ $router->post('flights/tiqwa/issue', function () use ($db) {
                 if (empty($pc['ok'])) {
                     $db->update('bookings', ['error_response' => json_encode(['step' => 'confirm_reconcile', 'detail' => $pc]), 'booking_payment_issue' => 'Fare increased beyond paid amount — held for review.'], ['invoice_id' => $invoice_id]);
                     echo json_encode(['status' => false, 'message' => 'Airline fare increased beyond the paid amount — held for review.', 'price_review' => $pc, 'invoice_id' => $invoice_id]);
+                    exit;
+                }
+            }
+
+            // Validate passengers against Tiqwa's rules (DOB always; passport only when
+            // document_required) BEFORE /book. The customer has already paid here, so a
+            // missing detail can't be fixed silently — hold for review + status:false so
+            // the gateway auto-refunds (same posture as the reconcile failure above),
+            // and the error names exactly what's missing so staff can collect it.
+            if (function_exists('tiqwa_validate_pax')) {
+                $vp = tiqwa_validate_pax($pax, $documentRequired);
+                if (empty($vp['ok'])) {
+                    $db->update('bookings', [
+                        'error_response'        => json_encode(['step' => 'pax_validate', 'message' => $vp['message'], 'document_required' => $documentRequired]),
+                        'booking_payment_issue' => 'Passenger details incomplete — held for review + auto-refund: ' . substr($vp['message'], 0, 180),
+                    ], ['invoice_id' => $invoice_id]);
+                    echo json_encode(['status' => false, 'message' => $vp['message'], 'invoice_id' => $invoice_id]);
                     exit;
                 }
             }

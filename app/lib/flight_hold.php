@@ -77,9 +77,22 @@ if (!function_exists('flight_hold_release_supplier')) {
         if ($supplier === '' || $ref === '') { return; }
 
         // Tiqwa: a reservation left unpaid auto-expires server-side, but we also
-        // call its cancel endpoint if available so the release is immediate.
-        if ($supplier === 'tiqwa' && function_exists('tiqwa_cancel_reservation')) {
-            try { tiqwa_cancel_reservation($db, $invoiceId, $ref); } catch (\Throwable $e) { error_log('tiqwa hold cancel: ' . $e->getMessage()); }
+        // call its cancel endpoint so the release is immediate. The sweep runs in the
+        // MAIN APP context (cron /pay_later_sweep), where the Tiqwa module is NOT
+        // auto-loaded (it loads only via the /modules gateway) — so lazy-require it
+        // here, otherwise tiqwa_cancel_reservation stays undefined and this is a
+        // silent no-op (audit T-1).
+        if ($supplier === 'tiqwa') {
+            if (!function_exists('tiqwa_cancel_reservation')) {
+                $__root = dirname(__DIR__, 1); // app/
+                $__creds = dirname($__root) . '/modules/flights/tiqwa/creds.php';
+                $__reserve = dirname($__root) . '/modules/flights/tiqwa/reserve.php';
+                if (is_file($__creds))   { require_once $__creds; }   // getTiqwaCredentials + tiqwaApiRequest
+                if (is_file($__reserve)) { require_once $__reserve; } // defines tiqwa_cancel_reservation
+            }
+            if (function_exists('tiqwa_cancel_reservation')) {
+                try { tiqwa_cancel_reservation($db, $invoiceId, $ref); } catch (\Throwable $e) { error_log('tiqwa hold cancel: ' . $e->getMessage()); }
+            }
         }
         // Other suppliers' hold-cancel adapters plug in here later.
     }

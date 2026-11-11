@@ -405,20 +405,84 @@ if (!function_exists('tiqwa_build_pax')) {
                 $passportExp = $p['passport_expiry_year'] . '-' . str_pad((string) $p['passport_expiry_month'], 2, '0', STR_PAD_LEFT) . '-' . str_pad((string) $p['passport_expiry_day'], 2, '0', STR_PAD_LEFT);
             }
             if ($passportNo !== '') {
+                // Tiqwa /book `documents` requires ALL of: number, document_type,
+                // holder, issuing_country, nationality_country, issuing_date,
+                // expiry_date (Flight.v1.json). Only passport is accepted.
+                $passIss = trim((string) ($p['passport_issue'] ?? $p['passport_issue_date'] ?? ''));
                 $entry['documents'] = [
                     'number'              => $passportNo,
                     'document_type'       => 'passport',
                     'holder'              => true,
                     'issuing_country'     => tiqwa_iso2($p['passport_issuing_country'] ?? ($p['issuing_country'] ?? ($booking['country'] ?? '')), $db),
                     'nationality_country' => tiqwa_iso2($p['nationality'] ?? ($booking['country'] ?? ''), $db),
+                    'expiry_date'         => $passportExp !== '' ? date('Y-m-d', strtotime($passportExp)) : '',
+                    'issuing_date'        => $passIss !== '' ? date('Y-m-d', strtotime($passIss)) : '',
                 ];
-                if ($passportExp !== '') $entry['documents']['expiry_date'] = date('Y-m-d', strtotime($passportExp));
-                $passIss = trim((string) ($p['passport_issue'] ?? $p['passport_issue_date'] ?? ''));
-                if ($passIss !== '') $entry['documents']['issuing_date'] = date('Y-m-d', strtotime($passIss));
             }
 
             $pax[] = $entry;
         }
         return $pax;
+    }
+}
+
+if (!function_exists('tiqwa_validate_pax')) {
+    /**
+     * Validate a built Tiqwa passengers[] array against Tiqwa's /book requirements
+     * BEFORE calling /book — so a customer is blocked (with a clear message) at the
+     * pre-payment gate instead of failing a post-payment 422 and being auto-refunded.
+     *
+     * ALWAYS required per passenger (Flight.v1.json passengers[].required): dob,
+     * first_name, last_name, gender, title, email, phone_number — on EVERY flight,
+     * domestic or international.
+     *
+     * PASSPORT (`documents`) is required ONLY when $documentRequired is true (the
+     * `document_required` flag from GET /confirm_price). When true, each passenger
+     * needs a COMPLETE passport: number, expiry_date, issuing_date, issuing_country,
+     * nationality_country. For a domestic route ($documentRequired=false) passport is
+     * NOT required and never requested.
+     *
+     * @return array{ok:bool, message:string}
+     */
+    function tiqwa_validate_pax(array $pax, bool $documentRequired): array
+    {
+        if (empty($pax)) {
+            return ['ok' => false, 'message' => 'No passengers found for this booking.'];
+        }
+        $n = 0;
+        foreach ($pax as $p) {
+            $n++;
+            $who = trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? '')) ?: ('Passenger ' . $n);
+
+            // Always-required fields (per the Tiqwa /book schema).
+            foreach (['first_name', 'last_name', 'gender', 'title', 'email', 'phone_number'] as $f) {
+                if (trim((string) ($p[$f] ?? '')) === '') {
+                    return ['ok' => false, 'message' => $who . ': ' . str_replace('_', ' ', $f) . ' is required.'];
+                }
+            }
+            // Date of birth is required for EVERY passenger on EVERY flight.
+            if (trim((string) ($p['dob'] ?? '')) === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $p['dob'])) {
+                return ['ok' => false, 'message' => $who . ': a valid date of birth (YYYY-MM-DD) is required.'];
+            }
+
+            // Passport only when the airline/route requires it.
+            if ($documentRequired) {
+                $doc = is_array($p['documents'] ?? null) ? $p['documents'] : [];
+                if (trim((string) ($doc['number'] ?? '')) === '') {
+                    return ['ok' => false, 'message' => $who . ': a passport is required for this flight (international / document-required route). Please add passport details.'];
+                }
+                foreach (['expiry_date' => 'passport expiry date', 'issuing_date' => 'passport issue date', 'issuing_country' => 'passport issuing country', 'nationality_country' => 'nationality'] as $k => $label) {
+                    if (trim((string) ($doc[$k] ?? '')) === '') {
+                        return ['ok' => false, 'message' => $who . ': ' . $label . ' is required for this flight.'];
+                    }
+                }
+                // Passport must not be expired.
+                $exp = strtotime((string) $doc['expiry_date']);
+                if ($exp !== false && $exp < time()) {
+                    return ['ok' => false, 'message' => $who . ': the passport has expired. Please provide a valid passport.'];
+                }
+            }
+        }
+        return ['ok' => true, 'message' => ''];
     }
 }

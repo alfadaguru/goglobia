@@ -64,6 +64,17 @@ if (!function_exists('tiqwa_reserve')) {
         }
         $confOffer   = isset($conf['data']['id']) ? $conf['data'] : ($conf['data']['data'] ?? $conf['data']);
         $confirmedId = (string) ($confOffer['id'] ?? $flightId);
+        // Tiqwa tells us per-offer whether a travel document (passport) is required
+        // (typically international routes). Domestic routes return false → no passport.
+        $documentRequired = !empty($confOffer['document_required']);
+
+        // Validate passengers against Tiqwa's rules BEFORE /book — so a missing DOB
+        // (always required) or a missing passport (only when document_required) is
+        // reported now, at the hold gate (no money), instead of a post-/book 422.
+        if (function_exists('tiqwa_validate_pax')) {
+            $vp = tiqwa_validate_pax($pax, $documentRequired);
+            if (empty($vp['ok'])) { return $fail($vp['message']); }
+        }
 
         // ---- STEP 2: book/{flight_id} → reserve, get reference + expires_at ----
         $bookBody = ['passengers' => $pax];
@@ -91,5 +102,47 @@ if (!function_exists('tiqwa_reserve')) {
         $db->update('bookings', ['booking_data' => json_encode($booking_data)], ['invoice_id' => $invoice_id]);
 
         return ['ok' => true, 'reference' => $reference, 'expires_at' => $expiresAt, 'message' => 'Reserved'];
+    }
+}
+
+if (!function_exists('tiqwa_cancel_reservation')) {
+    /**
+     * Proactively release an UNPAID Tiqwa reservation (hold) at Tiqwa, by calling its
+     * cancel endpoint POST {flight_base}/{reference}. Called by the book-on-hold
+     * expiry sweep (app/lib/flight_hold.php → flight_hold_release_supplier) so the
+     * seat is freed immediately rather than waiting for Tiqwa's own auto-expiry. No
+     * money is involved (a hold took none). Best-effort + idempotent: a reservation
+     * already cancelled/expired at Tiqwa simply returns a benign error we swallow.
+     *
+     * (This was referenced by flight_hold.php but previously undefined, making the
+     * proactive release a silent no-op — audit T-1.)
+     *
+     * @return array{ok:bool,message:string}
+     */
+    function tiqwa_cancel_reservation($db, string $invoiceId, string $reference): array
+    {
+        $reference = trim($reference);
+        if ($reference === '') { return ['ok' => false, 'message' => 'No reference']; }
+
+        $credentials = getTiqwaCredentials($db);
+        $token = (string) ($credentials['api_token'] ?? '');
+        $base  = (string) ($credentials['flight_base'] ?? '');
+        if ($token === '' || $base === '') { return ['ok' => false, 'message' => 'Tiqwa credentials not configured']; }
+
+        $url = rtrim($base, '/') . '/' . rawurlencode($reference);
+        $res = tiqwaApiRequest('POST', $url, [], $token, [], 60);
+        tiqwaLog('hold/cancel-reservation', ['reference' => $reference], $res['raw'], $res['http_code'], $res['curl_error'], $invoiceId);
+
+        $data = is_array($res['data'] ?? null) ? $res['data'] : [];
+        // Treat as released on a real cancel OR an already-cancelled/expired response.
+        $released = (!empty($res['success']) && (
+                !empty($data['success'])
+                || strtolower((string) ($data['status'] ?? '')) === 'cancelled'
+                || !empty($data['message'])
+            ))
+            || ((int) ($res['http_code'] ?? 0) === 409 && stripos(tiqwaExtractError($res), 'cancel') !== false)
+            || (int) ($res['http_code'] ?? 0) === 404; // already gone at Tiqwa → effectively released
+
+        return ['ok' => $released, 'message' => $released ? 'Reservation released' : tiqwaExtractError($res)];
     }
 }

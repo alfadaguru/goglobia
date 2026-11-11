@@ -1349,6 +1349,30 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         // Prepare travellers data
         $travellersJson = json_encode($passengers);
 
+        // PRE-PAYMENT PASSENGER VALIDATION (Tiqwa) — Tiqwa /book ALWAYS requires a
+        // valid date of birth for every passenger (domestic or international), so
+        // reject here, BEFORE the customer pays, rather than failing post-payment at
+        // /book (which would hold-for-review + auto-refund). The passport requirement
+        // is route-dependent (document_required) and is enforced at the hold/issue
+        // gate where the live confirm_price flag is authoritative. This DOB gate needs
+        // no supplier call. (Other suppliers keep their own validation.)
+        if (strtolower((string) $supplierName) === 'tiqwa') {
+            if (!function_exists('tiqwa_validate_pax')) {
+                $__tiqwaCreds = dirname(__DIR__, 2) . '/modules/flights/tiqwa/creds.php';
+                if (is_file($__tiqwaCreds)) { require_once $__tiqwaCreds; }
+            }
+            if (function_exists('tiqwa_build_pax')) {
+                // Validate DOB-only here (document_required=false) — passport is gated
+                // later with the authoritative confirm_price flag. Build pax from the
+                // same travellers shape the booking will store.
+                $__paxForCheck = tiqwa_build_pax($db, ['travellers' => $travellersJson, 'email' => $primaryGuest['email'] ?? '', 'phone' => $guestPhone, 'country' => $countryIso]);
+                $__vp = tiqwa_validate_pax($__paxForCheck, false);
+                if (empty($__vp['ok'])) {
+                    throw new Exception($__vp['message']);
+                }
+            }
+        }
+
         // Insert into bookings table
         $db->insert('bookings', [
             'invoice_id' => $invoiceId,
