@@ -192,14 +192,13 @@ require_once 'app/routes/tours/listingRoutes.php';
 require_once 'app/routes/tours/detailRoutes.php';
 require_once 'app/routes/tours/destinationSuggestionRoutes.php';
 
-// Umrah Routes
-require_once 'app/routes/umrah/umrahV2Routes.php'; // NEW redesign — must precede legacy so /umrah, /umrah/packages/*, /umrah/detail redirect win
-require_once 'app/routes/umrah/homeRoutes.php';
-require_once 'app/routes/umrah/bookingRoutes.php';
+// Umrah Routes (v2). The legacy v1 homeRoutes/detailRoutes were inert
+// (registered nothing / return;-disabled) and were removed in the v1→v2 cleanup.
+require_once 'app/routes/umrah/umrahV2Routes.php'; // v2 redesign — must precede any legacy so /umrah, /umrah/packages/*, /umrah/detail redirect win
+require_once 'app/routes/umrah/bookingRoutes.php'; // live invoice handlers (download/resend/request-cancellation); legacy submit chain retired
 require_once 'app/routes/umrah/invoiceRoutes.php';
-require_once 'app/routes/umrah/detailRoutes.php';
 require_once 'app/routes/umrah/destinationSuggestionRoutes.php';
-require_once 'app/routes/umrah/listingRoutes.php'; // Catch-all listing route should be last
+require_once 'app/routes/umrah/listingRoutes.php'; // live POST /api/umrah/listing; legacy /umrah catch-all retired
 
 // CARS ROUTES
 require_once 'app/routes/cars/bookingRoutes.php';
