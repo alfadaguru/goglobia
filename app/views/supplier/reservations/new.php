@@ -146,7 +146,9 @@
       </div>
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Rooms</label>
-        <input type="number" name="qty" min="1" value="1" class="input">
+        <input type="number" name="qty" id="qtyInput" min="1" value="1" class="input">
+        <p id="qtyGroupHint" class="text-xs text-amber-600 mt-1 hidden">More than one room is a
+          <span class="font-medium">group booking</span> — we'll create it as a group.</p>
       </div>
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Source</label>
@@ -290,8 +292,9 @@
     // the browser's native validation ("please select an item") fires on submit — a
     // disabled field is skipped by validation, which would let an empty submit through to
     // the server. The submit button is also blocked below when no room is pickable.
-    if (physEmptyMsg) { physEmptyMsg.classList.toggle('hidden', rooms.length > 0 || rid === ''); }
-    if (submitBtn) {
+    if (physEmptyMsg) { physEmptyMsg.classList.toggle('hidden', rooms.length > 0 || rid === '' || isGroup()); }
+    // In group mode the single room-number picker is irrelevant, so never block submit on it.
+    if (submitBtn && !isGroup()) {
       var block = (rid !== '' && rooms.length === 0);
       submitBtn.disabled = block;
       submitBtn.classList.toggle('opacity-50', block);
@@ -322,8 +325,36 @@
     if (cheapestVal !== null) { optSel.value = cheapestVal; }
     fillPhys();
   }
+
+  // GROUP MODE: when the operator asks for more than one room, this walk-in becomes a
+  // group booking — room NUMBERS are assigned later on the group page, so the single
+  // room-number picker here is hidden + not required (and its "no free room" submit-block
+  // is lifted). qty 1 restores the normal single-room walk-in.
+  var qtyInput = document.getElementById('qtyInput');
+  var qtyGroupHint = document.getElementById('qtyGroupHint');
+  function isGroup() { return qtyInput && parseInt(qtyInput.value || '1', 10) > 1; }
+  function syncGroupMode() {
+    var group = isGroup();
+    if (qtyGroupHint) { qtyGroupHint.classList.toggle('hidden', !group); }
+    if (physSel) {
+      // Hide the whole room-number field in group mode; drop `required` so it can't block
+      // submit; restore in single mode.
+      var wrap = physSel.closest('.form-control');
+      if (wrap) { wrap.classList.toggle('hidden', group); }
+      physSel.required = !group;
+    }
+    if (group && submitBtn) { // group mode never blocks submit on "no single room free"
+      submitBtn.disabled = false;
+      submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+      fillPhys(); // re-evaluate the single-room submit-block
+    }
+  }
+
   roomSel.addEventListener('change', fill);
+  if (qtyInput) { qtyInput.addEventListener('input', syncGroupMode); qtyInput.addEventListener('change', syncGroupMode); }
   fill();
+  syncGroupMode();
 })();
 
 // UX M9: validate the guest phone client-side (>=7 digits, same as the server) BEFORE

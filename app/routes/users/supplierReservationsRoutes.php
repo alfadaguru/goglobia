@@ -1158,6 +1158,68 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         header('Location: ' . $back); exit;
     }
 
+    // MULTI-ROOM → GROUP (owner decision): a walk-in is ONE guest in ONE room. The moment
+    // more than one room is asked for, it IS a group booking — so route it into the EXISTING
+    // group engine (group_create + group_block_add holds N rooms against real availability +
+    // group_member_add seeds the rooming list) and send the operator to the group detail page
+    // to assign the room numbers. No duplicate multi-room logic lives here.
+    $qty = max(1, (int) ($_POST['qty'] ?? 1));
+    if ($qty > 1) {
+        $roomId   = (int) ($_POST['room_id'] ?? 0);
+        $optionId = (int) ($_POST['option_id'] ?? 0);
+        $checkin  = (string) ($_POST['checkin'] ?? '');
+        $checkout = (string) ($_POST['checkout'] ?? '');
+        $firstName = trim((string) ($_POST['first_name'] ?? ''));
+        $lastName  = trim((string) ($_POST['last_name'] ?? ''));
+        $guestName = trim($firstName . ' ' . $lastName);
+        if ($roomId <= 0 || $optionId <= 0) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Pick a room type and rate.'];
+            header('Location: ' . $back); exit;
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $checkin) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $checkout)
+            || strtotime($checkout) <= strtotime($checkin)) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Valid check-in and check-out dates are required.'];
+            header('Location: ' . $back); exit;
+        }
+        if ($guestName === '') {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Guest / group name is required.'];
+            header('Location: ' . $back); exit;
+        }
+        if (!function_exists('group_create') || !function_exists('group_block_add')) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Group booking is unavailable.'];
+            header('Location: ' . $back); exit;
+        }
+        $stayRow = $db->get('stays', ['currency'], ['id' => $stayId]);
+        $gCurrency = strtoupper(trim((string) ($stayRow['currency'] ?? 'USD'))) ?: 'USD';
+        // 1) Create the group (named after the guest; it's a walk-in group).
+        $groupId = group_create($db, $stayId, [
+            'name'          => $guestName,
+            'contact_email' => (string) ($_POST['email'] ?? ''),
+            'arrival'       => $checkin,
+            'departure'     => $checkout,
+            'currency'      => $gCurrency,
+        ]);
+        if ($groupId <= 0) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not start the group booking.'];
+            header('Location: ' . $back); exit;
+        }
+        // 2) Hold N rooms as a block (the shared no-oversell gate). On failure, roll the
+        //    group back so we never leave an empty group behind.
+        $blk = group_block_add($db, $groupId, $stayId, $roomId, $optionId, $checkin, $checkout, $qty);
+        if (empty($blk['ok'])) {
+            try { $db->delete('stays_groups', ['id' => $groupId, 'stay_id' => $stayId]); } catch (\Throwable $e) {}
+            $_SESSION['message'] = ['type' => 'error', 'text' => $blk['message'] ?? 'Not enough rooms available for a group of that size.'];
+            header('Location: ' . $back); exit;
+        }
+        // 3) Seed the rooming list with the walk-in guest (the operator adds the rest + assigns
+        //    room numbers on the group detail page). Best-effort; never blocks the group.
+        if (function_exists('group_member_add') && !empty($blk['block_id'])) {
+            group_member_add($db, $groupId, $stayId, (int) $blk['block_id'], $guestName, ['email' => (string) ($_POST['email'] ?? '')]);
+        }
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Group booking started — ' . $qty . ' rooms held. Add your guests and assign room numbers below.'];
+        header('Location: ' . root . 'supplier/groups/' . $groupId); exit;
+    }
+
     // COMPULSORY ROOM ASSIGNMENT (owner rule): a walk-in MUST be assigned a physical
     // room, so it always appears on the front-desk room board and can never become an
     // invisible unassigned booking. The server is the authority (client `required` is
@@ -1185,7 +1247,7 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
     $res = resv_create_walkin($db, $stayId, [
         'room_id'    => (int) ($_POST['room_id'] ?? 0),
         'option_id'  => (int) ($_POST['option_id'] ?? 0),
-        'qty'        => (int) ($_POST['qty'] ?? 1),
+        'qty'        => 1,
         'checkin'    => (string) ($_POST['checkin'] ?? ''),
         'checkout'   => (string) ($_POST['checkout'] ?? ''),
         'first_name' => (string) ($_POST['first_name'] ?? ''),
