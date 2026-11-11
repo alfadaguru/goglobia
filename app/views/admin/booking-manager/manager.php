@@ -209,6 +209,14 @@ $svcIcons = [
               <option value="departure">Earliest departure</option>
             </select>
           </div>
+          <div class="flex items-center gap-2" x-show="isHotel">
+            <span class="text-[11px] text-slate-400">Sort</span>
+            <select class="select input input-sm" x-model="hotelSort" @change="sortResults()">
+              <option value="price">Cheapest</option>
+              <option value="stars">Most stars</option>
+              <option value="rating">Top rated</option>
+            </select>
+          </div>
         </div>
         <!-- Some suppliers failed (admin diagnostics; customers never see this) -->
         <div class="mt-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700" x-show="searchErrors.length" x-cloak>
@@ -220,12 +228,16 @@ $svcIcons = [
             <div class="border border-slate-200 rounded-lg p-3"
                  :class="selectedOffer===idx ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''">
               <div class="flex items-stretch justify-between gap-3">
-                <!-- FLIGHT: rich card (logo · route timeline(s) · meta). HOTEL/other: compact label. -->
+                <!-- FLIGHT: rich card (logo · route timeline(s) · meta). HOTEL: image ·
+                     stars · location · amenities · refundable. Other: compact label. -->
                 <div class="min-w-0 flex-1">
                   <template x-if="service==='flights' && !isHotel && r.flt">
                     <div x-html="bmFlightCard(r)"></div>
                   </template>
-                  <template x-if="!(service==='flights' && !isHotel && r.flt)">
+                  <template x-if="isHotel && r.hdata">
+                    <div x-html="bmHotelCard(r)"></div>
+                  </template>
+                  <template x-if="!(service==='flights' && !isHotel && r.flt) && !(isHotel && r.hdata)">
                     <div>
                       <div class="font-medium text-slate-800 text-sm truncate" x-text="r.label"></div>
                       <div class="text-xs text-slate-500" x-text="r.sub"></div>
@@ -817,7 +829,7 @@ function bookingMgr() {
     price: { sell:0, cost:0, currency:'' },
 
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
-    flightSort:'price', searchErrors:[],
+    flightSort:'price', hotelSort:'price', searchErrors:[],
     // Live-rail state (its own train search; selTrain/selSeat = the chosen seat class).
     rail:{ from:'', to:'', date:'', adults:1, children:0, currency:'', searching:false, searched:false, error:'', trains:[], selTrain:null, selSeat:null },
     // Live-ferries state (sailing search; sel = chosen sailing index).
@@ -1002,17 +1014,21 @@ function bookingMgr() {
 
       this.searching=false; this.searched=true;
     },
-    // Sort the merged results by the chosen key (flights). Price is the default
-    // and the only meaningful key for non-flight services, so they stay by price.
+    // Sort the merged results by the chosen key (flights: price/duration/
+    // departure; hotels: price/stars/rating). Price is the default and the only
+    // meaningful key for the other services, so they stay by price.
     // selectedOffer is an INDEX into results, so re-ordering would make it point
     // at the wrong offer — re-resolve it to the same raw object after sorting.
     sortResults(){
-      const k=this.flightSort;
+      const fk=this.flightSort, hk=this.hotelSort;
       const prevRaw = (this.selectedOffer!==null && this.results[this.selectedOffer]) ? this.results[this.selectedOffer].raw : null;
       this.results.sort((a,b)=>{
         if(this.service==='flights'){
-          if(k==='duration'){ return (a.dur_min||999999)-(b.dur_min||999999); }
-          if(k==='departure'){ return (a.dep_min||999999)-(b.dep_min||999999); }
+          if(fk==='duration'){ return (a.dur_min||999999)-(b.dur_min||999999); }
+          if(fk==='departure'){ return (a.dep_min||999999)-(b.dep_min||999999); }
+        } else if(this.isHotel){
+          if(hk==='stars'){  return ((b.hdata&&b.hdata.stars)||0)-((a.hdata&&a.hdata.stars)||0); }
+          if(hk==='rating'){ return ((b.hdata&&b.hdata.rating)||0)-((a.hdata&&a.hdata.rating)||0); }
         }
         return (a.price_num||0)-(b.price_num||0);
       });
@@ -1046,10 +1062,40 @@ function bookingMgr() {
           return { supplier, label: it.name||it.car_name||'Vehicle', sub:bits, price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(), raw: it };
         }
         if(this.isHotel){
+          // HOTELS — mirror the customer stays card treatment: keep image(s),
+          // star rating, address/location, amenities, refundable + per-night/total
+          // price, instead of only name + stars + location. All of it is already
+          // in the supplier offer; the old card discarded it. (The room-rate
+          // picker below still drives the actual booking handle.)
           // Hotelbeds/DB suppliers expose the hotel-level price as min_total_price /
           // display_price, not `price`. Use the real keys, newest-website order.
-          const price=Number(it.min_total_price||it.display_price||it.price||0);
-          return { supplier, label: it.name||'Hotel', sub: (it.stars?it.stars+'★ · ':'')+(it.location||''), price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(), raw: it };
+          const num = v => Number(String(v==null?0:v).replace(/,/g,''))||0;
+          const price=num(it.min_total_price||it.display_price||it.price||0);
+          const perNight=num(it.price_per_night||it.display_price_per_night||it.min_price_per_night||0) || price;
+          const od = it.original_data || it;  // amenities/refundable often nest here
+          const imgs = Array.isArray(it.images)&&it.images.length ? it.images
+                     : (it.image?[it.image]:(it.img?[it.img]:[]));
+          let amenities = it.amenities || od.amenities || [];
+          if(!Array.isArray(amenities)) amenities=[];
+          amenities = amenities.map(a=> typeof a==='string'?a:(a&&(a.name||a.label)||'')).filter(Boolean);
+          const hdata = {
+            name: it.name||'Hotel',
+            stars: parseInt(it.stars||it.star_rating||0)||0,
+            rating: parseFloat(it.rating||0)||0,
+            address: it.address||'', location: it.location||it.city||'',
+            images: imgs,
+            amenities,
+            refundable: !!(it.refundable || od.refundable),
+            nights: parseInt(it.nights||0)||0,
+            per_night: perNight,
+            has_rooms: (it.has_available_rooms!==false),
+          };
+          return { supplier, raw: it,
+            label: hdata.name,
+            sub: (hdata.stars?hdata.stars+'★ · ':'')+(hdata.location||hdata.address||''),
+            price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(),
+            currency: it.currency||'',
+            hdata };
         }
         // FLIGHTS — mirror the customer results treatment: keep the full outbound
         // slice (times, dates, duration, cabin, baggage, refundable, airline logo
@@ -1174,6 +1220,50 @@ function bookingMgr() {
         </div>`; }
       out += `<div class="mt-2 pt-2 border-t border-slate-100 flex items-center gap-3 flex-wrap text-[11px] text-slate-500">${metaBits.join('')}</div>`;
       return out;
+    },
+
+    // ---- HOTEL CARD TREATMENT (mirrors the customer stays card) -------------
+    // SVG star row (filled vs empty), like the customer card.
+    bmStars(n){ n=Math.max(0,Math.min(5,parseInt(n)||0)); if(!n) return '';
+      const star=(f)=>`<svg class="w-3.5 h-3.5 ${f?'text-amber-500':'text-slate-300'}" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>`;
+      let s=''; for(let i=0;i<5;i++)s+=star(i<n); return s; },
+    // Escape a value for safe insertion into an HTML attribute (src/alt).
+    bmAttr(v){ return String(v==null?'':v).replace(/"/g,'&quot;').replace(/</g,'&lt;'); },
+    // The rich hotel card body (image · name · stars · location · amenities ·
+    // refundable · per-night + total price). The room-rate picker renders below.
+    bmHotelCard(r){ const h=r.hdata||{}; if(!h.name){ return ''; }
+      const imgs=Array.isArray(h.images)?h.images:[];
+      const img=imgs[0]||'';
+      const extra=imgs.length>1?imgs.length-1:0;
+      const loc=[h.address,h.location].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
+      const ccy=r.currency||'';
+      // amenity chips (first 3 + overflow), like the customer card
+      let chips='';
+      (h.amenities||[]).slice(0,3).forEach(a=>{ chips+=`<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-700">${this.bmAttr(a)}</span>`; });
+      if((h.amenities||[]).length>3){ chips+=`<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600">+${(h.amenities||[]).length-3}</span>`; }
+      const refund = h.refundable
+        ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700"><span class="material-symbols-outlined" style="font-size:12px;">check_circle</span>Refundable</span>`
+        : '';
+      const priceBlock = (h.per_night && h.per_night!==r.price_num)
+        ? `<div class="text-[10px] text-slate-400 mt-0.5">${ccy} ${Number(h.per_night).toLocaleString()} / night${h.nights?` · ${h.nights} night${h.nights>1?'s':''}`:''}</div>`
+        : (h.nights?`<div class="text-[10px] text-slate-400 mt-0.5">${h.nights} night${h.nights>1?'s':''}</div>`:'');
+      return `
+        <div class="flex gap-3">
+          <div class="w-24 h-20 rounded-lg overflow-hidden bg-slate-100 shrink-0 relative">
+            ${img
+              ? `<img src="${this.bmAttr(img)}" alt="${this.bmAttr(h.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling&&(this.nextElementSibling.style.display='flex')">
+                 <div class="w-full h-full items-center justify-center" style="display:none"><span class="material-symbols-outlined text-slate-300" style="font-size:22px;">hotel</span></div>`
+              : `<div class="w-full h-full flex items-center justify-center"><span class="material-symbols-outlined text-slate-300" style="font-size:22px;">hotel</span></div>`}
+            ${extra?`<div class="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded-full">+${extra} photo${extra>1?'s':''}</div>`:''}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-semibold text-slate-800 truncate">${this.bmAttr(h.name)}</div>
+            ${h.stars?`<div class="flex items-center gap-0.5 mt-0.5">${this.bmStars(h.stars)}${h.rating?`<span class="text-[10px] text-slate-400 ml-1">${h.rating}</span>`:''}</div>`:''}
+            ${loc?`<div class="flex items-start gap-1 mt-1 text-[11px] text-slate-500"><span class="material-symbols-outlined text-slate-400" style="font-size:13px;">location_on</span><span class="truncate">${this.bmAttr(loc)}</span></div>`:''}
+            <div class="flex flex-wrap gap-1 mt-1.5">${chips}${refund}</div>
+            ${priceBlock}
+          </div>
+        </div>`;
     },
 
     // ---- AI TICKET READER (manual flights) ----------------------------------
