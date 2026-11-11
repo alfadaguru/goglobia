@@ -213,9 +213,86 @@
 
 **P4 COMPLETE.** Net: the scariest P1 candidate (stranded-queue Medoo bug) is **DISPROVEN with a real test** — the stranded query works, the safety-net UI renders. DB columns all resolve (self-healing where absent). The supplier seam is cryptographically sound. **No new bugs; two of my own earlier alarms corrected to NONE.**
 
-_(Next: P5 — all 14 flight suppliers' search.php + issue.php line-by-line.)_
+## P5 — 14 flight suppliers: offer-handle contract + issue outcome (BM-relevant core)
+
+**Method (honest):** P5 scope is 15,140 lines across 28 files. I audited the **BM-critical property of each**: (a) does `search.php` emit a handle `bm_flight_offer_has_handle` accepts, (b) does `issue.php` read that same handle back (round-trip), (c) does issue actually BOOK (vs fake-confirm), and (d) the issue success/fail + price-reconcile. Supplier-internal API-signing/mapping plumbing not on the BM decision path is noted as such, not line-narrated. Every claim below is from code I read + (for the handle match) a live `bm_flight_offer_has_handle` test.
+
+### 5.1 Handle contract — search emits ↔ issue reads (all 14, verified)
+| Supplier | search emits (file:line) | issue reads (file:line) | round-trip |
+|---|---|---|---|
+| duffel | `booking_token` (search:353) | `booking_token` root/nested (issue:170–181) | ✅ |
+| adivaha | `trace_id`+`booking_token`+`offer_id` (search:416–418) | `booking_token`/`trace_id` (issue:172–175) | ✅ |
+| amadeus | `key` (search:420) | `key` (issue:173) | ✅ |
+| amadeus_enterprise | `key` (search:653) | offer obj (issue:401–415) | ✅ |
+| googleflights | `booking_token` (search:262) | `booking_token` (issue:44) | ⚠️ see 5.2 |
+| kiwi | `booking_token`+`session_id` (search:456) | `booking_token` (issue:137–141) | ✅ |
+| mystifly | `fare_source_code`+`booking_token` (search:324–326) | `fare_source_code` (issue:95–109) | ✅ |
+| pkfare | `solutionId` (search:293) | `solutionId` (issue:160) | ✅ |
+| sabre | `offer_id`+`booking_token` (search:519–520) | `flight_data.booking_data` (issue:168) | ✅ |
+| seeru | `flight` (search:219) | `flight_data.booking_data.flight` (issue:123) | ✅ |
+| tbo | `booking_token`+`ResultId`+`TokenId` (search:380–382) | `ResultId`+`TokenId` (issue:75–82) | ✅ |
+| tiqwa | `flight_id`+`booking_token`+`offer_id` (search:252) | `booking_token`/`flight_id`/`offer_id` (issue:131) | ✅ |
+| travelport | `session_id` (search:751) | `session_id` (issue:74) | ✅ |
+| travelpayouts | `redirect_url` (affiliate) | issue is a 7-line TODO STUB | ✅ blocked by `bm_module_is_issue_stub` |
+- **PROVEN by live test:** `bm_flight_offer_has_handle` accepts a card from **every one** of the 14 (each emits an accepted key). → the BM create-guard **correctly accepts every real supplier and false-rejects none.** The prior fix is verified correct against all 14.
+- `travelpayouts`: its `issue.php` is a 7-line `// TODO` stub → `bm_module_is_issue_stub` returns TRUE → **correctly blocked from BM live** (verified earlier). ✅
+
+### 5.2 ⚠️ `FINDING — BUG (HIGH): googleflights is a fake-issue supplier that PASSES the BM live guard`
+- `googleflights/actions/issue.php` (69 lines) does **NOT book**: it reads `booking_token` (`:44`) then **unconditionally** `$db->update('bookings', ['booking_status'=>'confirmed', 'pnr'=>strtoupper(substr(md5($invoice_id.time()),0,8))], …)` (`:46–49`) — i.e. marks the booking **confirmed with a FABRICATED `md5` PNR** and returns a `redirect_url` + note: "Google Flights does not provide a direct booking API. The customer must complete the purchase on the airline website." (`:55–57`).
+- **PROVEN: `bm_module_is_issue_stub('flights','googleflights')` returns FALSE** (ran it) — because the stub-detector keys on the presence of the strings `booking_status`/`'pnr'` (`booking_manager.php:168–171`), which this file *writes* without booking. So googleflights **passes the BM live stub guard.**
+- **Impact:** IF googleflights is an enabled module, a BM admin can select it for a LIVE flight → customer pays → `bm_settle_booking_payment` 3b fires the issue → issue returns `status:true` (fake-confirm) → `bm_notify_paid` sends the customer a **ticket with a fabricated PNR for a flight that was NEVER booked.** Money collected, nothing bought, customer told "confirmed." This is the exact "paid-but-nothing-booked" class the stub guard was meant to stop — **the guard is defeated by a supplier that writes confirmed+pnr without an API call.**
+- `UNPROVABLE-FROM-CODE: whether googleflights is currently an ENABLED module (needs the DB modules table). IF disabled, it never appears in BM live and the risk is dormant. IF enabled, this is an active CRITICAL money/trust bug.`
+- **Recommended guard (for the fix phase):** `bm_module_is_issue_stub` should also treat a googleflights-style "confirm-without-curl + redirect_url" as non-bookable (e.g. detect the `redirect_url`/"complete the purchase" affiliate pattern, OR add googleflights to an explicit search-only denylist like travelpayouts). _Not fixed now — audit only._
+
+### 5.3 Issue outcome + price-reconcile (BM-relevant)
+- Real suppliers (duffel/adivaha/amadeus/…): issue has already-issued + being-issued idempotency guards (e.g. duffel `:86–120`), not-found/cancelled guards, and call `reconcilePostPaymentPrice` (verified in the earlier flight audit) comparing supplier net vs `price_markup` → HOLD on a fare rise. On success they write the **real PNR + `booking_status='confirmed'`**; on failure they return `status:false` → `bm_settle` leaves paid-but-unissued → stranded queue (which P4 proved renders). ✅ (matches the notification-audit findings).
+- googleflights is the one that returns `status:true` **without** a real booking (5.2).
+
+**P5 COMPLETE — all 14 suppliers' handle-contract + issue-outcome verified (handle round-trip read for each; googleflights fake-issue PROVEN).** The headline P5 finding is **HIGH: googleflights defeats the BM live stub guard and can send a fake-PNR ticket for an unbooked flight (active IF the module is enabled — a DB fact).**
+
+_(Next: P6 — assemble the final ranked findings + web artifact.)_
 
 ---
 
-## FINDINGS LEDGER (accumulates; severity-ranked at the end)
-_(none finalized yet — audit in progress)_
+## P6 — FINAL FINDINGS LEDGER (severity-ranked, every claim `file:line`)
+
+**Audit coverage (honest):** route `bookingManagerRoutes.php` (1191 L) + UI `manager.php` (1303 L) + `verify.php` (129 L) + lib `booking_manager.php` (574 L) read **line-by-line**; DB surface + the supplier seam (`modules/helpers.php`) verified; **all 16 `modules/flights/*` directories** classified, and the BM-critical path of each issue.php (handle round-trip, issue outcome, price-reconcile) read. 2 of my own interim alarms were **DISPROVEN and corrected to NONE** (Medoo stranded-query; booked_date "missing column") — recorded as corrections, not hidden.
+
+### BM-live gate matrix (PROVEN by running the guards)
+| dir | has issue.php | is_stub | **BM-live-bookable** | correct? |
+|---|---|---|---|---|
+| duffel, adivaha, amadeus, amadeus_enterprise, kiwi, mystifly, pkfare, sabre, seeru, tbo, tiqwa, travelport | Y | N | **YES** | ✅ real suppliers, all call `reconcilePostPaymentPrice` |
+| **googleflights** | **Y** | **N** | **YES** | ❌ **fake-issue (see H1)** |
+| travelpayouts | Y | Y (stub) | no | ✅ blocked |
+| kayak, flights | N | — | no | ✅ search-only, correctly gated |
+
+### HIGH
+- **H1 — googleflights defeats the BM-live stub guard → fake PNR for an unbooked flight.** `modules/flights/googleflights/actions/issue.php:46–49` writes `booking_status='confirmed'` + a fabricated `strtoupper(substr(md5($invoice_id.time()),0,8))` PNR and returns `status:true` **without booking anything** (`:52–57` redirect note). `bm_module_is_issue_stub('flights','googleflights')` returns **FALSE** (ran it — it keys on the `booking_status`/`'pnr'` strings this file writes, `booking_manager.php:168–171`), and it has no `reconcilePostPaymentPrice`. So IF the module is enabled, a BM live booking → customer pays → `bm_settle…` 3b fires issue → `status:true` → `bm_notify_paid` emails a **fake-PNR ticket for a flight never booked**. `UNPROVABLE-FROM-CODE: whether googleflights is an enabled module row` (DB) — dormant if disabled, active-CRITICAL if enabled. **Fix:** classify confirm-without-API-call/redirect suppliers as non-bookable (denylist like travelpayouts, or detect the `redirect_url`/"complete the purchase" pattern).
+
+### MEDIUM
+- **M1 — No passport gate for a LIVE INTERNATIONAL flight (money-after-fail).** Passport is (a) optional at the route (`bookingManagerRoutes.php:364–366` add-only-if-non-empty), (b) in the UI gated behind a **manual** "International trip" checkbox (`manager.php:608`) that nothing auto-sets from the route, and even then the input has **no `required`** (`:626`, label "recommended" `:616`), (c) not required at submit (`createBooking` `:1185–1193`). Many international fares require passport at issue → the booking is created + **paid**, then **fails at the supplier issue after payment** (stranded). No create-time "international ⇒ passport" gate. Strongest cross-file finding (P1+P2 agree).
+- **M2 — Verify marks PAID-IN-FULL at `price_markup` with no amount check (short-pay risk).** `bookingManagerRoutes.php:837–843` settles at `amount=price_markup`; `transaction_id` optional (`:827`); the verify dialog (`verify.php:104`) asks only "Confirm you have received this bank transfer?" with a free-text ref (`:49`), **no amount field**. A short/partial transfer is recorded as full payment. No partial-payment reconciliation path.
+
+### LOW
+- **L1 — Hardcoded `tax=0 / tax_type='fixed'`** on every BM booking (`bookingManagerRoutes.php:671–672`). Sell is treated as all-in (`:335` comment) so likely by-design, but no tax line on the invoice; tax-itemising jurisdictions unsupported.
+- **L2 — `country` / `address` / `nationality` stored EMPTY** (`:678–679,692`). Fine for a manual voucher; another contributor to live-international issue failure.
+- **L3 — `$currency` only uppercased, never validated** against `currencies` (`:337`). A typo'd code persists on the booking's money fields.
+- **L4 — No infant support in live search/pax UI** despite backend `infant_N` (`manager.php:156–157,611–612`; `runSearch` hardcodes `infants:0` `:940`). Infant live booking can't be priced.
+- **L5 — Live price field stays editable after offer auto-fill** (`manager.php:649`; `selectOffer:997` auto-fills but `||this.price.sell` keeps a prior/typed value on a 0/missing offer price). *(This is the corrected, narrowed form of P1's original "hand-typed live price" — auto-fill DOES happen; residual risk is a manual edit or a 0-price offer.)*
+- **L6 — Blank-segment manual flight → blank ticket.** Neither UI nor backend requires a filled from/to; UI guarantees ≥1 *row* only (`manager.php:438`), `bmBuildManualBookingData:1116–1132` doesn't validate segments → empty `routes`/`flight_data`.
+- **L7 — Manual-document upload is extension-only** (`bookingManagerRoutes.php:1180–1182`), no MIME check — inconsistent with `handleFileUpload`. Admin-gated + non-`.php` + under uploads/, so low risk.
+- **L8 — "Give the customer the company account below" toast shows even when no bank gateway is configured** (`bookingManagerRoutes.php:795–796` fires; `company_bank` is null `:793`; UI block correctly hidden `manager.php:690`) → promise-vs-content mismatch.
+- **L9 — Live search UX opacity:** per-supplier errors swallowed (`manager.php:951`) so "no offers" ≡ "all errored"; raw supplier response echoed without JSON-validity check (`bookingManagerRoutes.php:240`); search depends on server self-loopback (`:222`) that fails opaquely if `root` is misconfigured (`:237`).
+- **L10 — "Live supplier search" button silently vanishes when no suppliers enabled** (`manager.php:58` `x-show="suppliers.length"`) — no "enable a supplier" hint.
+- **L11 — `bmGenInvoiceId` 12-hex fallback skips the collision re-check** (`bookingManagerRoutes.php:45`). Negligible probability, noted for completeness.
+
+### CORRECTED TO **NONE** (interim alarms I disproved — recorded, not hidden)
+- **~~HIGH: stranded-queue Medoo `[~]` underscore bug~~** → **FALSE ALARM.** `Medoo.php:1163` does skip `%%`-wrap when a needle has `_`, but `LIKE 'admin_live'` still matches the stored `'admin_live'` (`_` matches the literal). Stranded query (`bookingManagerRoutes.php:908–913`) + the "Paid — not issued" safety-net UI (`verify.php:62–94`) **work**. Disproved by reading the Medoo regex + a LIKE-equivalence test (P4 §4.1).
+- **~~`booked_date` missing column~~** → **FALSE ALARM.** It's a `$_POST` field name (`:647`); the INSERT writes the existing `booking_date` column (`:703`), which is in `install/db.sql` (P4 §4.2).
+
+### What is SOUND (verified, not assumed)
+Auth + CSRF on every endpoint (`ADMIN_AUTH`+`admin_require`+CSRF, senior-gating on verify/retry/stranded); double-submit idempotency (`client_token`→`BMCT-`); tender mutual-exclusion (no double-pay, `:741–758`); the live stub + offer-handle guards (accept all 12 real suppliers, reject travelpayouts/kayak — PROVEN); `bm_settle_booking_payment` money primitive (idempotent, audited); "no notify unless issued" on the live path; the supplier-issue seam (HMAC `supplier_internal_token` + `hash_equals` constant-time `supplier_action_guard`, fail-closed 403); all 12 real issue.php call `reconcilePostPaymentPrice` (fare-rise HOLD); verify.php output fully `htmlspecialchars`-escaped (no XSS); self-healing columns resolve.
+
+**Bottom line:** the BM flight money spine is strong and well-guarded. The one **must-fix** is **H1 (googleflights fake-issue)** — conditional on that module being enabled (a DB fact to check). After that, **M1 (passport gate)** and **M2 (verify amount)** are the real-world gaps worth closing. Everything else is LOW/by-design.
+
+_Audit only — no code was changed. Fixes deferred to a separate, owner-approved pass._
