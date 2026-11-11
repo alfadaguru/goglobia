@@ -1941,7 +1941,9 @@ try {
                             // the minutes — fastest-sort was wrong. Use the robust one.
                             return this.durationToMinutes(a.duration_time) - this.durationToMinutes(b.duration_time);
                         case 'departure':
-                            return this.getHour(a.departure_time) - this.getHour(b.departure_time);
+                            // Minute-accurate so 08:05 sorts before 08:55 (getHour is
+                            // hour-only — correct for filter buckets, wrong for sort).
+                            return this.getMinutesOfDay(a.departure_time) - this.getMinutesOfDay(b.departure_time);
                         case 'price_low':
                         default:
                             return a.price - b.price;
@@ -2086,13 +2088,15 @@ try {
                 if (pool.length === 0) return [];
                 let cheapest = pool[0], fastest = pool[0], earliest = pool[0];
                 let fastestMin = this.durationToMinutes(fastest.duration_time);
-                let earliestHr = this.getHour(earliest.departure_time);
+                let earliestMin = this.getMinutesOfDay(earliest.departure_time);
                 for (const f of pool) {
                     if (f.price < cheapest.price) cheapest = f;
                     const d = this.durationToMinutes(f.duration_time);
                     if (d > 0 && (fastestMin <= 0 || d < fastestMin)) { fastest = f; fastestMin = d; }
-                    const h = this.getHour(f.departure_time);
-                    if (h > 0 && (earliestHr <= 0 || h < earliestHr)) { earliest = f; earliestHr = h; }
+                    // Minute-accurate, and include 00:xx (midnight) — the old `h > 0`
+                    // guard dropped midnight departures from the "earliest" pick.
+                    const mod = this.getMinutesOfDay(f.departure_time);
+                    if (mod < earliestMin) { earliest = f; earliestMin = mod; }
                 }
                 const nm = f => (f.airlineName || f.airline || '');
                 const dur = f => f.duration_time || (fastestMin > 0 ? Math.floor(fastestMin/60)+'h '+(fastestMin%60)+'m' : '');
@@ -2216,6 +2220,20 @@ try {
                 if (p === 'pm' && h !== 12) h += 12;
                 if (p === 'am' && h === 12) h = 0;
                 return h;
+            },
+
+            // Minutes-of-day (0..1439) from "08:20 am". getHour() above is hour-only on
+            // purpose (it feeds the morning/afternoon/evening time-slot FILTER buckets),
+            // but the "Earliest" SORT must be minute-accurate or 08:05 and 08:55 tie.
+            getMinutesOfDay(timeStr) {
+                const m = (timeStr || '').match(/(\d+):(\d+)\s*(am|pm)/i);
+                if (!m) return 0;
+                let h = parseInt(m[1]);
+                const min = parseInt(m[2] || 0);
+                const p = m[3].toLowerCase();
+                if (p === 'pm' && h !== 12) h += 12;
+                if (p === 'am' && h === 12) h = 0;
+                return h * 60 + min;
             },
 
             getDurationMinutes(duration) {
