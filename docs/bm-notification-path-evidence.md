@@ -110,7 +110,49 @@ Read fully.
 - PROVEN: no send result is captured or logged → delivery invisible.
 - UNPROVABLE-FROM-CODE (needs the live row/settings): (1) whether YOUR row's phone formats to a valid number; (2) whether `booking_enabled` was turned off. These are the only two WhatsApp unknowns, and both are data, not code.
 
-_(Files 4–9 below — in progress.)_
+## FILES 4–5 — `SENDWHATSAPP` (`functions.php:5041+`) + `greenapi.php` — the transport
+
+### 4. `SENDWHATSAPP($toPhone,$toName,$message,$mediaUrl,$publicUrl)` (`functions.php:5041–5124`)
+- `:5048 $provider = $settings['whatsapp_provider'] ?? 'greenapi'` — **CRITICAL BM distinction: the NOTIFY path uses the GLOBAL `settings.whatsapp_provider`, it does NOT force greenapi.** (GIA's own sender forces greenapi; `SENDWHATSAPP` does not.)
+- `:5050 $providerConfig = $config[$provider]`; `:5052–5054` if empty → `error_log` + `return false`.
+- **→ UNPROVABLE-FROM-CODE: whether `settings.whatsapp_provider === 'greenapi'`.** You confirmed Green API is *connected*, but if `whatsapp_provider` is set to another provider that isn't configured, `SENDWHATSAPP` returns false and no WhatsApp sends. This needs the settings row to confirm. (The 3-tier doc delivery — sendFileByUrl → sendFile → text — was verified clean earlier.)
+
+### 5. `GreenapiProvider` send success (`greenapi.php`)
+- `sendFileByUrl` (`:46–100`): **`:91 success ONLY if HTTP 200 + idMessage`**; else `error_log` + `return false` (`:92–94`). TLS verify ON (`:77–78`), token never logged. Earlier full read: clean.
+- The preferred ticket delivery passes a **public URL** (`ticket_public_url`) for Green API to fetch. **→ UNPROVABLE-FROM-CODE: whether that URL is reachable by Green API's servers (needs public HTTPS).** On failure it falls back to local upload then text (verified).
+
+**FILES 4–5 verdict:** the transports are **clean code** (proven earlier). The BM-specific WhatsApp unknowns are all **configuration/environment, not code bugs**: (a) `whatsapp_provider` must equal `greenapi`; (b) the ticket public URL must be reachable; (c) the formatted phone must be valid (File 3). None provable without the live install.
+
+## FILE 6 — `smtp.php` (email transport, default)
+Verified earlier line-by-line: `SmtpProvider` has `send` + `sendWithAttachment` (so the default email path DOES attach the ticket/invoice PDF); TLS peer-verify is OFF (finding N-20, a security issue, not a delivery blocker). **→ PROVEN: if `email_provider='smtp'` (default) and SMTP creds are set, the email with attachment sends.** UNPROVABLE-FROM-CODE: whether SMTP creds are configured on this install.
+
+## FILE 7 — `app/views/notifications/emails/flights/booking.php` (email template)
+This is the body the customer email renders. It exists (grep-confirmed in the earlier audit; a missing template would make `sendEmailNotifications` fail silently — N-7). Per-content read (does it show the right data for a BM flight) is a template-content item; dispatch to it is PROVEN. _Flagged for a content read if you want it._
+
+## FILES 8–9 — Reminders (separate path, NOT triggered by your booking yet)
+- `flight_reminders_sweep` (`flight_reminders.php:327`) only selects `module_type='flights' AND booking_status='confirmed'` (`:339`) with a resolvable departure timestamp (`:349–350`). Your booking is `awaiting_verification` (not confirmed) → **PROVEN: it does not yet qualify for any reminder.**
+- The sweep runs ONLY when `/cron/flight-reminders` is curled on a schedule (`flightRemindersRoutes.php:18`). **There is NO in-repo scheduler** (verified: no cron file, no daemon). **→ NEEDS-PROD-CHECK: whether the crontab line is installed on goglobia.com.** `docs/CRON.md:63` documents it should be `*/10`, but documentation ≠ installation. **I cannot prove from code whether reminders ever run; if the crontab isn't installed, they NEVER run — for any booking.**
+
+---
+
+## FINAL EVIDENCE SUMMARY (what is proven about YOUR silence)
+
+| Step | Status | Evidence |
+|---|---|---|
+| BM create captures phone | PROVEN-OK | bookingManagerRoutes `:676–677` |
+| manual_transfer parks at `awaiting_verification`, sends nothing, no GIA row | **PROVEN — this is why you got nothing** | `:777–790` |
+| Notify fires ONLY on `/verify` → settle | PROVEN | `:829` → booking_manager `:322/:334` |
+| GIA WhatsApp never reaches a BM booking | PROVEN | manual_transfer = no gia row; dva = `channel='admin'`, unsendable (`gia_channel_send.php:92–101`) |
+| On verify: MANUAL flight notifies; LIVE flight only if issue succeeds | PROVEN (3b conditional-broken) | booking_manager `:319–337` |
+| Email attempted unconditionally once notify runs | PROVEN | notify `:452–453` |
+| WhatsApp on by default, attempted once notify runs | PROVEN | notify `:446,462` |
+| Customer WhatsApp gated on valid formatted phone | PROVEN (silent-skip risk) | notify `:678` |
+| No send is recorded/logged (delivery invisible) | PROVEN | `LOG_EMAIL_SENT` never called |
+| WhatsApp provider must be `greenapi` globally | UNPROVABLE-FROM-CODE | `SENDWHATSAPP :5048` |
+| Your row's phone formats to a valid number | UNPROVABLE-FROM-CODE | needs the DB row |
+| Reminders cron installed on prod | NEEDS-PROD-CHECK | no in-repo scheduler; CRON.md:63 |
+
+**Bottom line (no lies): your booking sent nothing because it is unverified (`awaiting_verification`). Verify it and the email WILL attempt and the WhatsApp WILL attempt (on by default). Whether the WhatsApp actually ARRIVES then depends on three data/env facts I cannot read from code: (1) `whatsapp_provider='greenapi'`, (2) your phone+country-code format to a valid number, (3) the ticket public URL is reachable. GIA will never message a BM booking regardless. Reminders require a prod crontab that may not be installed.**
 
 ---
 
