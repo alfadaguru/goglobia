@@ -229,13 +229,17 @@ if ($activeStay > 0) {
   <nav class="flex-1 min-h-0 overflow-y-auto py-2">
     <?php foreach ($groups as $g): ?>
       <?php
-        $items = array_values(array_filter($g['items'], fn($it) => !empty($it['show'])));
-        if (empty($items)) { continue; }
+        // NOTE: use a nav-local variable name ($navItems), NOT $items — the sidebar is
+        // include'd (via header.php) AFTER operational routes set their own $items
+        // (e.g. laundry/minibar/procurement lists). Reusing $items here clobbered the
+        // route's data with nav rows, 500ing those views on $it['status']/['qty'] (UAT).
+        $navItems = array_values(array_filter($g['items'], fn($it) => !empty($it['show'])));
+        if (empty($navItems)) { continue; }
       ?>
       <?php if (!empty($g['label'])): ?>
         <div class="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400"><?= htmlspecialchars($g['label']) ?></div>
       <?php endif; ?>
-      <?php foreach ($items as $it): $on = $active(root . $it['url']); ?>
+      <?php foreach ($navItems as $it): $on = $active(root . $it['url']); ?>
         <a href="<?= root . htmlspecialchars($it['url']) ?>"
            class="flex items-center gap-3 px-4 py-2 text-sm transition-colors <?= $on ? 'bg-violet-50 text-violet-700 font-medium border-r-2 border-violet-600' : 'text-gray-600 hover:bg-gray-50' ?>">
           <span class="material-symbols-outlined text-[20px] <?= $on ? 'text-violet-600' : 'text-gray-400' ?>"><?= htmlspecialchars($it['icon']) ?></span>

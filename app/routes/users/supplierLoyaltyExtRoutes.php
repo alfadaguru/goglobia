@@ -39,7 +39,7 @@ $router->get('/supplier/loyalty', function () use ($SECURE, $db) {
     $cfg       = $org > 0 ? loyalty_config($db, $org) : ['enabled' => false, 'points_per_currency' => 1.0, 'redeem_value_per_point' => 0.0];
     $benefits  = $org > 0 ? loyalty_benefits_get($db, $org) : loyalty_benefit_defaults();
     $analytics = $org > 0 ? loyalty_analytics($db, $org) : [];
-    $occasions = $org > 0 ? loyalty_occasions_this_month($db) : [];
+    $occasions = $org > 0 ? loyalty_occasions_this_month($db, $org) : [];
     $extCfg = [
         'referral'    => $org > 0 ? loyalty_ext_points_setting($db, $org, 'referral_bonus_points', 250) : 250,
         'birthday'    => $org > 0 ? loyalty_ext_points_setting($db, $org, 'birthday_bonus_points', 200) : 200,
