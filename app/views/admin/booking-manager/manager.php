@@ -195,18 +195,46 @@ $svcIcons = [
           <span>Live fares are held only briefly by the supplier. Take payment promptly — a transfer verified hours later may fail to issue and land in the verification queue. For a trip paid well in advance, re-search just before collecting payment.</span>
         </div>
         <?php endif; ?>
-        <div class="mt-4 space-y-2" x-show="results.length">
+        <!-- Results header: count · sort (flights mirror the customer results page) -->
+        <div class="mt-4 flex items-center justify-between gap-2 flex-wrap" x-show="results.length">
+          <div class="text-xs text-slate-500">
+            <span class="font-semibold text-slate-700" x-text="results.length"></span> offer<span x-show="results.length!==1">s</span>
+            <span x-show="searching" class="text-slate-400"> · still loading…</span>
+          </div>
+          <div class="flex items-center gap-2" x-show="service==='flights' && !isHotel">
+            <span class="text-[11px] text-slate-400">Sort</span>
+            <select class="select input input-sm" x-model="flightSort" @change="sortResults()">
+              <option value="price">Cheapest</option>
+              <option value="duration">Fastest</option>
+              <option value="departure">Earliest departure</option>
+            </select>
+          </div>
+        </div>
+        <!-- Some suppliers failed (admin diagnostics; customers never see this) -->
+        <div class="mt-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700" x-show="searchErrors.length" x-cloak>
+          <span class="font-semibold" x-text="searchErrors.length"></span> supplier<span x-show="searchErrors.length!==1">s</span> returned no result or errored:
+          <span x-text="searchErrors.join(', ')"></span>
+        </div>
+        <div class="mt-3 space-y-2" x-show="results.length">
           <template x-for="(r,idx) in results" :key="idx">
             <div class="border border-slate-200 rounded-lg p-3"
                  :class="selectedOffer===idx ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''">
-              <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="font-medium text-slate-800 text-sm truncate" x-text="r.label"></div>
-                  <div class="text-xs text-slate-500" x-text="r.sub"></div>
-                  <div class="text-[10px] uppercase tracking-wide text-slate-400 mt-0.5" x-text="r.supplier"></div>
+              <div class="flex items-stretch justify-between gap-3">
+                <!-- FLIGHT: rich card (logo · route timeline(s) · meta). HOTEL/other: compact label. -->
+                <div class="min-w-0 flex-1">
+                  <template x-if="service==='flights' && !isHotel && r.flt">
+                    <div x-html="bmFlightCard(r)"></div>
+                  </template>
+                  <template x-if="!(service==='flights' && !isHotel && r.flt)">
+                    <div>
+                      <div class="font-medium text-slate-800 text-sm truncate" x-text="r.label"></div>
+                      <div class="text-xs text-slate-500" x-text="r.sub"></div>
+                    </div>
+                  </template>
+                  <div class="text-[10px] uppercase tracking-wide text-slate-400 mt-1" x-text="r.supplier"></div>
                 </div>
-                <div class="text-right shrink-0">
-                  <div class="font-semibold tabular-nums" x-text="r.price_label"></div>
+                <div class="text-right shrink-0 flex flex-col items-end justify-between">
+                  <div class="font-semibold tabular-nums text-slate-900" x-text="r.price_label"></div>
                   <!-- Flights select the offer directly; hotels require picking a room rate below. -->
                   <template x-if="!isHotel">
                     <button class="btn sm mt-1" :class="selectedOffer===idx ? 'primary' : 'outline'" @click="selectOffer(idx)" x-text="selectedOffer===idx ? 'Selected' : 'Select'"></button>
@@ -789,6 +817,7 @@ function bookingMgr() {
     price: { sell:0, cost:0, currency:'' },
 
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
+    flightSort:'price', searchErrors:[],
     // Live-rail state (its own train search; selTrain/selSeat = the chosen seat class).
     rail:{ from:'', to:'', date:'', adults:1, children:0, currency:'', searching:false, searched:false, error:'', trains:[], selTrain:null, selSeat:null },
     // Live-ferries state (sailing search; sel = chosen sailing index).
@@ -918,7 +947,7 @@ function bookingMgr() {
         if(!this.live.departure_date){ alert('Pick a departure date'); return; }
       }
       if(!this.suppliers.length){ alert('No live suppliers are enabled.'); return; }
-      this.searching=true; this.searched=false; this.results=[]; this.selectedOffer=null; this.selectedRaw=null; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null;
+      this.searching=true; this.searched=false; this.results=[]; this.searchErrors=[]; this.selectedOffer=null; this.selectedRaw=null; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null;
 
       // Build the shared search params using the SAME names the website sends to
       // each supplier (hotels: children/rooms_data/nationality; flights: childrens;
@@ -958,17 +987,36 @@ function bookingMgr() {
       }
 
       // Fan out to EVERY enabled supplier in parallel, exactly like the website,
-      // and merge offers as each responds (progressive).
+      // and merge offers as each responds (progressive). Unlike before, we now
+      // record which suppliers returned nothing/errored so staff can tell
+      // "no offers" from "every supplier failed" (admin diagnostics).
       await Promise.allSettled(this.suppliers.map(async (supplier)=>{
         try{
           const res=await fetch(this.base+'admin/booking-manager/search',{method:'POST',body:this.form(Object.assign({supplier},base))});
           const data=await res.json();
           const rows=this.normalize(data, supplier);
-          if(rows.length){ this.results=this.results.concat(rows).sort((a,b)=>a.price_num-b.price_num); }
-        }catch(e){ /* one supplier failing must not sink the rest */ }
+          if(rows.length){ this.results=this.results.concat(rows); this.sortResults(); }
+          else { this.searchErrors.push(supplier); }
+        }catch(e){ this.searchErrors.push(supplier); /* one supplier failing must not sink the rest */ }
       }));
 
       this.searching=false; this.searched=true;
+    },
+    // Sort the merged results by the chosen key (flights). Price is the default
+    // and the only meaningful key for non-flight services, so they stay by price.
+    // selectedOffer is an INDEX into results, so re-ordering would make it point
+    // at the wrong offer — re-resolve it to the same raw object after sorting.
+    sortResults(){
+      const k=this.flightSort;
+      const prevRaw = (this.selectedOffer!==null && this.results[this.selectedOffer]) ? this.results[this.selectedOffer].raw : null;
+      this.results.sort((a,b)=>{
+        if(this.service==='flights'){
+          if(k==='duration'){ return (a.dur_min||999999)-(b.dur_min||999999); }
+          if(k==='departure'){ return (a.dep_min||999999)-(b.dep_min||999999); }
+        }
+        return (a.price_num||0)-(b.price_num||0);
+      });
+      if(prevRaw){ const ni=this.results.findIndex(r=>r.raw===prevRaw); this.selectedOffer = ni>=0 ? ni : null; if(ni<0){ this.selectedRaw=null; } }
     },
     normalize(data, supplier){
       // Accept both wrapped {results:[...]} (hotels) and bare flight arrays.
@@ -1003,9 +1051,45 @@ function bookingMgr() {
           const price=Number(it.min_total_price||it.display_price||it.price||0);
           return { supplier, label: it.name||'Hotel', sub: (it.stars?it.stars+'★ · ':'')+(it.location||''), price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(), raw: it };
         }
-        const seg = (it.segments && it.segments[0] && it.segments[0][0]) ? it.segments[0][0] : it;
-        const price=Number(it.price||seg.price||0);
-        return { supplier, label:(seg.airline||'')+' '+(seg.flight_no||''), sub:(seg.departure_code||seg.departure_airport||'')+' → '+(seg.arrival_code||seg.arrival_airport||''), price_num:price, price_label:(seg.currency||'')+' '+price.toLocaleString(), raw: it };
+        // FLIGHTS — mirror the customer results treatment: keep the full outbound
+        // slice (times, dates, duration, cabin, baggage, refundable, airline logo
+        // code, stops) AND the return leg, instead of collapsing to segments[0][0].
+        // All of this is already in the supplier offer; the old card discarded it.
+        const outbound = (it.segments && it.segments[0]) ? it.segments[0] : [it];
+        const firstOut = outbound[0] || it;
+        const lastOut  = outbound[outbound.length-1] || firstOut;
+        const retSegs  = (it.segments && it.segments[1]) ? it.segments[1] : [];
+        const price=Number(it.price||firstOut.price||0);
+        const ccy = firstOut.currency || it.currency || '';
+        const num = v => Number(v)||0;
+        const flt = {
+          airline: firstOut.airline||'', flight_no: firstOut.flight_no||'',
+          img: firstOut.img || firstOut.airline_code || '',
+          dep_time: firstOut.departure_time||'', dep_code: firstOut.departure_code||firstOut.departure_airport||'', dep_date: firstOut.departure_date||'',
+          arr_time: lastOut.arrival_time||'',   arr_code: lastOut.arrival_code||lastOut.arrival_airport||'',   arr_date: lastOut.arrival_date||'',
+          duration: firstOut.duration_time||firstOut.total_duration||'',
+          stops: Math.max(0, outbound.length-1),
+          cabin: firstOut.class||'', baggage: firstOut.baggage||'', cabin_baggage: firstOut.cabin_baggage||'',
+          refundable: !!(firstOut.refundable && firstOut.refundable!=='' && firstOut.refundable!=='0'),
+          // return leg (round-trip)
+          is_round: retSegs.length>0,
+          ret: retSegs.length? {
+            dep_time: (retSegs[0].departure_time||''), dep_code:(retSegs[0].departure_code||retSegs[0].departure_airport||''), dep_date:(retSegs[0].departure_date||''),
+            arr_time: (retSegs[retSegs.length-1].arrival_time||''), arr_code:(retSegs[retSegs.length-1].arrival_code||retSegs[retSegs.length-1].arrival_airport||''), arr_date:(retSegs[retSegs.length-1].arrival_date||''),
+            duration: (retSegs[0].duration_time||''), stops: Math.max(0, retSegs.length-1),
+          } : null,
+        };
+        return {
+          supplier, raw: it,
+          label:(flt.airline+' '+flt.flight_no).trim(),
+          sub:(flt.dep_code||'')+' → '+(flt.arr_code||''),
+          price_num:price, price_label:ccy+' '+price.toLocaleString(),
+          currency: ccy,
+          // sort keys mirroring the customer page (duration in minutes, dep time)
+          dur_min: this.bmDurationToMin(flt.duration),
+          dep_min: this.bmTimeToMin(flt.dep_time),
+          flt,
+        };
       });
     },
     selectOffer(i){ this.selectedOffer=i; this.selectedRaw=this.results[i].raw; this.selectedSupplier=this.results[i].supplier;
@@ -1013,6 +1097,83 @@ function bookingMgr() {
       const r=this.results[i].raw; const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
       this.price.sell = Number(r.price||seg.price||r.display_price||0)||this.price.sell;
       this.price.currency = seg.currency||r.currency||this.price.currency;
+    },
+
+    // ---- FLIGHT CARD TREATMENT (mirrors the customer results page) ----------
+    // Airline logo: same avs.io CDN + the same local overrides for reassigned
+    // IATA codes the customer page uses (VK/UN/QI), so BM shows the right carrier.
+    bmLogoOverrides: { VK:1, UN:1, QI:1 },
+    bmAirlineLogoSrc(code){
+      const c=(code||'').toString().trim().toUpperCase();
+      if(!c) return '';
+      return this.bmLogoOverrides[c] ? ('<?= root ?>assets/img/airlines/'+c+'.png')
+                                     : ('https://pics.avs.io/120/120/'+c+'@2x.png');
+    },
+    bmFmtCabin(c){ if(!c) return 'Economy'; let s=String(c).replace(/_/g,' ').trim(); if(!s) return 'Economy'; return s.replace(/\b\w/g,ch=>ch.toUpperCase()); },
+    bmFmtBag(v){ if(v===null||v===undefined||v===''||v==='0'||v===0) return '—'; return String(v); },
+    bmStopsLabel(n){ n=Number(n)||0; return n===0?'Direct':(n+' stop'+(n>1?'s':'')); },
+    // Parse "7h 30m" / "7:30" / "7h30" style durations into minutes (for sorting).
+    bmDurationToMin(s){ if(!s) return 999999; s=String(s); let h=0,m=0;
+      let mh=s.match(/(\d+)\s*h/i); let mm=s.match(/(\d+)\s*m/i);
+      if(mh||mm){ h=mh?+mh[1]:0; m=mm?+mm[1]:0; return h*60+m; }
+      let c=s.match(/(\d+)\s*:\s*(\d+)/); if(c){ return (+c[1])*60+(+c[2]); } return 999999; },
+    // Parse "09:40 am" / "21:05" into minutes-since-midnight (for sorting).
+    bmTimeToMin(s){ if(!s) return 999999; s=String(s).trim().toLowerCase();
+      let m=s.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/); if(!m) return 999999;
+      let h=+m[1], mi=+m[2]; if(m[3]==='pm'&&h<12)h+=12; if(m[3]==='am'&&h===12)h=0; return h*60+mi; },
+    // One leg's route timeline (times · codes · duration · stops dot).
+    bmLeg(l){ const hasStops=(Number(l.stops)||0)>0; return `
+      <div class="flex items-center gap-2 w-full min-w-0">
+        <div class="text-left shrink-0 w-[58px]">
+          <div class="text-sm font-semibold text-slate-800 leading-none">${l.dep_time||'—'}</div>
+          <div class="text-[11px] font-semibold text-slate-600 mt-0.5">${l.dep_code||''}</div>
+          <div class="text-[10px] text-slate-400">${l.dep_date||''}</div>
+        </div>
+        <div class="flex-1 flex flex-col items-center px-1 min-w-0">
+          <div class="text-[10px] text-slate-400 mb-0.5">${l.duration||''}</div>
+          <div class="w-full flex items-center">
+            <div class="flex-1 h-px bg-slate-300"></div>
+            <div class="mx-1 w-4 h-4 rounded-full ${hasStops?'bg-amber-500':'bg-slate-200'} flex items-center justify-center shrink-0">
+              <span class="material-symbols-outlined ${hasStops?'text-white':'text-slate-500'}" style="font-size:11px;">flight</span>
+            </div>
+            <div class="flex-1 h-px bg-slate-300"></div>
+          </div>
+          <div class="text-[10px] font-medium mt-0.5 ${hasStops?'text-amber-600':'text-emerald-600'}">${this.bmStopsLabel(l.stops)}</div>
+        </div>
+        <div class="text-right shrink-0 w-[58px]">
+          <div class="text-sm font-semibold text-slate-800 leading-none">${l.arr_time||'—'}</div>
+          <div class="text-[11px] font-semibold text-slate-600 mt-0.5">${l.arr_code||''}</div>
+          <div class="text-[10px] text-slate-400">${l.arr_date||''}</div>
+        </div>
+      </div>`; },
+    // The rich flight card body (logo · route timeline(s) · meta footer).
+    bmFlightCard(r){ const f=r.flt||{}; if(!f.airline && !f.dep_code){ return ''; }
+      const logo=this.bmAirlineLogoSrc(f.img);
+      const metaBits=[];
+      metaBits.push(`<span class="inline-flex items-center gap-1"><span class="material-symbols-outlined text-slate-400" style="font-size:14px;">airline_seat_recline_normal</span>${this.bmFmtCabin(f.cabin)}</span>`);
+      metaBits.push(`<span class="inline-flex items-center gap-1"><span class="material-symbols-outlined text-slate-400" style="font-size:14px;">work</span>${this.bmFmtBag(f.cabin_baggage)}</span>`);
+      metaBits.push(`<span class="inline-flex items-center gap-1"><span class="material-symbols-outlined text-slate-400" style="font-size:14px;">luggage</span>${this.bmFmtBag(f.baggage)}</span>`);
+      metaBits.push(f.refundable
+        ? `<span class="inline-flex items-center gap-1 text-emerald-600"><span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>Refundable</span>`
+        : `<span class="inline-flex items-center gap-1 text-slate-400"><span class="material-symbols-outlined" style="font-size:13px;">block</span>Non-refundable</span>`);
+      let out = `
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg border border-slate-200 bg-white p-1 shrink-0 flex items-center justify-center">
+            ${logo?`<img src="${logo}" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'">`:`<span class="material-symbols-outlined text-slate-300" style="font-size:18px;">flight</span>`}
+          </div>
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-slate-800 truncate">${f.airline||''} <span class="text-slate-400 font-normal">${f.flight_no||''}</span></div>
+            ${f.is_round?'<div class="text-[10px] uppercase tracking-wide text-slate-400">Outbound</div>':''}
+          </div>
+        </div>
+        <div class="mt-2">${this.bmLeg({dep_time:f.dep_time,dep_code:f.dep_code,dep_date:f.dep_date,arr_time:f.arr_time,arr_code:f.arr_code,arr_date:f.arr_date,duration:f.duration,stops:f.stops})}</div>`;
+      if(f.is_round && f.ret){ out += `
+        <div class="mt-2 pt-2 border-t border-dashed border-slate-200">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Return</div>
+          ${this.bmLeg(f.ret)}
+        </div>`; }
+      out += `<div class="mt-2 pt-2 border-t border-slate-100 flex items-center gap-3 flex-wrap text-[11px] text-slate-500">${metaBits.join('')}</div>`;
+      return out;
     },
 
     // ---- AI TICKET READER (manual flights) ----------------------------------
