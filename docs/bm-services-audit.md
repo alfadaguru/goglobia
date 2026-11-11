@@ -198,4 +198,18 @@ an **off-system umrah as a branded voucher** — manual-only by design.
 
 ---
 
-_(Next: Bus — manual-only.)_
+## 8. BUS (manual-only) — AUDITED (no change)
+
+### Manual-only containment — VERIFIED
+- Catalogue `bus => live:false` (`:107`) + server mode-forcing (`:306–308`). **No bus issue endpoint exists** (`bm_module_has_issue_endpoint('bus',*) = N`; `modules/bus/` has no `issue.php`) → bus can't go live even with a crafted POST. ✅
+
+### Manual path — SOUND
+- **Form** (`manager.php:628–639`): service name, operator, from (origin), to (destination), travel date, bus type/class, departure time, arrival time, optional reference.
+- **Builder** (`bookingManagerRoutes.php:1155–1169`): reads those into a `trip.*` voucher shape (+ top-level `date`). It also sets `trip.seat_class` (empty — no form input), which is **intentional**: the bus invoice reads `trip.seat_class`. **OK — 1:1 + the extra key is template-expected.**
+- **Voucher renders cleanly:** the bus invoice (`app/views/modules/bus/invoice/index.php`) reads every trip field **null-safely** (`$t['service_name'] ?? ''`, etc.; img falls back to `no_img.jpg`; date comes from `$booking['booking_date']`, not `trip.date_display`). So the fields the BM builder doesn't set (`img/duration/seats_available/date_display`) just render empty — nothing breaks. ✅
+
+**BUS verdict: SOUND — no change.** Manual-only on both UI + backend; form↔builder 1:1; the `trip.*` voucher shape matches the bus ticket template, which tolerates the optional keys the BM omits.
+
+---
+
+_(Next: Insurance — manual-only. Final service.)_
