@@ -133,6 +133,26 @@ $paymentAmount = floatval($booking['price_markup']);
 $paymentCurrency = $booking['currency_markup'];
 
 // ============================================================================
+// CURRENCY GUARD (audit F-04): agents pay from their wallet, and there is no FX
+// here — the agent must hold a wallet in the INVOICE currency. wallet_spend()
+// below locks WHERE user_id AND currency=$paymentCurrency, so a cross-currency
+// spend already fails safe; we check here only to show a clear message instead
+// of a cryptic "Insufficient Credits".
+// ============================================================================
+if (!function_exists('wallet_balance')) {
+    require_once dirname(__DIR__, 2) . '/lib/wallet.php';
+}
+$__credWallet = $db->get('wallets', ['id'], ['user_id' => (string) $userId, 'currency' => strtoupper(trim((string) $paymentCurrency))]);
+if (!$__credWallet) {
+    echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #fecaca;">';
+    echo '<h4 style="color:#dc2626;margin-top:0;">Currency Mismatch</h4>';
+    echo '<p style="color:#991b1b;margin-bottom:10px;">You do not have a ' . htmlspecialchars((string) $paymentCurrency) . ' wallet, and this invoice is in ' . htmlspecialchars((string) $paymentCurrency) . '. Wallet payment requires a wallet in the same currency.</p>';
+    echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
+    echo '</div>';
+    return;
+}
+
+// ============================================================================
 // VALIDATE SUFFICIENT CREDITS
 // ============================================================================
 if ($availableCredits < $paymentAmount) {

@@ -114,6 +114,34 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 <span class="text-sm font-semibold <?= $booking['payment_status'] === 'paid' ? 'text-green-700' : 'text-yellow-700' ?>"><?= ucfirst($booking['payment_status']) ?></span>
             </div>
 
+            <?php
+            // CUSTOMER-FACING STATE CONTEXT (audit F-09): a bare "Pending" / "Cancelled"
+            // badge leaves a paying customer anxious. When the booking is paid-but-held
+            // (on_hold at the supplier, awaiting ticketing) or has been auto-refunded,
+            // say so in plain language so they know what is happening to their money.
+            $__payStatus  = strtolower((string) ($booking['payment_status'] ?? ''));
+            $__bookStatus = strtolower((string) ($booking['booking_status'] ?? ''));
+            if ($__payStatus === 'paid'
+                && in_array($__bookStatus, ['pending'], true)
+                && $__bookStatus !== 'held'):
+            ?>
+            <div class="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 mt-1">
+                <span class="material-symbols-outlined text-blue-600 text-[18px]">flight_takeoff</span>
+                <div>
+                    <p class="text-sm font-semibold text-blue-800"><?= T::awaiting_confirmation ?? 'Awaiting airline confirmation' ?></p>
+                    <p class="text-xs text-blue-700 mt-0.5"><?= T::awaiting_confirmation_note ?? 'Your payment is complete. We are confirming your ticket with the airline and will email it to you shortly — no further action is needed.' ?></p>
+                </div>
+            </div>
+            <?php elseif ($__payStatus === 'refunded'): ?>
+            <div class="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 mt-1">
+                <span class="material-symbols-outlined text-blue-600 text-[18px]">account_balance_wallet</span>
+                <div>
+                    <p class="text-sm font-semibold text-blue-800"><?= T::payment_refunded ?? 'Payment refunded' ?></p>
+                    <p class="text-xs text-blue-700 mt-0.5"><?= T::payment_refunded_note ?? 'This booking could not be confirmed, so your payment has been refunded. Card refunds take 3–5 business days to appear; wallet refunds are instant.' ?></p>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <?php if ($booking['transaction_id']): ?>
             <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 min-w-0 overflow-hidden">
                 <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">

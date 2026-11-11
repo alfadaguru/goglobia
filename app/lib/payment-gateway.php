@@ -2165,10 +2165,17 @@ function log_payment_transaction($booking, $gateway, $token)
     $hash = bin2hex(random_bytes(16));
 
     // Prepare transaction data
+    // AUDIT F-05: log the amount ACTUALLY being charged (deposit/installment-aware
+    // via payment_amount_due) — the token + gateway payload already charge this,
+    // so logging the full price_markup overstated the figure for installment
+    // bookings and mismatched the real transaction. Falls back to the full total.
+    $__loggedAmount = function_exists('payment_amount_due')
+        ? payment_amount_due($booking, $db)
+        : ($booking['price_markup'] ?? 0);
     $transactionData = [
         'invoice_id' => $booking['invoice_id'],
         'booking_id' => $booking['id'] ?? null,
-        'amount' => $booking['price_markup'],
+        'amount' => $__loggedAmount,
         'currency' => $booking['currency_markup'],
         'gateway_id' => $gateway['id'],
         'gateway_name' => $gateway['name'],
