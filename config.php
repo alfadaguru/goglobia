@@ -80,7 +80,12 @@ require_once 'app/lib/admin_rbac.php'; // Employee RBAC consolidation (S1) — e
 require_once 'app/lib/agent_portal.php'; // Agent ERP portal — AGENT_OR_STAFF_AUTH + agent_can + schema (P0 wiring was missing)
 require_once 'app/lib/wallet.php';
 require_once 'app/lib/paylater.php';
-require_once 'app/lib/flight_hold.php'; // supplier-agnostic Book-on-Hold layer (Tiqwa adapter)
+// Supplier-agnostic Book-on-Hold layer (Tiqwa adapter). Guarded: if the file is
+// missing (e.g. a deploy that didn't carry it), the site must NOT white-out — the
+// feature's callers are all function_exists-guarded, so it degrades gracefully.
+if (is_file(__DIR__ . '/app/lib/flight_hold.php')) {
+    require_once 'app/lib/flight_hold.php';
+}
 require_once 'app/lib/paysmallsmall.php';
 require_once 'app/lib/installments.php';
 require_once 'app/lib/referrals.php';
