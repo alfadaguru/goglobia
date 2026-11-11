@@ -384,10 +384,11 @@ require_once 'app/routes/api/tours/homeRoutes.php';
 require_once 'app/routes/api/tours/bookingRoutes.php';
 require_once 'app/routes/api/tours/invoice.php';
 
-// UMRAH API ROUTES
+// UMRAH API ROUTES (v2). The legacy api/umrah/homeRoutes.php (GET /api/umrah,
+// read the v1 `umrah` table) and api/umrah/bookingRoutes.php (16-hex draft read +
+// draft + the legacy plural /umrah/bookings/submit) were retired in the v1→v2
+// cleanup — superseded by the v2 REST flow in v1Routes.php (/api/v1/umrah/*).
 require_once 'app/routes/api/umrah/featuredRoutes.php';
-require_once 'app/routes/api/umrah/homeRoutes.php';
-require_once 'app/routes/api/umrah/bookingRoutes.php';
 require_once 'app/routes/api/umrah/v1Routes.php';
 
 //VISA API ROUTES
