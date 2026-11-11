@@ -429,12 +429,18 @@ if (!function_exists('supplier_chargeback_apply')) {
             $amt   = round((float) $result['amount'], 2);
             if ($orgId > 0 && $amt > 0) {
                 try {
-                    // Reverse recognised room revenue (debit 4000) and raise a clearing
-                    // liability (credit 2000 Accounts Payable — the default COA has no
-                    // dedicated chargeback account; the memo marks it). Balanced by design.
+                    // A chargeback is a cash loss, not a reversal of booked revenue.
+                    // Own-inventory bookings do NOT auto-post room revenue to this GL
+                    // (no folio→GL recognition at booking), so debiting 4000 Room Revenue
+                    // would drive it negative with no original credit, and crediting 2000
+                    // Accounts Payable would misclassify the loss as a payable (audit MED-5).
+                    // Instead book it the standard, always-valid way: DEBIT 6000 Operating
+                    // Expense (the chargeback loss the business absorbs) and CREDIT 1000
+                    // Cash / Bank (the money clawed back). Balanced by design; correct
+                    // whether or not revenue was ever recognised in the ledger.
                     $post = gl_post($db, $orgId, [
-                        ['code' => '4000', 'debit'  => $amt, 'memo' => 'Chargeback reversal ' . $invoiceId],
-                        ['code' => '2000', 'credit' => $amt, 'memo' => 'Chargeback payable ' . $invoiceId],
+                        ['code' => '6000', 'debit'  => $amt, 'memo' => 'Chargeback loss ' . $invoiceId],
+                        ['code' => '1000', 'credit' => $amt, 'memo' => 'Chargeback cash clawback ' . $invoiceId],
                     ], [
                         'source' => 'chargeback', 'reference' => (string) $result['chargeback_id'],
                         'memo' => 'Supplier chargeback ' . $invoiceId, 'currency' => $result['currency'],
