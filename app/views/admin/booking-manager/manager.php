@@ -703,7 +703,7 @@ $svcIcons = [
                 for eSIM. Only the Customer contact fields above apply. */ ?>
         <?php if (!$isEsim): ?>
         <div class="flex items-center justify-between mt-4 mb-2">
-          <h3 class="text-sm font-semibold text-slate-700">Passengers / guests</h3>
+          <h3 class="text-sm font-semibold text-slate-700"><?= $svc === 'visa' ? 'Applicants' : 'Passengers / guests' ?></h3>
           <div class="flex gap-2 items-center">
             <?php if ($svc === 'flights'): ?>
             <label class="flex items-center gap-1 text-xs text-slate-600 mr-1 select-none cursor-pointer">
@@ -715,9 +715,13 @@ $svcIcons = [
             <?php if ($svc === 'flights'): ?><button class="btn outline sm" @click="addPax('infant')">+ Infant</button><?php endif; ?>
           </div>
         </div>
+        <?php if ($svc === 'visa'): ?>
+        <p class="text-xs text-slate-500 mb-2">Each applicant needs a nationality and passport number for the visa application.</p>
+        <?php else: ?>
         <p class="text-xs text-slate-500 mb-2" x-show="!isInternational">Domestic trip — name &amp; contact are enough; passport is not collected.</p>
         <p class="text-xs text-amber-600 mb-2" x-show="isInternational && mode!=='live'">International trip — passport details recommended for ticketing.</p>
         <p class="text-xs text-red-600 mb-2" x-show="isInternational && mode==='live'">International live flight — a passport number is <strong>required</strong> for every adult and child (the supplier rejects the ticket without it).</p>
+        <?php endif; ?>
         <div class="space-y-2">
           <template x-for="(p,i) in pax" :key="i">
             <div class="grid sm:grid-cols-4 gap-2 items-end border border-slate-200 rounded-lg p-2">
@@ -726,11 +730,17 @@ $svcIcons = [
               <label class="form-control"><span class="form-label">First</span><input class="input" x-model="p.first_name"></label>
               <label class="form-control"><span class="form-label">Last</span><input class="input" x-model="p.last_name"></label>
               <div class="flex gap-1 items-end">
-                <template x-if="isInternational">
+                <template x-if="showApplicantDocs">
                   <input class="input" :class="(mode==='live' && !(p.passport_number||'').trim() && p.type!=='infant') ? 'border-red-400' : ''" x-model="p.passport_number" :placeholder="(mode==='live' && p.type!=='infant') ? 'Passport # (required)' : 'Passport #'">
                 </template>
                 <button class="btn outline sm" @click="pax.splice(i,1)" x-show="pax.length>1"><span class="material-symbols-outlined">delete</span></button>
               </div>
+              <?php if ($svc === 'visa'): ?>
+              <!-- VISA: applicants need a nationality (the visa builder reads
+                   p.nationality + p.passport_number into travelers[]). -->
+              <label class="form-control"><span class="form-label">Nationality</span>
+                <input class="input" x-model="p.nationality" placeholder="e.g. Nigerian"></label>
+              <?php endif; ?>
               <?php if ($svc === 'flights'): ?>
               <!-- OPTIONAL airline-issued flight ticket (e-ticket) number for a
                    MANUAL flight. When entered, it prints on the ticket PDF for this
@@ -891,7 +901,7 @@ function bookingMgr() {
       esim:    ['package_name','country','data_amount','validity','iccid','reference'],
     },
     cust: { first_name:'', last_name:'', email:'', phone:'', ticket_email:'' },
-    pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', ticket_number:'' }],
+    pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', nationality:'', ticket_number:'' }],
     price: { sell:0, cost:0, currency:'' },
 
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
@@ -930,6 +940,9 @@ function bookingMgr() {
     // stores it only if provided, bookingManagerRoutes.php:330).
     intl: false,
     get isInternational(){ return this.service === 'flights' && this.intl === true; },
+    // Show the passport (and, for visa, nationality) capture inputs: for an
+    // international flight OR for visa (every visa applicant needs a passport).
+    get showApplicantDocs(){ return this.isInternational || this.service === 'visa'; },
 
     addSegment(){ this.manual.segments.push(this.blankSeg()); },
 
@@ -945,7 +958,7 @@ function bookingMgr() {
     },
     segPickAirport(seg,side,a){ if(side==='from'){ seg.from=a.code; seg._fromText=a.city+' ('+a.code+')'; seg._fromOpen=false; } else { seg.to=a.code; seg._toText=a.city+' ('+a.code+')'; seg._toOpen=false; } },
     segBlur(seg,which){ setTimeout(()=>{ if(which==='al')seg._alOpen=false; else if(which==='from')seg._fromOpen=false; else seg._toOpen=false; },150); },
-    addPax(t){ this.pax.push({ type:t, title: (t==='child'||t==='infant')?'Mstr':'Mr', first_name:'', last_name:'', passport_number:'', ticket_number:'' }); },
+    addPax(t){ this.pax.push({ type:t, title: (t==='child'||t==='infant')?'Mstr':'Mr', first_name:'', last_name:'', passport_number:'', nationality:'', ticket_number:'' }); },
 
     form(o){ const f=new FormData(); f.append('csrf_token',this.csrf); for(const k in o){ let v=o[k]; if(v===null||v===undefined) v=''; if(typeof v==='object') v=JSON.stringify(v); f.append(k,v);} return f; },
 
@@ -1475,7 +1488,7 @@ function bookingMgr() {
       // ticket_number is the optional airline-issued flight ticket (e-ticket) number
       // for a MANUAL flight; carried through so the backend stores it on the
       // traveller and the ticket PDF prints it instead of "On ticketing".
-      return this.pax.filter(p=>p.first_name&&p.last_name).map(p=>({ type:p.type, title:p.title, first_name:p.first_name, last_name:p.last_name, passport_number:p.passport_number||'', ticket_number:p.ticket_number||'' }));
+      return this.pax.filter(p=>p.first_name&&p.last_name).map(p=>({ type:p.type, title:p.title, first_name:p.first_name, last_name:p.last_name, passport_number:p.passport_number||'', nationality:p.nationality||'', ticket_number:p.ticket_number||'' }));
     },
 
     // ---- LIVE RAIL (train search + seat-class select) ----

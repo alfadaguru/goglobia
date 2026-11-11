@@ -176,4 +176,26 @@ an **off-system umrah as a branded voucher** — manual-only by design.
 
 ---
 
-_(Next: Visa — manual-only.)_
+## 7. VISA (manual-only) — AUDITED + 1 form gap FIXED
+
+### Manual-only containment — VERIFIED
+- Catalogue `visa => live:false` (`:106`) + server mode-forcing (`:306–308`). **No visa issue endpoint exists at all** (`bm_module_has_issue_endpoint('visa',*) = N`, no `modules/visa/` issue) — so visa can't go live even with a crafted POST. ✅
+
+### Security re-checks (against the known visa history) — CLEAN
+- **File upload:** the BM visa path has **no separate upload** — it uses the shared `manual_document` → `bmStoreManualDocument` (`:739–740`), which has the `finfo` MIME check (extension + content-type must match pdf/png/jpg/jpeg/webp; no SVG). The old visa SVG-stored-XSS sink was on the **customer** visa route, not the BM. ✅
+- **CSRF:** the visa create goes through `/booking-manager/create` → `bmAdminCsrfOk()` (`:298`), same guard as every service. The known "visa CSRF regression" was in the customer route, not the BM. ✅
+- (The memory's "visa no-refund" is a **customer** visa-service policy — not a BM concern; BM visa is an off-system voucher.)
+
+### ⚠️ FORM GAP FOUND + FIXED — applicant passport/nationality were never captured
+- The visa form note promised *"Applicants are taken from the passenger list below (name, nationality, passport)"* (`manager.php:596`), and the visa builder reads `$t['passport_number']` + `$t['nationality']` into `travelers[]` (`bookingManagerRoutes.php:1106–1107`).
+- **BUT** the passenger grid's passport input was `x-if="isInternational"`, and `isInternational` is hard-coded to **flights-only** (`:932`). There was also **no nationality input anywhere**. → for a VISA booking the passport field never rendered and nationality couldn't be entered, so **every BM visa voucher recorded applicants with empty passport_number AND empty nationality** — the two fields a visa application needs most, which the form promised but couldn't collect.
+- **FIX** (`manager.php`): added a `showApplicantDocs` getter (`isInternational || service==='visa'`) and switched the passport input's `x-if` to it; added a per-applicant **Nationality** input for visa; added `nationality` to the pax object + `addPax` + `buildPassengers`; relabelled the section "Applicants" with a visa-specific hint. **Verified end-to-end:** `showApplicantDocs` true for visa / intl-flight, false for domestic-flight/tours; a submitted visa applicant now carries `nationality` + `passport_number` all the way into `travelers[]`. **No flights regression** — for flights `showApplicantDocs === isInternational` (identical).
+
+### Manual builder — SOUND
+- `bookingManagerRoutes.php:1098–1119`: visa type / from-country / to-country / entry date / processing speed from the form; `travelers[]` built from the passenger grid (now with populated nationality + passport); `travelers_count`. **OK.**
+
+**VISA verdict: SOUND after fix.** Manual-only (belt-and-braces), upload + CSRF clean, and the applicant passport/nationality capture that the form promised is now actually wired.
+
+---
+
+_(Next: Bus — manual-only.)_
