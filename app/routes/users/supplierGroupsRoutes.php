@@ -169,6 +169,118 @@ $router->post('/supplier/groups/checkin-all', function () use ($SECURE, $db) {
     header('Location: ' . $back); exit;
 });
 
+if (!function_exists('_group_free_rooms_for_block')) {
+    /**
+     * Physical rooms of a block's room TYPE that are assignable for the block's dates —
+     * reusing the ONE canonical availability guard (hk_rooms_blocking, which already
+     * unions in bookings AND other group members). No parallel availability logic. Returns
+     * [ ['id'=>prid,'label'=>'Room 101 · Floor 1'], ... ]. $keepPrid (optional) keeps a
+     * room in the list even if "taken" by THIS member's own current assignment, so the
+     * member's picker shows its own current room as selectable.
+     */
+    function _group_free_rooms_for_block($db, int $stayId, array $block, int $keepPrid = 0): array
+    {
+        $out = [];
+        try {
+            $roomTypeId = (int) ($block['room_id'] ?? 0); // the block's bookable room type
+            $from = (string) ($block['date_from'] ?? ''); $to = (string) ($block['date_to'] ?? '');
+            if ($roomTypeId <= 0) { return []; }
+            $assignable = function_exists('hk_assignable_statuses') ? hk_assignable_statuses() : ['clean', 'inspected'];
+            $blocking = function_exists('hk_rooms_blocking') ? hk_rooms_blocking($db, $stayId, $from, $to, '') : [];
+            $rows = $db->select('stays_physical_rooms', ['id', 'room_number', 'floor', 'room_id', 'hk_status'],
+                ['stay_id' => $stayId, 'active' => 1, 'room_id' => $roomTypeId, 'ORDER' => ['room_number' => 'ASC']]) ?: [];
+            foreach ($rows as $r) {
+                $prid = (int) $r['id'];
+                if (!in_array((string) ($r['hk_status'] ?? ''), $assignable, true)) { continue; }
+                // Taken for these dates by any live booking or another group member — unless
+                // it's THIS member's own current room (keep it so the picker shows it selected).
+                if (isset($blocking[$prid]) && $prid !== $keepPrid) { continue; }
+                $out[] = ['id' => $prid,
+                    'label' => 'Room ' . (string) ($r['room_number'] ?? $prid)
+                        . (!empty($r['floor']) ? ' · Floor ' . (string) $r['floor'] : '')];
+            }
+        } catch (\Throwable $e) { error_log('_group_free_rooms_for_block: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
+// GET /supplier/groups/{id} — group DETAIL: blocks + rooming list with per-member room-
+// number assignment (reuses the group functions; the room picker uses the canonical guard).
+$router->get('/supplier/groups/([0-9]+)', function ($gid) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $gid = (int) $gid;
+    // Resolve the group's property, then authorize via supplier_can on that stay (same
+    // pattern as the /invoice route).
+    $group = $db->get('stays_groups', ['id', 'stay_id', 'reference', 'name', 'company',
+        'contact_name', 'contact_email', 'arrival', 'departure', 'currency', 'status'],
+        ['id' => $gid]);
+    if (!$group) { _supplier_stays_deny('Group not found.'); }
+    $stayId = (int) $group['stay_id'];
+    if (!supplier_can($db, 'reservations', 'view', $stayId)) { _supplier_stays_deny('That group is not yours.'); }
+    $canEdit = supplier_can($db, 'reservations', 'edit', $stayId);
+
+    $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId]);
+    // Blocks + their members (with any assigned room number) + the free-room picker per block.
+    $blocks = $db->select('stays_group_blocks',
+        ['id', 'room_id', 'option_id', 'date_from', 'date_to', 'qty', 'cutoff_date', 'rate', 'state'],
+        ['group_id' => $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+    // Room-type names for display.
+    $roomTypes = [];
+    if (function_exists('_supplier_room_taxonomy')) {
+        $tax = _supplier_room_taxonomy($db); $roomTypes = $tax['room_type'] ?? [];
+    }
+    // Physical-room number per prid (to show "assigned: Room 101" without another query each).
+    $roomNoById = [];
+    try { foreach ($db->select('stays_physical_rooms', ['id', 'room_number'], ['stay_id' => $stayId]) ?: [] as $pr) { $roomNoById[(int) $pr['id']] = (string) $pr['room_number']; } } catch (\Throwable $e) {}
+
+    $blockMembers = []; $blockFreeRooms = [];
+    foreach ($blocks as $blk) {
+        $bid = (int) $blk['id'];
+        $blockMembers[$bid] = $db->select('stays_group_members',
+            ['id', 'guest_name', 'email', 'physical_room_id'],
+            ['block_id' => $bid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+        $blockFreeRooms[$bid] = ($blk['state'] === 'held') ? _group_free_rooms_for_block($db, $stayId, $blk) : [];
+    }
+
+    $title = 'Group ' . ($group['reference'] ?? '') . ' — ' . ($stay['name'] ?? '');
+    $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/groups/detail.php";
+    require_once views . "includes/footer.php";
+});
+
+// POST /supplier/groups/member/assign-room — assign a physical room to a group member
+$router->post('/supplier/groups/member/assign-room', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $groupId = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups/' . $groupId;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('group_member_assign_room')
+        ? group_member_assign_room($db, (int) ($_POST['member_id'] ?? 0), $stayId, (int) ($_POST['physical_room_id'] ?? 0))
+        : ['ok' => false, 'message' => 'Assign engine unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not assign the room.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/groups/member/unassign-room — clear a group member's room assignment
+$router->post('/supplier/groups/member/unassign-room', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $groupId = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups/' . $groupId;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('group_member_unassign_room') && group_member_unassign_room($db, (int) ($_POST['member_id'] ?? 0), $stayId);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Room cleared.' : 'Could not clear the room.'];
+    header('Location: ' . $back); exit;
+});
+
 // GET /supplier/groups/{id}/invoice — printable master-folio invoice (PMS #08)
 $router->get('/supplier/groups/([0-9]+)/invoice', function ($gid) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);

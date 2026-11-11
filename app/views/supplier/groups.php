@@ -74,6 +74,9 @@ foreach ($rooms as $r) {
         <div>
           <div class="font-medium text-gray-900"><?= htmlspecialchars((string) $g['name']) ?> <span class="font-mono text-xs text-gray-400"><?= htmlspecialchars((string) $g['reference']) ?></span></div>
           <div class="text-xs text-gray-500"><?= htmlspecialchars((string) ($g['company'] ?? '')) ?: '—' ?><?= $g['arrival'] ? ' · ' . htmlspecialchars((string) $g['arrival']) . '→' . htmlspecialchars((string) ($g['departure'] ?? '')) : '' ?> · <?= (int) ($gMembers[$gid] ?? 0) ?> guest(s)</div>
+          <a href="<?= $base ?>/<?= $gid ?>" class="text-xs text-violet-600 hover:underline inline-flex items-center gap-1 mt-0.5">
+            <span class="material-symbols-outlined text-sm">meeting_room</span> Manage rooms &amp; rooming
+          </a>
         </div>
         <div class="text-right">
           <span class="px-2 py-0.5 rounded text-xs font-medium <?= $stColor[$st] ?? '' ?>"><?= htmlspecialchars(ucfirst($st)) ?></span>
