@@ -748,6 +748,33 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
         if ($newLogo !== $exLogo) { $data['logo'] = $newLogo; }
     }
 
+    // RE-MODERATION (audit MED-3): if this property is already LIVE (listing_status
+    // 'approved') and a MATERIAL field changed — the fields a moderator actually
+    // reviews (name, description, location, address, star rating, or the photo
+    // gallery) — send it back to the review queue and unpublish it until an admin
+    // re-approves. This stops a supplier from getting a clean listing approved and
+    // then rewriting it to policy-violating content while it stays publicly bookable.
+    // A non-material edit (phone, times, fees, amenities) keeps the listing live.
+    $reModerated = false;
+    try {
+        $current = $db->get('stays', ['listing_status', 'name', 'desc', 'location', 'address', 'stars', 'img'],
+            ['id' => (int) $id, 'user_id' => $owner]);
+        if ($current && ($current['listing_status'] ?? '') === 'approved') {
+            $materialChanged =
+                   ((string) ($current['name'] ?? '')     !== (string) ($data['name'] ?? ''))
+                || ((string) ($current['desc'] ?? '')     !== (string) ($data['desc'] ?? ''))
+                || ((string) ($current['location'] ?? '') !== (string) ($data['location'] ?? ''))
+                || ((string) ($current['address'] ?? '')  !== (string) ($data['address'] ?? ''))
+                || ((string) ($current['stars'] ?? '')    !== (string) ($data['stars'] ?? ''))
+                || ($galleryChanged && ((string) ($current['img'] ?? '') !== (string) ($data['img'] ?? '')));
+            if ($materialChanged) {
+                $data['listing_status'] = 'submitted'; // back to the admin queue
+                $data['status'] = 0;                   // unpublish until re-approved
+                $reModerated = true;
+            }
+        }
+    } catch (\Throwable $e) { error_log('supplier stays re-moderation check: ' . $e->getMessage()); }
+
     try {
         // Scope the UPDATE by both id AND owner — defense in depth behind supplier_can.
         $db->update('stays', $data, ['id' => (int) $id, 'user_id' => $owner]);
@@ -757,11 +784,14 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
         if (function_exists('supplier_site_sync_hostname')) {
             supplier_site_sync_hostname($db, (int) $id, $newSlug);
         }
+        $reModNote = $reModerated
+            ? ' Because you changed content a reviewer checks, this property has been unpublished and sent back for approval.'
+            : '';
         if (!empty($uploadErrors)) {
             // Text/deletes saved, but some uploads were rejected — say both, clearly.
-            $_SESSION['message'] = ['type' => 'error', 'text' => 'Property saved, but some images were not added: ' . implode(' ', $uploadErrors)];
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Property saved, but some images were not added: ' . implode(' ', $uploadErrors) . $reModNote];
         } else {
-            $_SESSION['message'] = ['type' => 'success', 'text' => 'Property updated.'];
+            $_SESSION['message'] = ['type' => $reModerated ? 'warning' : 'success', 'text' => 'Property updated.' . $reModNote];
         }
     } catch (\Throwable $e) {
         error_log('supplier stays edit: ' . $e->getMessage());
