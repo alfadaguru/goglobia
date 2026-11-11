@@ -200,6 +200,7 @@ require_once 'app/lib/umrah/groups.php';
 require_once 'app/lib/umrah/admin_crud.php';
 require_once 'app/lib/booking_manager.php'; // admin Booking Manager foundations
 require_once 'app/lib/esim_delivery.php';   // eSIM activation-QR: bare-QR image + phone/WhatsApp (GIA) delivery
+require_once 'app/lib/notify_heartbeat.php'; // fallback scheduler: runs due notification sweeps even with no server crontab
 // Customer Support RBAC was consolidated onto the company-wide users_roles layer
 // (app/lib/admin_rbac.php, required above). The old app/lib/support/rbac.php
 // (support_roles/support_staff) was removed in the Employee RBAC consolidation (S3).
@@ -758,3 +759,28 @@ if (isset($_SESSION['app_language'])) {
 
 // Initialize i18n system
 $i18n->init();
+
+// ==================================================
+// NOTIFICATION HEARTBEAT (fallback scheduler)
+// ==================================================
+// Drive the due notification sweeps (flight reminders, service comms, GIA payment
+// chase, pay-later, nurture, campaigns) on ordinary page loads, so they run even
+// when no server crontab is installed (the proven "no reminders" cause). Runs
+// AFTER the response is flushed (fastcgi_finish_request where available), is
+// throttled to at most once/minute, and is skipped for CLI/cron/API/POST — so it
+// never delays the page. Entirely best-effort; a failure here cannot break a page.
+if (function_exists('notify_heartbeat_should_run') && notify_heartbeat_should_run()) {
+    register_shutdown_function(function () use ($db) {
+        try {
+            // Flush the response to the browser first so the sweep never blocks it.
+            if (function_exists('fastcgi_finish_request')) {
+                @fastcgi_finish_request();
+            }
+            if (function_exists('notify_heartbeat_tick')) {
+                notify_heartbeat_tick($db);
+            }
+        } catch (\Throwable $e) {
+            error_log('notify heartbeat shutdown: ' . $e->getMessage());
+        }
+    });
+}
