@@ -175,10 +175,55 @@ $svcIcons = [
           </div>
           <label class="form-control"><span class="form-label">Check-in</span><input type="date" class="input" x-model="live.checkin"></label>
           <label class="form-control"><span class="form-label">Check-out</span><input type="date" class="input" x-model="live.checkout"></label>
-          <label class="form-control"><span class="form-label">Rooms</span><input type="number" min="1" class="input" x-model.number="live.rooms"></label>
-          <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="live.adults"></label>
-          <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="live.children"></label>
           <label class="form-control"><span class="form-label">Guest nationality</span><input class="input" x-model="live.nationality" placeholder="NG" maxlength="2"></label>
+          <!-- ROOMS & GUESTS — per-room occupancy + child ages (suppliers price on
+               exact child ages; hotelbeds/etc read rooms_data[].childAges). -->
+          <div class="form-control sm:col-span-2">
+            <div class="flex items-center justify-between mb-1">
+              <span class="form-label mb-0">Rooms &amp; guests</span>
+              <span class="text-[11px] text-slate-500 tabular-nums"
+                    x-text="hotelTotalRooms()+' room'+(hotelTotalRooms()!==1?'s':'')+' · '+hotelTotalAdults()+' adult'+(hotelTotalAdults()!==1?'s':'')+(hotelTotalChildren()?(' · '+hotelTotalChildren()+' child'+(hotelTotalChildren()!==1?'ren':'')):'')"></span>
+            </div>
+            <div class="space-y-2">
+              <template x-for="(room,ri) in hotelRooms" :key="ri">
+                <div class="rounded-lg border border-slate-200 p-2">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[11px] font-semibold text-slate-600">Room <span x-text="ri+1"></span></span>
+                    <button type="button" class="text-[11px] text-red-500 hover:text-red-600" x-show="hotelRooms.length>1" @click="hotelRemoveRoom(ri)">Remove</button>
+                  </div>
+                  <div class="flex items-center gap-4 flex-wrap">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-xs text-slate-500 w-14">Adults</span>
+                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.adults<=1" @click="hotelDecGuest(ri,'adults')"><span class="material-symbols-outlined" style="font-size:14px;">remove</span></button>
+                      <span class="w-5 text-center text-sm font-medium tabular-nums" x-text="room.adults"></span>
+                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.adults>=8" @click="hotelIncGuest(ri,'adults')"><span class="material-symbols-outlined" style="font-size:14px;">add</span></button>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-xs text-slate-500 w-14">Children</span>
+                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.children<=0" @click="hotelDecGuest(ri,'children')"><span class="material-symbols-outlined" style="font-size:14px;">remove</span></button>
+                      <span class="w-5 text-center text-sm font-medium tabular-nums" x-text="room.children"></span>
+                      <button type="button" class="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-50" :disabled="room.children>=6" @click="hotelIncGuest(ri,'children')"><span class="material-symbols-outlined" style="font-size:14px;">add</span></button>
+                    </div>
+                  </div>
+                  <template x-if="room.children>0">
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <template x-for="(age,ci) in room.childAges" :key="ci">
+                        <label class="flex items-center gap-1 text-[11px] text-slate-500">
+                          <span>Child <span x-text="ci+1"></span> age</span>
+                          <select class="select input input-sm py-0.5" x-model.number="room.childAges[ci]">
+                            <template x-for="n in 18" :key="n"><option :value="n-1" x-text="(n-1)"></option></template>
+                          </select>
+                        </label>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+            <button type="button" class="mt-2 text-xs text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1" x-show="hotelRooms.length<5" @click="hotelAddRoom()">
+              <span class="material-symbols-outlined" style="font-size:15px;">add</span>Add room
+            </button>
+          </div>
           <?php endif; ?>
           <label class="form-control"><span class="form-label">Currency</span><input class="input" x-model="live.currency" :placeholder="baseCurrency"></label>
         </div>
@@ -257,9 +302,23 @@ $svcIcons = [
                 </div>
               </div>
               <!-- Hotel rate selection. room_options[] are room GROUPS; the bookable
-                   rates (price + rate_key) live in group.options[]. -->
+                   rates (price + rate_key) live in group.options[]. With >1 room,
+                   a slot tab-bar lets staff assign a rate to each room. -->
               <template x-if="isHotel && r._open">
                 <div class="mt-3 border-t border-slate-100 pt-2 space-y-2">
+                  <!-- Room-slot selector (only when booking more than one room) -->
+                  <div class="flex items-center gap-1.5 flex-wrap mb-1" x-show="hotelRooms.length>1">
+                    <span class="text-[11px] text-slate-500 mr-1">Assign rate to:</span>
+                    <template x-for="(rm,si) in hotelRooms" :key="si">
+                      <button type="button" class="text-[11px] px-2 py-0.5 rounded-full border"
+                        :class="hotelPickSlot===si ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : (hotelPicks[si] ? 'border-slate-300 bg-slate-50 text-slate-600' : 'border-slate-200 text-slate-500')"
+                        @click="setHotelSlot(si)">
+                        Room <span x-text="si+1"></span>
+                        <span x-show="hotelPicks[si]" class="material-symbols-outlined align-middle" style="font-size:12px;">check</span>
+                      </button>
+                    </template>
+                    <span class="text-[11px] text-slate-400 ml-auto" x-text="hotelPicksCount()+'/'+hotelRooms.length+' rooms set'"></span>
+                  </div>
                   <template x-for="(grp,gi) in (r.raw.room_options||[])" :key="gi">
                     <div>
                       <div class="text-[11px] font-semibold text-slate-600 mb-1" x-text="grp.room_name||grp.room_id||('Room '+(gi+1))"></div>
@@ -268,10 +327,12 @@ $svcIcons = [
                           <div class="min-w-0">
                             <span class="text-slate-600" x-text="ro.board_name||'Room only'"></span>
                             <span class="text-slate-400" x-text="(ro.refundable? ' · refundable':' · non-refundable')"></span>
+                            <span class="text-emerald-600 font-medium" x-show="hotelPickSlotOf(idx,gi,ri)>=0" x-text="' · Room '+(hotelPickSlotOf(idx,gi,ri)+1)"></span>
                           </div>
                           <div class="flex items-center gap-2 shrink-0">
                             <span class="tabular-nums font-medium" x-text="(r.raw.currency||'')+' '+Number(ro.total_price||0).toLocaleString()"></span>
-                            <button class="btn sm" :class="(selectedOffer===idx && selectedGroup===gi && selectedRoom===ri)?'primary':'outline'" @click="selectRoom(idx,gi,ri)" x-text="(selectedOffer===idx && selectedGroup===gi && selectedRoom===ri)?'Selected':'Select'"></button>
+                            <button class="btn sm" :class="hotelPickIsActive(idx,gi,ri)?'primary':(hotelPickSlotOf(idx,gi,ri)>=0?'outline':'outline')" @click="selectRoom(idx,gi,ri)"
+                              x-text="hotelPickIsActive(idx,gi,ri)?'Selected':(hotelRooms.length>1?('Set Room '+(hotelPickSlot+1)):'Select')"></button>
                           </div>
                         </div>
                       </template>
@@ -788,6 +849,11 @@ function bookingMgr() {
     live: { type:'oneway', origin:'', destination:'', destination_country:'', origin_country_flt:'', destination_country_flt:'', departure_date:'', return_date:'', adults:1, children:0, infants:0, class:'economy', rooms:1, checkin:'', checkout:'', nationality:'', currency:'',
             car_pickup_location:'', car_dropoff_location:'', car_pickup_date:'', car_pickup_time:'10:00', car_dropoff_date:'', car_dropoff_time:'10:00', car_driver_age:30, car_driver_country:'',
             esim_country:'', esim_type:'global' },
+    // Per-room occupancy for HOTEL live search (mirrors the customer stays widget).
+    // Each room: {adults, children, childAges:[...]}. The supplier search contract
+    // is rooms_data = this array as JSON; live.rooms/adults/children are derived
+    // totals we keep in sync so the top-level search params stay correct.
+    hotelRooms: [{ adults:2, children:0, childAges:[] }],
     // Autocomplete state. Flights: origin/destination hold the resolved IATA code.
     // Hotels: dest.q is the visible city text; live.destination holds the chosen city.
     ac: { origin:{q:'',items:[],open:false}, destination:{q:'',items:[],open:false}, dest:{q:'',items:[],open:false} },
@@ -829,6 +895,9 @@ function bookingMgr() {
     price: { sell:0, cost:0, currency:'' },
 
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
+    // Multi-room hotel booking: one chosen rate per searched room slot. slot index
+    // = which room we are assigning; picks[] holds {gi,ri,option,room_name} per slot.
+    hotelPickSlot:0, hotelPicks:[],
     flightSort:'price', hotelSort:'price', searchErrors:[],
     // Live-rail state (its own train search; selTrain/selSeat = the chosen seat class).
     rail:{ from:'', to:'', date:'', adults:1, children:0, currency:'', searching:false, searched:false, error:'', trains:[], selTrain:null, selSeat:null },
@@ -925,19 +994,40 @@ function bookingMgr() {
     acPickCity(c){ this.ac.dest.q=c.city+', '+c.country; this.ac.dest.open=false; this.live.destination=c.city; this.live.destination_country=c.country_code||''; },
     acCityBlur(){ setTimeout(()=>{ this.ac.dest.open=false; }, 150); },
 
-    // Hotel: pick a specific RATE. room_options[gi] is a room group; the bookable
-    // rate (price + rate_key) is group.options[ri]. We keep that option verbatim so
-    // the stored selected_rooms[].option carries the rate_key the supplier needs.
+    // Hotel: pick a specific RATE for the ACTIVE room slot. room_options[gi] is a
+    // room group; the bookable rate (price + rate_key) is group.options[ri]. We
+    // keep that option verbatim so the stored selected_rooms[].option carries the
+    // rate_key the supplier needs. With >1 room, staff assign a rate per slot (all
+    // from the SAME hotel — you book N rooms at one property).
     selectRoom(idx,gi,ri){
       this.selectedOffer=idx; this.selectedGroup=gi; this.selectedRoom=ri;
       const r=this.results[idx]; this.selectedRaw=r.raw; this.selectedSupplier=r.supplier;
       const grp=(r.raw.room_options||[])[gi]||{};
       const opt=(grp.options||[])[ri]||{};
-      this.selectedOption=opt;
-      this.selectedRoomName=grp.room_name||grp.room_id||'Room';
-      this.price.sell=Number(opt.total_price||0)||this.price.sell;
+      const roomName=grp.room_name||grp.room_id||'Room';
+      // Record the pick for the active room slot.
+      const slot=Math.min(this.hotelPickSlot, this.hotelRooms.length-1);
+      this.hotelPicks[slot]={ offerIdx:idx, gi, ri, option:opt, room_name:roomName };
+      // Keep legacy single-room fields in sync (slot 0 / last pick) for the price.
+      this.selectedOption=opt; this.selectedRoomName=roomName;
+      // Advance to the next unfilled slot automatically for a multi-room booking.
+      if(this.hotelRooms.length>1){
+        const next=this.hotelRooms.findIndex((_,i)=>!this.hotelPicks[i]);
+        this.hotelPickSlot = next>=0 ? next : slot;
+      }
+      // Sell price = SUM of all picked rates (total across the booked rooms).
+      this.price.sell=this.hotelPicksTotal()||Number(opt.total_price||0)||this.price.sell;
       this.price.currency=r.raw.currency||this.price.currency;
     },
+    // Is a given group.option the one chosen for the ACTIVE slot (for the button UI)?
+    hotelPickIsActive(idx,gi,ri){ const p=this.hotelPicks[this.hotelPickSlot]; return !!(p && p.offerIdx===idx && p.gi===gi && p.ri===ri); },
+    // Is a given option chosen for ANY slot (so we can mark it taken)?
+    hotelPickSlotOf(idx,gi,ri){ for(let i=0;i<this.hotelPicks.length;i++){ const p=this.hotelPicks[i]; if(p&&p.offerIdx===idx&&p.gi===gi&&p.ri===ri) return i; } return -1; },
+    hotelPicksCount(){ return this.hotelPicks.filter(Boolean).length; },
+    hotelPicksTotal(){ return this.hotelPicks.filter(Boolean).reduce((s,p)=>s+(Number(p.option&&p.option.total_price||0)||0),0); },
+    // All room slots have a chosen rate?
+    hotelPicksComplete(){ return this.hotelRooms.length>0 && this.hotelPicksCount()>=this.hotelRooms.length; },
+    setHotelSlot(i){ this.hotelPickSlot=i; },
 
     // Flight date to the website's DD-MM-YYYY wire format (input gives YYYY-MM-DD).
     fmtDate(d){ if(!d) return ''; const p=String(d).split('-'); return (p.length===3)?`${p[2]}-${p[1]}-${p[0]}`:d; },
@@ -960,6 +1050,7 @@ function bookingMgr() {
       }
       if(!this.suppliers.length){ alert('No live suppliers are enabled.'); return; }
       this.searching=true; this.searched=false; this.results=[]; this.searchErrors=[]; this.selectedOffer=null; this.selectedRaw=null; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null;
+      this.hotelPicks=[]; this.hotelPickSlot=0;  // reset multi-room picks on a new search
 
       // Build the shared search params using the SAME names the website sends to
       // each supplier (hotels: children/rooms_data/nationality; flights: childrens;
@@ -986,10 +1077,16 @@ function bookingMgr() {
                  driver_age:this.live.car_driver_age||30, driver_country:(this.live.car_driver_country||'').toUpperCase(),
                  currency:this.live.currency||this.baseCurrency };
       } else if(this.isHotel){
+        // Multi-room + real child ages: rooms_data is the authoritative per-room
+        // occupancy the suppliers price on (hotelbeds/etc read rooms_data[].
+        // childAges). The top-level rooms/adults/children are DERIVED totals.
+        const roomsData=this.hotelRoomsData();
         base = { service:this.service, destination:this.live.destination, destination_country:this.live.destination_country||'',
             checkin:this.fmtDate(this.live.checkin), checkout:this.fmtDate(this.live.checkout),
-            rooms:this.live.rooms, adults:this.live.adults, children:this.live.children,
-            rooms_data:JSON.stringify([{adults:this.live.adults, children:this.live.children, childAges:[]}]),
+            rooms:roomsData.length,
+            adults:roomsData.reduce((s,r)=>s+r.adults,0),
+            children:roomsData.reduce((s,r)=>s+r.children,0),
+            rooms_data:JSON.stringify(roomsData),
             nationality:(this.live.nationality||'').toUpperCase(), currency:this.live.currency||this.baseCurrency };
       } else {
         base = { service:this.service, origin:this.live.origin, destination:this.live.destination, type:this.live.type,
@@ -1266,6 +1363,34 @@ function bookingMgr() {
         </div>`;
     },
 
+    // ---- HOTEL OCCUPANCY WIDGET (per-room adults/children + child ages) ------
+    // Mirrors the customer stays room-config: up to 5 rooms, 1-8 adults &
+    // 0-6 children each, a child-age select (0-17) per child. Child ages matter:
+    // suppliers price/validate on them (hotelbeds reads rooms_data[].childAges).
+    hotelAddRoom(){ if(this.hotelRooms.length<5){ this.hotelRooms.push({adults:2,children:0,childAges:[]}); } },
+    hotelRemoveRoom(i){ if(this.hotelRooms.length>1){ this.hotelRooms.splice(i,1); } },
+    hotelIncGuest(i,type){ const r=this.hotelRooms[i]; if(!r) return;
+      if(type==='adults' && r.adults<8){ r.adults++; }
+      else if(type==='children' && r.children<6){ r.children++; this.hotelSyncAges(r); } },
+    hotelDecGuest(i,type){ const r=this.hotelRooms[i]; if(!r) return;
+      if(type==='adults' && r.adults>1){ r.adults--; }
+      else if(type==='children' && r.children>0){ r.children--; this.hotelSyncAges(r); } },
+    // Keep childAges length == children count (default a new child's age to 7).
+    hotelSyncAges(r){ if(!Array.isArray(r.childAges)) r.childAges=[];
+      while(r.childAges.length<r.children){ r.childAges.push(7); }
+      if(r.childAges.length>r.children){ r.childAges=r.childAges.slice(0,r.children); } },
+    // Derived totals for the top-level search params + the summary line.
+    hotelTotalRooms(){ return this.hotelRooms.length; },
+    hotelTotalAdults(){ return this.hotelRooms.reduce((s,r)=>s+(Number(r.adults)||0),0); },
+    hotelTotalChildren(){ return this.hotelRooms.reduce((s,r)=>s+(Number(r.children)||0),0); },
+    // Normalize rooms for the payload: ensure childAges is right-sized + numeric.
+    hotelRoomsData(){ return this.hotelRooms.map(r=>{
+      const children=Math.max(0,Number(r.children)||0);
+      let ages=(Array.isArray(r.childAges)?r.childAges:[]).slice(0,children).map(a=>{ a=parseInt(a); return (isNaN(a)||a<0)?7:(a>17?17:a); });
+      while(ages.length<children){ ages.push(7); }
+      return { adults:Math.max(1,Number(r.adults)||1), children, childAges:ages };
+    }); },
+
     // ---- AI TICKET READER (manual flights) ----------------------------------
     // Upload the ticket, call the admin extract route, and prefill the segment +
     // passenger + PNR fields from the normalized result. Staff review/edit after.
@@ -1463,7 +1588,13 @@ function bookingMgr() {
                            .map(p=>((p.first_name||'')+' '+(p.last_name||'')).trim()||'a passenger');
         if(miss.length){ alert('International flight — add a passport number for: '+miss.join(', ')); return; }
       }
-      if(this.mode==='live' && this.isHotel && this.selectedRoom===null){ alert('Choose a room rate on the selected hotel first'); return; }
+      if(this.mode==='live' && this.isHotel){
+        if(!this.hotelPicksComplete()){
+          const need=this.hotelRooms.length, got=this.hotelPicksCount();
+          alert(need>1 ? ('Pick a room rate for each of the '+need+' rooms ('+got+'/'+need+' chosen).') : 'Choose a room rate on the selected hotel first');
+          return;
+        }
+      }
       if(this.mode==='manual' && this.service==='esim' && !((this.manual.iccid||'').trim() || (this.manual.reference||'').trim())){ alert('A manual eSIM needs a real credential — enter the ICCID or activation reference of an eSIM you already provisioned. To auto-issue a new eSIM, switch to Live mode.'); return; }
       if(this.mode==='manual' && this.service==='insurance' && !((this.manual.policy_number||'').trim())){ alert('A manual insurance policy needs a policy number so the voucher references a real policy.'); return; }
       this.creating=true;
@@ -1517,12 +1648,20 @@ function bookingMgr() {
               search_params:{ pickup_location:this.live.car_pickup_location, dropoff_location:this.live.car_dropoff_location||this.live.car_pickup_location, pickup_date:this.fmtDate(this.live.car_pickup_date), pickup_time:this.live.car_pickup_time||'10:00', dropoff_date:this.fmtDate(this.live.car_dropoff_date||this.live.car_pickup_date), dropoff_time:this.live.car_dropoff_time||'10:00', driver_age:this.live.car_driver_age||30, driver_country:(this.live.car_driver_country||'').toUpperCase() }
             });
           } else if(this.isHotel){
-            // The CHOSEN rate (group.options[ri]) carries the booking handle
-            // (rate_key). Send it as both offer_booking_data AND the
-            // selected_rooms[].option so the supplier issue reads option.rate_key.
-            const opt=this.selectedOption||{};
-            payload.offer_booking_data = JSON.stringify(opt);
-            payload.selected_rooms = JSON.stringify([{ room_name:this.selectedRoomName||'Room', quantity:1, option:opt }]);
+            // MULTI-ROOM: send one chosen rate per room slot. Each selected_rooms[]
+            // carries its own option (rate_key handle) + the room's occupancy, so
+            // the supplier issue path books every room. offer_booking_data = the
+            // first room's option (the single-handle validation + consumers).
+            const picks=this.hotelPicks.filter(Boolean);
+            const rd=this.hotelRoomsData();
+            const selRooms=picks.map((p,i)=>({
+              room_name:p.room_name||('Room '+(i+1)), quantity:1, option:p.option,
+              occupancy: rd[i] || {adults:2,children:0,childAges:[]}
+            }));
+            const firstOpt=(picks[0]&&picks[0].option)||this.selectedOption||{};
+            payload.offer_booking_data = JSON.stringify(firstOpt);
+            payload.selected_rooms = JSON.stringify(selRooms);
+            payload.rooms_data = JSON.stringify(rd);
             payload.hotel_context = JSON.stringify({ name:r.name, stars:r.stars, location:r.location, address:r.address, checkin:this.fmtDate(this.live.checkin), checkout:this.fmtDate(this.live.checkout) });
           } else {
             const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;

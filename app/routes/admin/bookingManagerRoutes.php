@@ -499,29 +499,42 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
             if (is_string($rooms)) { $rooms = json_decode($rooms, true) ?: []; }
             $ctx = $_POST['hotel_context'] ?? '';
             if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
-            if (!is_array($rooms) || !isset($rooms[0]) || !is_array($rooms[0])
-                || empty($rooms[0]['option']) || !is_array($rooms[0]['option'])) {
+            // MULTI-ROOM: the console may send N rooms, one chosen rate each. The
+            // supplier issue path loops over selected_rooms (each with its own
+            // rate_key + paxes), so we persist ALL of them — not just room[0].
+            // Each room's option must carry SOME supplier handle (flat or nested
+            // under booking_data); a room-group without a bookable rate would
+            // strand the booking at issue after payment.
+            if (!is_array($rooms) || empty($rooms)) {
                 bmAdminJson(['status' => false, 'message' => 'Live hotel booking needs a selected room rate.'], 422);
             }
-            $opt = $rooms[0]['option'];
-            // Accept ANY of the known supplier handle keys (flat or nested under
-            // booking_data). Reject only when NONE is present — that means the
-            // console sent a room group instead of a bookable rate, which would
-            // strand the booking at issue after payment.
-            $bd = (isset($opt['booking_data']) && is_array($opt['booking_data'])) ? $opt['booking_data'] : [];
-            $handle = '';
-            foreach (['rate_key', 'book_hash', 'booking_code', 'offer_id', 'id'] as $k) {
-                if ((string) ($opt[$k] ?? ($bd[$k] ?? '')) !== '') { $handle = (string) ($opt[$k] ?? $bd[$k]); break; }
+            $hasHandle = function (array $opt): bool {
+                $bd = (isset($opt['booking_data']) && is_array($opt['booking_data'])) ? $opt['booking_data'] : [];
+                foreach (['rate_key', 'book_hash', 'booking_code', 'offer_id', 'id'] as $k) {
+                    if ((string) ($opt[$k] ?? ($bd[$k] ?? '')) !== '') { return true; }
+                }
+                return !empty($bd); // nested handle object present
+            };
+            $voucherRooms = [];
+            foreach ($rooms as $i => $room) {
+                if (!is_array($room) || empty($room['option']) || !is_array($room['option'])) {
+                    bmAdminJson(['status' => false, 'message' => 'Pick a room rate for every room before booking.'], 422);
+                }
+                $opt = $room['option'];
+                if (!$hasHandle($opt)) {
+                    bmAdminJson(['status' => false, 'message' => 'One of the selected room rates is missing its booking reference — reselect the rate and try again.'], 422);
+                }
+                $voucherRooms[] = [
+                    'room_name'    => (string) ($room['room_name'] ?? ('Room ' . ((int) $i + 1))),
+                    'quantity'     => max(1, (int) ($room['quantity'] ?? 1)),
+                    'booking_data' => $opt,                 // carries the rate handle
+                    'option'       => $opt,                 // issue.php reads option.rate_key
+                ];
             }
-            if ($handle === '' && empty($bd)) {
-                bmAdminJson(['status' => false, 'message' => 'That room rate is missing its booking reference — reselect the rate and try again.'], 422);
-            }
-            $voucherRooms = [[
-                'room_name'    => (string) ($rooms[0]['room_name'] ?? 'Room'),
-                'quantity'     => max(1, (int) ($rooms[0]['quantity'] ?? 1)),
-                'booking_data' => $opt,                 // carries rate_key
-                'option'       => $opt,                 // issue.php reads option.rate_key
-            ]];
+            // offer_booking_data / top-level booking_data = the FIRST room's option
+            // (kept for the handle-validation + single-handle consumers); the full
+            // set lives in selected_rooms.
+            $opt = $voucherRooms[0]['option'];
             $bookingData = [
                 'admin_created'  => true,
                 'booking_data'   => $opt,
