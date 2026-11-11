@@ -50,79 +50,9 @@ $router->post('/api/umrah/listing', function () use ($SECURE, $db) {
     exit;
 });
 
-// ============================================================================
-// UMRAH LISTING ROUTE
-// SEO-Friendly URL Format: /umrah/{destination}/{start_date}/{duration}/{services}/{umrah_type}
-// Example: /umrah/makkah/15-12-2025/4-7/2,1/any
-// ============================================================================
-$router->get('/umrah/(.*)', function ($params) use ($SECURE,$db) {
-
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
-    }
-
-    if (!empty($params) && $params !== 'listing') {
-        $urlParts = explode('/', trim($params, '/'));
-
-        if (count($urlParts) >= 5) {
-            $destination = str_replace('-', ' ', $urlParts[0] ?? 'any');
-            $startDate = $urlParts[1] ?? '';
-            $duration = $urlParts[2] ?? 'any';
-            $services = $urlParts[3] ?? 'any';
-            $umrahType = str_replace('-', ' ', $urlParts[4] ?? 'any');
-
-            $adults = 1;
-            $children = 0;
-            $totalTravelers = 1;
-
-            if ($destination === 'any') {
-                $_SESSION['umrah_destination'] = '';
-                $_SESSION['umrah_destination_code'] = '';
-            } else {
-                $cleanDestination = preg_replace('/-+/', ' ', $destination);
-                $cleanDestination = trim($cleanDestination);
-                $_SESSION['umrah_destination_code'] = '';
-                $_SESSION['umrah_destination'] = ucwords($cleanDestination);
-            }
-
-            $_SESSION['umrah_origin'] = $_SESSION['umrah_destination'];
-            $_SESSION['umrah_origin_code'] = $_SESSION['umrah_destination_code'];
-
-            $_SESSION['umrah_start_date'] = ($startDate === 'any') ? '' : $startDate;
-            $_SESSION['umrah_duration'] = ($duration === 'any') ? '' : $duration;
-            $_SESSION['umrah_services'] = ($services === 'any') ? '' : $services;
-            $_SESSION['umrah_type'] = ($umrahType === 'any') ? '' : $umrahType;
-
-            $_SESSION['umrah_adults'] = $adults;
-            $_SESSION['umrah_children'] = $children;
-            $_SESSION['umrah_travelers'] = $totalTravelers;
-
-            $serviceList = explode(',', $services);
-            $_SESSION['umrah_service_flights'] = in_array('2', $serviceList) || in_array('flights', $serviceList);
-            $_SESSION['umrah_service_cars'] = in_array('4', $serviceList) || in_array('traveling', $serviceList) || in_array('cars', $serviceList);
-            $_SESSION['umrah_service_stays'] = in_array('1', $serviceList) || in_array('stays', $serviceList);
-        }
-    }
-
-    $title = (T::search ?? 'Search') . ' ' . (T::umrah ?? 'Umrah') . ' ' . $GLOBALS['app']['home_title'];
-    $description = "Find the best Umrah packages at great prices";
-
-    require_once views."includes/header.php";
-    if (file_exists(views."modules/umrah/listing/umrah.php")) {
-        require_once views."modules/umrah/listing/umrah.php";
-    } else {
-        require_once views."modules/umrah/listing.php";
-    }
-    require_once views."includes/footer.php";
-});
-
-$router->get('/umrah/listing', function () use ($SECURE,$db) {
-    $title = T::umrah_packages ?? 'Umrah Packages';
-    require_once views."includes/header.php";
-    if (file_exists(views."modules/umrah/listing/umrah.php")) {
-        require_once views."modules/umrah/listing/umrah.php";
-    } else {
-        require_once views."modules/umrah/listing.php";
-    }
-    require_once views."includes/footer.php";
-});
+// v1→v2: the legacy GET /umrah/(.*) catch-all and GET /umrah/listing routes were
+// removed. They were shadowed by the v2 routes in umrahV2Routes.php (loaded first
+// in _routes.php) and rendered the retired v1 listing views (listing/umrah.php +
+// umrah-items/umrah-filters, which read the legacy `umrah` product table). The v2
+// storefront (/umrah, /umrah/search, /umrah/packages/*) fully replaces them. Only
+// the POST /api/umrah/listing endpoint above (v2, used by GIA/AI Trip) remains.
