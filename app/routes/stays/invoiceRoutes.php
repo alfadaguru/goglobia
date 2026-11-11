@@ -42,7 +42,7 @@ $router->get('/invoice/stays/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
                 // ============================================================================
                 // WEBHOOK: Booking Expired
                 // ============================================================================
-                $bookingData = json_decode($booking['booking_data'], true);
+                $bookingData = json_decode($booking['booking_data'] ?? '[]', true);
                 triggerWebhook('stays/invoice', 'stays.invoice.expired', [
                     'invoice_id' => $invoiceId,
                     'booking_id' => $booking['id'] ?? null,
@@ -70,7 +70,7 @@ $router->get('/invoice/stays/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
     // ============================================================================
     // WEBHOOK: Invoice Viewed
     // ============================================================================
-    $bookingData = json_decode($booking['booking_data'], true);
+    $bookingData = json_decode($booking['booking_data'] ?? '[]', true);
     if (($bookingData['source'] ?? '') === 'ai_trip') {
         require_once dirname(__DIR__) . '/ai/tripRevalidateHelper.php';
         aiTripEnsureLocalHotelPnr($db, $booking);
@@ -212,8 +212,8 @@ $router->get('/invoice/stays/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
     }
 
     // DECODE JSON FIELDS
-    $bookingData = json_decode($booking['booking_data'], true);
-    $travellersData = json_decode($booking['travellers'], true);
+    $bookingData = json_decode($booking['booking_data'] ?? '[]', true);
+    $travellersData = json_decode($booking['travellers'] ?? '[]', true);
     $childAges = json_decode($booking['child_ages'], true);
     applyInvoiceSessionCurrency($db, $_GET['currency'] ?? '', is_array($bookingData) ? $bookingData : []);
 

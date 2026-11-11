@@ -138,8 +138,8 @@ $router->get('/invoice/flights/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
     ]);
 
     // DECODE JSON FIELDS
-    $bookingData = json_decode($booking['booking_data'], true) ?: [];
-    $travellersData = json_decode($booking['travellers'], true);
+    $bookingData = json_decode($booking['booking_data'] ?? '[]', true) ?: [];
+    $travellersData = json_decode($booking['travellers'] ?? '[]', true);
     applyInvoiceSessionCurrency($db, $_GET['currency'] ?? '', $bookingData);
 
     // RENDER INVOICE PAGE

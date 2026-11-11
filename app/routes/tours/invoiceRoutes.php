@@ -155,8 +155,8 @@ $router->get('/invoice/tours/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
     }
 
     // DECODE JSON FIELDS
-    $bookingData = json_decode($booking['booking_data'], true);
-    $travellersData = json_decode($booking['travellers'], true);
+    $bookingData = json_decode($booking['booking_data'] ?? '[]', true);
+    $travellersData = json_decode($booking['travellers'] ?? '[]', true);
     $childAges = json_decode($booking['child_ages'], true);
     if (!is_array($bookingData)) {
         $bookingData = [];

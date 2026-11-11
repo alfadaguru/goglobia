@@ -173,11 +173,11 @@ $router->get('/invoice/umrah/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
     }
 
     // DECODE JSON FIELDS
-    $bookingData = json_decode($booking['booking_data'], true);
+    $bookingData = json_decode($booking['booking_data'] ?? '[]', true);
     if (!is_array($bookingData)) {
         $bookingData = [];
     }
-    $travellersData = json_decode($booking['travellers'], true);
+    $travellersData = json_decode($booking['travellers'] ?? '[]', true);
     $childAges = json_decode($booking['child_ages'], true);
     applyInvoiceSessionCurrency($db, $_GET['currency'] ?? '', $bookingData);
 

@@ -147,8 +147,8 @@ $router->get('/api/invoice/flights/([a-zA-Z0-9]+)', function ($invoiceId) use ($
     // =========================================================================
     // PREPARE RESPONSE DATA 
     // =========================================================================
-    $bookingData    = json_decode($booking['booking_data'], true);
-    $travellersData = json_decode($booking['travellers'], true);
+    $bookingData    = json_decode($booking['booking_data'] ?? '[]', true);
+    $travellersData = json_decode($booking['travellers'] ?? '[]', true);
 
     echo json_encode([
         'success' => true,
