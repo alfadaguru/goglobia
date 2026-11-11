@@ -169,7 +169,31 @@
 
 **P2 COMPLETE — manager.php read (header, forms, passenger grid, price/pay, all key JS methods).** UI findings: 1 MEDIUM (no passport gate for international live, confirmed at UI + submit), several LOW (no infants, swallowed search errors, blank-segment, hidden live button, company-account message mismatch). **Corrected P1's live-price finding (auto-filled, not hand-typed).**
 
-_(Next: P3 — booking_manager.php lib + verify.php, line-by-line.)_
+## P3 — `app/lib/booking_manager.php` (574) + `verify.php` (129)
+
+### 3.1 Guard/helper functions (`:18–173`)
+- `bm_current_admin_level` (`:25–38`): reads `admin_level` fresh from DB, clamps 0–2, **un-migrated/error → 0 (fail-safe, unknown = staff)**. **OK.**
+- `bm_is_senior_admin` (`:49–52`): level ≥ 1. **OK.**
+- `bm_module_has_issue_endpoint` (`:63–80`): excludes sentinels incl. `flight`/`flights`/`manual` (`:68`), checks `issue.php` in `/actions/` or root (`:78–79`). **OK — this is the live/manual gate; a manual flight (module='manual') correctly returns false → no supplier call.**
+- `bm_flight_offer_has_handle` (`:117–139`, prior fix): accepts a card with any known handle key in `booking_data`/`flight_data.booking_data`/top-level (`:121–135`). Docblock maps the per-supplier handle key with search+issue line cites (`:97–109`) — **this mapping is verified against each supplier in P5.** **OK structurally.**
+- `bm_module_is_issue_stub` (`:155–173`, prior fix): rejects affiliate/empty-TODO issue.php (travelpayouts). **OK.**
+
+### 3.2 Money/notify core (read in full across this audit)
+- `bm_fire_supplier_issue` (`:176–217`): curl loopback to `root/modules/<type>/<module>/issue` with a signed `_internal_token` (`:188–190`); `CURLOPT_SSL_VERIFYPEER=false` (`:200`) — **internal loopback, server-controlled URL → not a vuln (same pattern as /search).** Returns decoded JSON or an error array. **OK.**
+- `bm_settle_booking_payment` (`:219–374`): idempotent, records payment (`:282–297`), audit row (`:300–317`); **3a manual→notify (`:322`), 3b live→issue→notify only if issued (`:327–337`)**, issue-fail → (Fix 4) pending notice + refund-on-fail (`:349–380`). **OK (audited + hardened earlier). The 3b "no notify unless issued" is documented in the notification audit.**
+- `bm_notify_paid` (`:377–461`) + `bm_notify_pending_verification` (`:476–573`, Fix 3): audited in the notification work. **OK.**
+- **Entire 574-line lib read — nothing skipped.**
+
+### 3.3 `verify.php` (129) — verification queue UI
+- Senior-only gate (`:21–27`). All cell values `htmlspecialchars`-escaped (`:44–49`) — **no XSS.** **OK.**
+- Pending table + **optional** bank-ref input (`:49`) + Verify button (`:51`). Verify JS confirms + posts (`:103–114`).
+- `FINDING — CONFIRMS GAP (MEDIUM, money, = P1 §1.8): the verify dialog asks "Confirm you have received this bank transfer?" (:104) but there is NO amount field` — only a free-text ref (`:49`). The senior confirms "received" and the booking is marked paid at **full price_markup** regardless of what actually landed. No partial/short-payment reconciliation.
+- **Stranded "Paid — not issued" table (`:62–94`):** renders only if `$stranded` is non-empty (`:63`); `$stranded` = the route's `booking_channel[~]='admin_live'` query (P1 `:911`).
+- `FINDING — CONFIRMS (depends on the P1 HIGH candidate): this safety-net UI is ENTIRELY gated on that LIKE query. If the Medoo [~] needle-with-underscore bug makes the query match nothing, the "Paid — not issued" section NEVER renders → seniors never see paid-but-unissued live flights → money collected, nothing bought, invisible to ops.` This raises the stakes on confirming the Medoo behaviour in P4.
+
+**P3 COMPLETE — lib (574) + verify.php (129) read line-by-line.** Lib is sound (the audited money primitive). Findings: confirms the MEDIUM money gap (verify = full-paid, no amount) and confirms the stranded-queue UI depends on the P1 HIGH Medoo candidate.
+
+_(Next: P4 — DB surface + the BM↔supplier seam; CONFIRM the Medoo [~] behaviour.)_
 
 ---
 
