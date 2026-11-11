@@ -193,7 +193,27 @@
 
 **P3 COMPLETE — lib (574) + verify.php (129) read line-by-line.** Lib is sound (the audited money primitive). Findings: confirms the MEDIUM money gap (verify = full-paid, no amount) and confirms the stranded-queue UI depends on the P1 HIGH Medoo candidate.
 
-_(Next: P4 — DB surface + the BM↔supplier seam; CONFIRM the Medoo [~] behaviour.)_
+## P4 — DB surface + BM↔supplier seam (+ Medoo `[~]` CONFIRMED)
+
+### 4.1 Medoo `[~]` on `booking_channel` — the P1 HIGH candidate: ✅ **DISPROVEN (not a bug)**
+- Read the Medoo source directly: `vendor/catfan/medoo/src/Medoo.php:1163` — the auto-wrap regex: `!preg_match('/…(?<!\\)[\*\?\!\%#^_]…/', $item)`. If the needle contains `_` (unescaped), `%..%` is **NOT** prepended.
+- So `booking_channel[~]='admin_live'` → `booking_channel LIKE 'admin_live'` with `_` as SQL single-char wildcard.
+- **PROVEN by test (regex-equivalent of SQL LIKE): `LIKE 'admin_live'` MATCHES the stored `'admin_live'`** — `_` matches the literal underscore. It would also match a hypothetical `adminXlive`, but no such value is ever written (the route writes only `admin_live`/`admin_manual`, P1 `:450,633`).
+- **CORRECTION (no false reporting): the P1 §1.10 HIGH candidate is a FALSE ALARM. The stranded query works correctly** — it returns the `admin_live` rows. The documented Medoo bug applies to needles that must be a SUBSTRING match but contain `_` (then `%x_y%` isn't formed and a substring is missed); here the stored value equals the needle, so `_`-as-wildcard still matches. **Downgraded HIGH → NONE.** (Precisely why I refused to assert it in P1.)
+- `NOTE: the recent-bookings query booking_channel[~]='admin' (P1 :149) HAS no special char → auto-wrapped %admin% → matches admin_live + admin_manual. Correct.`
+
+### 4.2 `bookings` column surface vs `install/db.sql`
+- All INSERT columns (P1 `:664–704`) exist in `install/db.sql` **except** `notified_paid_at` + `pending_notified_at`, which are **self-healing** (ALTER TABLE in `bm_notify_paid`/`bm_notify_pending_verification`, verified P3). ✅
+- `CORRECTION (no false reporting): booked_date is a $_POST FIELD name (:647), NOT a column; the INSERT writes the existing column booking_date (:703), which IS in db.sql.` No missing-column bug. (I verified instead of assuming.)
+- `gia_booking_payments` (the DVA/BM payment record) exists in db.sql (`:27370`) AND self-heals (`gia_booking_payment.php:62`). ✅
+
+### 4.3 The supplier-issue seam (`modules/helpers.php`)
+- `supplier_internal_token` (`:1583–1585`): HMAC-SHA256 of `'supplier-action:'.$invoiceId`. `bm_fire_supplier_issue` computes the same token (`booking_manager.php:189`). ✅
+- `supplier_action_guard` (`:1594–1627`): allows on (1) admin session (`:1597`), (2) **constant-time** internal-token match via `hash_equals` (`:1604–1606`), or (3) valid CSRF (`:1609–1613`); else **403 JSON, fail-closed** (`:1615–1626`). ✅ **Sound — this authorizes the BM live-issue loopback correctly and rejects everything else.**
+
+**P4 COMPLETE.** Net: the scariest P1 candidate (stranded-queue Medoo bug) is **DISPROVEN with a real test** — the stranded query works, the safety-net UI renders. DB columns all resolve (self-healing where absent). The supplier seam is cryptographically sound. **No new bugs; two of my own earlier alarms corrected to NONE.**
+
+_(Next: P5 — all 14 flight suppliers' search.php + issue.php line-by-line.)_
 
 ---
 
