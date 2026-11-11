@@ -779,6 +779,14 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
             'payment_gateway' => (string) ($company['gateway_id'] ?? ''),
         ], ['invoice_id' => $invoiceId]);
 
+        // Tell the customer their booking is RECEIVED and awaiting verification, so
+        // a manual-transfer booking is no longer a silent dead-zone until a senior
+        // verifies it. NOT a confirmation/ticket (no PDF, no paid claim). Idempotent,
+        // best-effort — never blocks this response.
+        if (function_exists('bm_notify_pending_verification')) {
+            try { bm_notify_pending_verification($db, $invoiceId); } catch (\Throwable $e) { error_log('bm pay pending-notify: ' . $e->getMessage()); }
+        }
+
         bmAdminJson([
             'status'  => true,
             'method'  => 'manual_transfer',

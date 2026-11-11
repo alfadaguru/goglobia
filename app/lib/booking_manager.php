@@ -365,6 +365,19 @@ if (!function_exists('bm_settle_booking_payment')) {
                 }
             } catch (\Throwable $e) { error_log('bm_settle auto-refund ' . $invoiceId . ': ' . $e->getMessage()); }
         }
+        // CUSTOMER NOTIFY ON ISSUE-FAIL (Fix 4): previously a paid LIVE booking whose
+        // supplier issue failed went SILENT — the customer paid and heard nothing.
+        //   - refunded → a brief "we refunded, couldn't confirm" note (handled by the
+        //     refund path's own notify where present; we only log here to avoid a
+        //     wrong 'ticket coming' message on a refunded booking).
+        //   - NOT refunded (paid, retrying/flagged) → reuse the idempotent
+        //     pending-verification notice: "payment received, your ticket/confirmation
+        //     is being finalized" — NO ticket/PDF, NO 'confirmed' claim. Idempotent
+        //     (pending_notified_at), so the stranded-issue cron retrying this path
+        //     every few minutes sends it at most once.
+        if (!$__refunded && function_exists('bm_notify_pending_verification')) {
+            try { bm_notify_pending_verification($db, $invoiceId); } catch (\Throwable $e) { error_log('bm_settle issue-fail notify ' . $invoiceId . ': ' . $e->getMessage()); }
+        }
         return ['ok' => false, 'issued' => false, 'refunded' => $__refunded,
                 'status' => $booking['booking_status'] ?? 'pending',
                 'message' => $__refunded
@@ -457,5 +470,105 @@ if (!function_exists('bm_notify_paid')) {
                 esim_deliver_to_phone($db, $invoiceId);
             }
         } catch (\Throwable $e) { error_log('bm_notify_paid: ' . $e->getMessage()); }
+    }
+}
+
+if (!function_exists('bm_notify_pending_verification')) {
+    /**
+     * Tell the customer their booking was RECEIVED and is awaiting payment
+     * verification — so a manual-transfer booking is no longer a silent dead-zone
+     * between "created" and "verified". This is NOT a confirmation and NOT a ticket:
+     *   - no PDF is attached,
+     *   - the wording never claims paid/confirmed,
+     *   - it explicitly says the ticket/confirmation comes AFTER the transfer is
+     *     verified.
+     * Email + WhatsApp (both best-effort, logged via notify_log). Idempotent: a
+     * one-time `pending_notified_at` stamp means it fires at most once per booking.
+     * Never throws, never blocks the pay response.
+     */
+    function bm_notify_pending_verification($db, string $invoiceId): void
+    {
+        try {
+            $b = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+            if (!$b) return;
+
+            // Idempotency — only the FIRST call notifies (self-healing column).
+            if (empty($b['pending_notified_at'])) {
+                static $ensured = false;
+                if (!$ensured) {
+                    $ensured = true;
+                    try { $db->query("ALTER TABLE `bookings` ADD COLUMN `pending_notified_at` DATETIME DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
+                }
+                $claim = $db->query(
+                    "UPDATE bookings SET pending_notified_at = NOW() WHERE invoice_id = :inv AND pending_notified_at IS NULL",
+                    [':inv' => $invoiceId]
+                );
+                if (!$claim || $claim->rowCount() < 1) { return; } // already notified
+            } else {
+                return;
+            }
+
+            $settings  = $db->get('settings', '*') ?: [];
+            $brand     = (string) ($settings['business_name'] ?? 'GoGlobia');
+            $supportEmail = (string) ($settings['contact_email'] ?? 'hi@goglobia.com');
+            $name      = trim((string) (($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? '')));
+            $svcLabel  = ucfirst(strtolower((string) ($b['module_type'] ?? 'booking')));
+            $amount    = (string) ($b['price_markup'] ?? '');
+            $currency  = (string) ($b['currency_markup'] ?? '');
+            $email     = trim((string) ($b['email'] ?? ''));
+            $phone     = trim((string) ($b['phone'] ?? ''));
+            $cc        = trim((string) ($b['phone_country_code'] ?? ''));
+
+            $lineAmount = ($currency !== '' && $amount !== '') ? (' of ' . $currency . ' ' . $amount) : '';
+
+            // ---- EMAIL (plain, branded header/footer, NO price-paid claim, NO pdf) ----
+            if ($email !== '' && function_exists('SENDEMAIL')) {
+                $subject = $brand . ' — booking received, awaiting payment confirmation (#' . $invoiceId . ')';
+                $e = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+                $inner = '<div style="padding:28px 32px;background:#f8fafc;font-size:15px;color:#2d3748;line-height:1.65;">'
+                    . '<p>Hi ' . $e($name ?: 'there') . ',</p>'
+                    . '<p>We\'ve received your <strong>' . $e($svcLabel) . '</strong> booking <strong>#' . $e($invoiceId) . '</strong>'
+                    . $e($lineAmount) . '. Your bank transfer is <strong>being confirmed</strong> by our team.</p>'
+                    . '<p>Once the payment is verified, we\'ll email your <strong>ticket / confirmation</strong> and send it to your WhatsApp. '
+                    . 'This usually takes a short while during business hours.</p>'
+                    . '<p>You don\'t need to do anything else. If you have questions, reply to this email or contact us at '
+                    . $e($supportEmail) . ', quoting booking #' . $e($invoiceId) . '.</p>'
+                    . '<p>Thank you,<br>' . $e($brand) . '</p></div>';
+                try {
+                    ob_start();
+                    $SECURE = true;
+                    @include __DIR__ . '/../views/notifications/emails/header.php';
+                    echo $inner;
+                    @include __DIR__ . '/../views/notifications/emails/footer.php';
+                    $body = ob_get_clean();
+                    $ok = (bool) SENDEMAIL($email, $name, $subject, $body);
+                    if (function_exists('notify_log')) { notify_log($invoiceId, 'email', 'booking_pending_verification', $email, $ok, $ok ? null : 'provider returned false'); }
+                } catch (\Throwable $e2) {
+                    if (ob_get_level()) { ob_end_clean(); }
+                    error_log('bm_notify_pending_verification email: ' . $e2->getMessage());
+                }
+            }
+
+            // ---- WHATSAPP (plain text, NO pdf) ----
+            if ($phone !== '' && function_exists('SENDWHATSAPP')) {
+                $full = '';
+                if (function_exists('getPhoneCode') && function_exists('formatPhoneNumber')) {
+                    // Reuse the same formatter NOTIFY uses (global helpers).
+                    $num = function_exists('getPhoneCode') ? getPhoneCode($cc, $db) : $cc;
+                    $full = $cc !== '' || $num !== '' ? (preg_replace('/[^\d]/', '', (string) $num) . preg_replace('/[^\d]/', '', $phone)) : $phone;
+                } else {
+                    $full = ($cc !== '' ? preg_replace('/[^\d]/', '', $cc) : '') . preg_replace('/[^\d]/', '', $phone);
+                }
+                $msg = 'Hi ' . ($name ?: 'there') . "! We've received your " . $svcLabel . ' booking #' . $invoiceId
+                    . '. Your bank transfer is being confirmed — once verified we\'ll send your ticket/confirmation here and by email. '
+                    . 'Thank you for choosing ' . $brand . '.';
+                if (trim((string) $full) !== '') {
+                    $ok = (bool) SENDWHATSAPP($full, $name, $msg);
+                    if (function_exists('notify_log')) { notify_log($invoiceId, 'whatsapp', 'booking_pending_verification', (string) $full, $ok, $ok ? null : 'green api send failed (or provider not greenapi)'); }
+                } elseif (function_exists('notify_log')) {
+                    notify_log($invoiceId, 'whatsapp', 'booking_pending_verification', $phone, false, 'no usable phone after formatting — skipped');
+                }
+            }
+        } catch (\Throwable $e) { error_log('bm_notify_pending_verification: ' . $e->getMessage()); }
     }
 }
