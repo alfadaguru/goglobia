@@ -134,4 +134,24 @@ Wiring the full Kikoto draft-creation (`POST /bookings` with the sailings + pass
 
 ---
 
-_(Next: eSIM.)_
+## 5. eSIM (live + manual) — AUDITED (no change; strongest price-trust)
+
+### Live path — SOUND, and the best-hardened of the live services
+- **Form** (`manager.php:101–118`): country picker (datalist backed by the same `airalo_countries` list the storefront uses) + package type (global/local). **OK.**
+- **Search payload** (`manager.php:1061`): `country/type/limit:100`. Normalize (`:1146–1149`): `label=title`, `sub=country · data · validity days`. **OK.**
+- **Create** (`bookingManagerRoutes.php:611–628`): persists ONLY `airalo_order.package_id` (the handle) + display fields — **does NOT persist a client price.** Rejects a package with no id (`:618`). **OK.**
+- **INSERT identity** (`:777–778`, `:490`): live eSIM → `module_type='esim'`, `module='airalo'` (`$moduleName=$supplier`). This **satisfies airalo/issue's `$isWebEsim` gate** (`issue.php:38`) so a BM eSIM is accepted + provisioned — NOT rejected the way GIA `ai_trip` eSIMs once were. ✅ (verified the gate at `issue.php:38–43`.)
+- **Supplier gate:** airalo `has=Y, stub=N → bookable`. `airalo/issue.php` (301 L) is a REAL provisioning call (`POST /v2/orders`) with:
+  - **Idempotency** (existing-provision guard `:49`) + **concurrency claim** on `issue_claimed_at` (`:71–81`, stops two concurrent orders).
+  - **PRICE-TRUST GUARD** (`:109–158`): re-fetches the **authoritative** Airalo price server-side (`airalo_authoritative_price`), is **quantity-aware** (the F-02 qty-bypass fix — `price_markup` is whole-order, authoritative is per-single-SIM), and runs `reconcilePostPaymentPrice` → **HOLDS** the eSIM for review if the live price rose above paid. So a mistyped/manipulated BM sell price **can't** cause an under-paid provision. ✅ **This is the only live service that re-prices the exact handle at issue AND is quantity-aware.**
+
+### Manual path — SOUND (credential-guarded, defense in depth)
+- **Form** (`manager.php:650–662`): package name/country/data/validity + **ICCID** and **Activation reference** (both marked required `*`, red-border when both empty, explanatory note).
+- **Guard (both layers):** client (`manager.php:1598`) AND server (`bookingManagerRoutes.php:680–685`) reject a manual eSIM with no ICCID **and** no reference — an eSIM can't be fabricated. **Fail-closed, defense in depth.** ✅
+- **Builder** (`bookingManagerRoutes.php:1190–1205`): reads those fields 1:1 into an `airalo_provision`-shaped voucher (`reference→order_id`, `iccid→sims[].iccid`) so the ticket shows the REAL credential. **OK.**
+
+**eSIM verdict: SOUND — no change needed.** Best price-trust of all live BM services (server-side authoritative re-price + quantity-aware reconcile + idempotency + concurrency claim). Manual path credential-guarded on both layers. The module-identity wiring correctly makes a BM eSIM an `$isWebEsim` booking that airalo/issue accepts.
+
+---
+
+_(Next: Umrah — manual-only.)_
