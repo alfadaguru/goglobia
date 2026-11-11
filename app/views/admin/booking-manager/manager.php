@@ -234,6 +234,10 @@ $svcIcons = [
           <span class="material-symbols-outlined animate-spin" x-show="searching">progress_activity</span>
           <span x-text="searching ? 'Searching…' : 'Search'"></span>
         </button>
+        <div x-show="searchMsg" x-cloak role="alert" aria-live="assertive" class="mt-2 flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          <span class="material-symbols-outlined text-base leading-none shrink-0">error</span>
+          <span x-text="searchMsg"></span>
+        </div>
 
         <!-- Live results -->
         <?php if (!$isHotel && !$isRail && !$isFerries): ?>
@@ -766,6 +770,13 @@ $svcIcons = [
           <label class="form-control"><span class="form-label">Net cost (optional)</span><input type="number" min="0" step="0.01" class="input" x-model.number="price.cost"></label>
           <label class="form-control"><span class="form-label">Currency</span><input class="input" x-model="price.currency" :placeholder="baseCurrency"></label>
         </div>
+        <!-- Inline validation / result message (replaces blocking alert()s). -->
+        <div x-ref="formMsgBox" x-show="formMsg" x-cloak role="alert" aria-live="assertive"
+             class="mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-sm border"
+             :class="formMsgOk ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'">
+          <span class="material-symbols-outlined text-base leading-none shrink-0" x-text="formMsgOk ? 'check_circle' : 'error'"></span>
+          <span x-text="formMsg"></span>
+        </div>
         <button class="btn primary mt-4 w-full" @click="createBooking()" :disabled="creating || created">
           <span class="material-symbols-outlined" x-show="!creating">check_circle</span>
           <span class="material-symbols-outlined animate-spin" x-show="creating">progress_activity</span>
@@ -915,7 +926,7 @@ function bookingMgr() {
     // Multi-room hotel booking: one chosen rate per searched room slot. slot index
     // = which room we are assigning; picks[] holds {gi,ri,option,room_name} per slot.
     hotelPickSlot:0, hotelPicks:[],
-    flightSort:'price', hotelSort:'price', searchErrors:[],
+    flightSort:'price', hotelSort:'price', searchErrors:[], searchMsg:'',
     // Live-rail state (its own train search; selTrain/selSeat = the chosen seat class).
     rail:{ from:'', to:'', date:'', adults:1, children:0, currency:'', searching:false, searched:false, error:'', trains:[], selTrain:null, selSeat:null },
     // Live-ferries state (sailing search; sel = chosen sailing index).
@@ -929,9 +940,16 @@ function bookingMgr() {
     bookedDate:'',
     creating:false, created:false, invoiceId:'', clientToken:'',
     paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
+    // Inline form validation/result message (replaces the old blocking alert()s;
+    // mirrors the pay step's settleMsg). formMsgOk=false renders red, true green.
+    formMsg:'', formMsgOk:false,
 
     init(){ this.clientToken = this.newToken(); this.manual.segments=[this.blankSeg()]; this.bookedDate = this.nowLocal(); },
     newToken(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); },
+    // Show an inline validation error near the Create button + scroll it into view,
+    // and return false so callers can `return this.formErr('…')`.
+    formErr(msg){ this.formMsg=msg; this.formMsgOk=false; this.creating=false;
+      try{ this.$refs.formMsgBox && this.$refs.formMsgBox.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e){} return false; },
     // Current local date+time as "YYYY-MM-DDTHH:MM" for <input type=datetime-local>
     // (built from local components so it reflects the staff's clock, not UTC).
     nowLocal(){ const d=new Date(); const p=n=>String(n).padStart(2,'0');
@@ -1052,23 +1070,25 @@ function bookingMgr() {
     // Flight date to the website's DD-MM-YYYY wire format (input gives YYYY-MM-DD).
     fmtDate(d){ if(!d) return ''; const p=String(d).split('-'); return (p.length===3)?`${p[2]}-${p[1]}-${p[0]}`:d; },
 
+    searchErr(msg){ this.searchMsg=msg; return false; },
     async runSearch(){
+      this.searchMsg='';  // clear any prior inline search message
       if(this.service==='esim'){
         /* country is optional (blank = global) — no required-field check */
       } else if(this.service==='tours'){
-        if(!this.live.destination){ alert('Pick a destination city'); return; }
-        if(!this.live.checkin){ alert('Pick an activity date'); return; }
+        if(!this.live.destination){ return this.searchErr('Pick a destination city.'); }
+        if(!this.live.checkin){ return this.searchErr('Pick an activity date.'); }
       } else if(this.service==='cars'){
-        if(!this.live.car_pickup_location){ alert('Enter a pick-up location'); return; }
-        if(!this.live.car_pickup_date){ alert('Pick a pick-up date'); return; }
+        if(!this.live.car_pickup_location){ return this.searchErr('Enter a pick-up location.'); }
+        if(!this.live.car_pickup_date){ return this.searchErr('Pick a pick-up date.'); }
       } else if(this.isHotel){
-        if(!this.live.destination){ alert('Pick a destination city'); return; }
-        if(!this.live.checkin||!this.live.checkout){ alert('Pick check-in and check-out dates'); return; }
+        if(!this.live.destination){ return this.searchErr('Pick a destination city.'); }
+        if(!this.live.checkin||!this.live.checkout){ return this.searchErr('Pick check-in and check-out dates.'); }
       } else {
-        if(!this.live.origin||!this.live.destination){ alert('Pick a From and To airport'); return; }
-        if(!this.live.departure_date){ alert('Pick a departure date'); return; }
+        if(!this.live.origin||!this.live.destination){ return this.searchErr('Pick a From and To airport.'); }
+        if(!this.live.departure_date){ return this.searchErr('Pick a departure date.'); }
       }
-      if(!this.suppliers.length){ alert('No live suppliers are enabled.'); return; }
+      if(!this.suppliers.length){ return this.searchErr('No live suppliers are enabled.'); }
       this.searching=true; this.searched=false; this.results=[]; this.searchErrors=[]; this.selectedOffer=null; this.selectedRaw=null; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null;
       this.hotelPicks=[]; this.hotelPickSlot=0;  // reset multi-room picks on a new search
 
@@ -1507,8 +1527,9 @@ function bookingMgr() {
       return [];
     },
     async railSearch(){
-      if(!this.rail.from||!this.rail.to){ alert('Enter from and to station codes'); return; }
-      if(!this.rail.date){ alert('Pick a travel date'); return; }
+      if(!this.rail.from||!this.rail.to){ this.rail.error='Enter from and to station codes.'; return; }
+      if(!this.rail.date){ this.rail.error='Pick a travel date.'; return; }
+      this.rail.error='';
       this.rail.searching=true; this.rail.searched=false; this.rail.error=''; this.rail.trains=[]; this.rail.selTrain=null; this.rail.selSeat=null;
       try{
         const unix=Math.floor(new Date(this.rail.date+'T00:00:00').getTime()/1000);
@@ -1572,8 +1593,9 @@ function bookingMgr() {
       }catch(e){ /* ports optional; staff can still not search without them */ }
     },
     async ferrySearch(){
-      if(!this.ferry.from||!this.ferry.to){ alert('Pick departure and arrival ports'); return; }
-      if(!this.ferry.date){ alert('Pick a sailing date'); return; }
+      if(!this.ferry.from||!this.ferry.to){ this.ferry.error='Pick departure and arrival ports.'; return; }
+      if(!this.ferry.date){ this.ferry.error='Pick a sailing date.'; return; }
+      this.ferry.error='';
       this.ferry.searching=true; this.ferry.searched=false; this.ferry.error=''; this.ferry.sailings=[]; this.ferry.sel=null;
       this.ferry.fromName=(this.ferry.ports.find(p=>p.id===this.ferry.from)||{}).name||'';
       this.ferry.toName=(this.ferry.ports.find(p=>p.id===this.ferry.to)||{}).name||'';
@@ -1596,27 +1618,27 @@ function bookingMgr() {
     },
 
     async createBooking(){
-      if(!this.cust.first_name||!this.cust.last_name||!this.cust.email){ alert('Customer first/last name and email are required'); return; }
-      if(!(this.price.sell>0)){ alert('Enter a selling price'); return; }
-      if(this.mode==='live' && this.service==='rail' && (this.rail.selTrain===null||this.rail.selSeat===null)){ alert('Search trains, then select a seat class'); return; }
-      if(this.mode==='live' && this.service==='ferries' && this.ferry.sel===null){ alert('Search sailings, then select one'); return; }
-      if(this.mode==='live' && this.service!=='rail' && this.service!=='ferries' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
+      this.formMsg='';  // clear any prior inline message
+      if(!this.cust.first_name||!this.cust.last_name||!this.cust.email){ return this.formErr('Customer first/last name and email are required.'); }
+      if(!(this.price.sell>0)){ return this.formErr('Enter a selling price.'); }
+      if(this.mode==='live' && this.service==='rail' && (this.rail.selTrain===null||this.rail.selSeat===null)){ return this.formErr('Search trains, then select a seat class.'); }
+      if(this.mode==='live' && this.service==='ferries' && this.ferry.sel===null){ return this.formErr('Search sailings, then select one.'); }
+      if(this.mode==='live' && this.service!=='rail' && this.service!=='ferries' && this.selectedRaw===null){ return this.formErr('Select a supplier offer first.'); }
       // M1: an international live flight needs a passport for every adult & child
       // (the backend enforces this authoritatively; this is the fast UX catch).
       if(this.mode==='live' && this.service==='flights' && this.isInternational){
         const miss=this.pax.filter(p=>p.type!=='infant' && !((p.passport_number||'').trim()))
                            .map(p=>((p.first_name||'')+' '+(p.last_name||'')).trim()||'a passenger');
-        if(miss.length){ alert('International flight — add a passport number for: '+miss.join(', ')); return; }
+        if(miss.length){ return this.formErr('International flight — add a passport number for: '+miss.join(', ')+'.'); }
       }
       if(this.mode==='live' && this.isHotel){
         if(!this.hotelPicksComplete()){
           const need=this.hotelRooms.length, got=this.hotelPicksCount();
-          alert(need>1 ? ('Pick a room rate for each of the '+need+' rooms ('+got+'/'+need+' chosen).') : 'Choose a room rate on the selected hotel first');
-          return;
+          return this.formErr(need>1 ? ('Pick a room rate for each of the '+need+' rooms ('+got+'/'+need+' chosen).') : 'Choose a room rate on the selected hotel first.');
         }
       }
-      if(this.mode==='manual' && this.service==='esim' && !((this.manual.iccid||'').trim() || (this.manual.reference||'').trim())){ alert('A manual eSIM needs a real credential — enter the ICCID or activation reference of an eSIM you already provisioned. To auto-issue a new eSIM, switch to Live mode.'); return; }
-      if(this.mode==='manual' && this.service==='insurance' && !((this.manual.policy_number||'').trim())){ alert('A manual insurance policy needs a policy number so the voucher references a real policy.'); return; }
+      if(this.mode==='manual' && this.service==='esim' && !((this.manual.iccid||'').trim() || (this.manual.reference||'').trim())){ return this.formErr('A manual eSIM needs a real credential — enter the ICCID or activation reference of an eSIM you already provisioned. To auto-issue a new eSIM, switch to Live mode.'); }
+      if(this.mode==='manual' && this.service==='insurance' && !((this.manual.policy_number||'').trim())){ return this.formErr('A manual insurance policy needs a policy number so the voucher references a real policy.'); }
       this.creating=true;
       try{
         const payload = {
@@ -1631,7 +1653,7 @@ function bookingMgr() {
           // Rail goes through the shared rail_create_order() money path on the
           // backend: send the assembled order (journey leg + train-format pax).
           const railOrder=this.buildRailOrder();
-          if(!railOrder){ alert('Select a train and seat class'); this.creating=false; return; }
+          if(!railOrder){ return this.formErr('Select a train and seat class.'); }
           payload.rail_order = JSON.stringify(railOrder);
         } else if(this.mode==='live' && this.service==='ferries'){
           // Ferries: send the chosen sailing + passenger ticket-types + context.
@@ -1717,13 +1739,14 @@ function bookingMgr() {
         const data=await res.json();
         if(data.status){
           this.created=true; this.invoiceId=data.invoice_id;
+          this.formMsg='Booking created. Take payment on the right.'; this.formMsgOk=true;
           // Mint a fresh idempotency token so the NEXT booking can't dedup into
           // this one. (This booking already exists; its create button is disabled,
           // so no retry re-uses the old token.)
           this.clientToken = this.newToken();
         }
-        else alert(data.message||'Could not create the booking');
-      }catch(e){ alert('Create failed'); }
+        else { this.formMsg=(data.message||'Could not create the booking.'); this.formMsgOk=false; }
+      }catch(e){ this.formMsg='Create failed — check your connection and try again.'; this.formMsgOk=false; }
       this.creating=false;
     },
 
@@ -1748,6 +1771,7 @@ function bookingMgr() {
     newBooking(){
       this.created=false; this.creating=false; this.invoiceId='';
       this.dva=null; this.manualPay=false; this.paying=false; this.settleMsg=''; this.settleMsgOk=false;
+      this.formMsg=''; this.formMsgOk=false; this.searchMsg='';
       this.results=[]; this.searched=false; this.searchErrors=[];
       this.selectedOffer=null; this.selectedRaw=null; this.selectedSupplier=''; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null; this.selectedRoomName='';
       this.hotelPicks=[]; this.hotelPickSlot=0;
