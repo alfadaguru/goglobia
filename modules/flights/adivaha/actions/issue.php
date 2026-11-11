@@ -314,62 +314,128 @@ $router->post('flights/adivaha/issue', function () use ($db) {
             exit;
         }
 
-        // 5a-bis. DOMESTIC passport workaround. Adivaha currently rejects a
-        // DOMESTIC Nigerian itinerary at /flights/book demanding a passport number
-        // ("passport number is required for international travel") even though the
-        // traveller legitimately has none for domestic travel (they fly on a
-        // national ID; the airline never collects a passport domestically). We do
-        // NOT ask the passenger for a passport on domestic flights (correct UX), so
-        // for a DOMESTIC trip ONLY, send a format-valid placeholder passport on any
-        // pax missing one so the supplier's presence-check passes and the ticket
-        // issues. This is a temporary bridge while the supplier makes passport
-        // optional for domestic (see support ticket, Partner 77B0251). It is NEVER
-        // applied to international trips (there a real passport is genuinely needed
-        // and must be collected). Domestic = origin & destination airports in the
-        // SAME country (flights_airports.country); fail-safe to international
-        // (no placeholder) if either country is unknown.
-        $__issueIsDomestic = false;
-        try {
-            $depCode = strtoupper(trim((string) ($fd['departure_code'] ?? $fd['departure_airport'] ?? '')));
-            $arrCode = strtoupper(trim((string) ($fd['arrival_code'] ?? $fd['arrival_airport'] ?? '')));
-            if ($depCode !== '' && $arrCode !== '') {
-                $depCountry = (string) ($db->get('flights_airports', 'country', ['code' => $depCode]) ?: '');
-                $arrCountry = (string) ($db->get('flights_airports', 'country', ['code' => $arrCode]) ?: '');
-                $__issueIsDomestic = ($depCountry !== '' && $arrCountry !== ''
-                    && strcasecmp(trim($depCountry), trim($arrCountry)) === 0);
-            }
-        } catch (\Throwable $e) { error_log('adivaha issue domestic-detect: ' . $e->getMessage()); }
+        // ====================================================================
+        // 5a-bis. TRAVELLER-DOCUMENT COMPLIANCE (rewritten 2026-11-11).
+        // ADIVAHA-ONLY. Adivaha's /flights/book validates traveller docs PER FARE
+        // and tells us exactly what it needs via a `compliance` object on the
+        // fare-quote offer (proven in real logs):
+        //   domestic NG (APG):   pan_required:true,  passport_required:true,  passport_full_detail_required:true
+        //   international (SV):   pan_required:false, passport_required:true,  passport_full_detail_required:true
+        // We fetch that compliance here (using the trace_id+offer_id we already
+        // hold for /book), then for EACH requirement: send the traveller's REAL
+        // value if they provided one, else a VALID placeholder — because our NG
+        // customers fly domestic on a national ID and legitimately have no passport
+        // or PAN (owner decision), and Adivaha is our only NG-domestic supplier with
+        // a funded wallet, so a placeholder is the only way to issue.
+        //
+        // This REPLACES the old airport-code "domestic" guess, which read
+        // $fd['departure_code'] — a field a LIVE Adivaha offer never carries (it
+        // uses meta.origin/destination), so the old block never fired on real
+        // bookings and Adivaha rejected with "passport expiry / PAN required"
+        // (observed live, admin-BM invoice E0E7C5B2).
+        //
+        // VERIFIED: compliance field path + values (from logs).
+        // INFERRED (flagged, to confirm by owner live-test):
+        //   - passport_full_detail_required also wants issuing_country + issue_date
+        //     (we send them; Adivaha only error-listed number+expiry, but "full
+        //     detail" implies the rest — sending more is safe).
+        //   - a structurally-valid Indian PAN (4th char = holder-type 'P') is
+        //     accepted as a placeholder (Adivaha may validate structure; may also
+        //     validate against a real registry — the live test will tell).
+        // ====================================================================
 
-        if ($__issueIsDomestic) {
-            // Trip (domestic) country ISO for a sensible default nationality.
-            $__domIso = '';
+        // --- fetch compliance from Adivaha fare-quote (the authoritative signal) ---
+        $__compliance = ['pan_required' => null, 'passport_required' => null, 'passport_full_detail_required' => null];
+        if (!empty($legs[0]['trace_id']) && !empty($legs[0]['offer_id'])) {
             try {
-                $__domIso = adivaha_country_iso2(($db->get('flights_airports', 'country', ['code' => strtoupper(trim((string)($fd['departure_code'] ?? $fd['departure_airport'] ?? '')))]) ?: ''), $db);
-            } catch (\Throwable $e) {}
-            foreach ($pax as $i => $pxEntry) {
-                if (empty($pxEntry['passport_no'])) {
-                    // Deterministic, format-valid placeholder (letters+digits), unique
-                    // per invoice+pax so two pax never collide. Clearly marked.
-                    $pax[$i]['passport_no'] = 'DOM' . strtoupper(substr(hash('sha256', $invoice_id . '|' . $i), 0, 7));
-                    if (empty($pax[$i]['passport_exp'])) {
-                        $pax[$i]['passport_exp'] = date('Y-m-d', strtotime('+10 years'));
+                // Currency for the quote (same derivation as $displayCurrency below,
+                // which is defined later in the file — compute it locally here).
+                $__cqCur = strtoupper((string) (
+                    ($booking['currency_markup'] ?? '') !== '' ? $booking['currency_markup']
+                    : (!empty($booking_data['currency']) ? $booking_data['currency']
+                    : (!empty($booking_data['base_currency']) ? $booking_data['base_currency'] : 'INR'))
+                ));
+                $__cqBody = ['trace_id' => $legs[0]['trace_id'], 'offer_id' => $legs[0]['offer_id']];
+                $__cqUrl  = $base . '/flights/fare-quote?display_currency=' . urlencode($__cqCur);
+                // 20s cap: this runs INSIDE the paid-issue flow (customer already
+                // charged), so a slow supplier must not stall ticketing. On timeout
+                // $__cqRes['data'] is empty → compliance null → the fail-safe fallback
+                // below treats passport+PAN as required, so we never under-send.
+                $__cqRes  = adivahaApiRequest('POST', $__cqUrl, $__cqBody, $bearer, [], 20);
+                adivahaLog('issue/compliance-quote', $__cqBody, $__cqRes['raw'], $__cqRes['http_code'], $__cqRes['curl_error'], $invoice_id);
+                $__cqOffer = is_array($__cqRes['data'] ?? null) ? ($__cqRes['data']['offer'] ?? []) : [];
+                $__cqComp  = is_array($__cqOffer['compliance'] ?? null) ? $__cqOffer['compliance'] : [];
+                if (!empty($__cqComp)) {
+                    $__compliance['pan_required']                  = !empty($__cqComp['pan_required']);
+                    $__compliance['passport_required']             = !empty($__cqComp['passport_required']);
+                    $__compliance['passport_full_detail_required'] = !empty($__cqComp['passport_full_detail_required']);
+                }
+            } catch (\Throwable $e) { error_log('adivaha issue compliance-fetch: ' . $e->getMessage()); }
+        }
+
+        // --- FALLBACK when compliance is unavailable (quote failed / absent): fail
+        //     SAFE by treating passport+PAN as required, so we never regress to the
+        //     old broken "send nothing" state that got the ticket rejected. (An
+        //     unnecessary placeholder on a fare that didn't need it is harmless;
+        //     a MISSING required doc is a hard reject.) ---
+        $__needPassport = ($__compliance['passport_required'] === null) ? true : (bool) $__compliance['passport_required'];
+        $__needPassportFull = ($__compliance['passport_full_detail_required'] === null) ? $__needPassport : (bool) $__compliance['passport_full_detail_required'];
+        $__needPan      = ($__compliance['pan_required'] === null) ? true : (bool) $__compliance['pan_required'];
+
+        // Default nationality/issuing country ISO — the booking country, else NG.
+        $__defIso = adivaha_country_iso2($booking['country'] ?? '', $db);
+        if ($__defIso === '') { $__defIso = 'NG'; }
+
+        // Valid-format PAN generator: ^[A-Z]{5}[0-9]{4}[A-Z]$ with the 4th char a
+        // real PAN holder-type ('P' = individual) and the 5th = surname initial.
+        $__makePan = function (string $surname, string $seed): string {
+            $h = strtoupper(hash('sha256', $seed));
+            $letters = preg_replace('/[^A-Z]/', '', $h);
+            $digits  = preg_replace('/[^0-9]/', '', $h);
+            $first3  = str_pad(substr($letters, 0, 3), 3, 'A');
+            $fourth  = 'P'; // holder type: individual
+            $fifth   = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $surname) ?: 'A', 0, 1));
+            if ($fifth === '') { $fifth = 'A'; }
+            $num4    = str_pad(substr($digits, 0, 4), 4, '0', STR_PAD_LEFT);
+            $last    = substr($letters, 3, 1) ?: 'A';
+            return $first3 . $fourth . $fifth . $num4 . $last;
+        };
+
+        foreach ($pax as $i => $pxEntry) {
+            $__paxType = strtolower((string) ($pxEntry['type'] ?? 'adult'));
+
+            // PASSPORT — real value if present, else a complete valid placeholder.
+            if ($__needPassport) {
+                if (empty($pax[$i]['passport_no'])) {
+                    // Match the Nigerian passport format = 1 letter + 8 digits (e.g.
+                    // A12345678), 9 chars — some airlines validate passport length.
+                    // Deterministic + unique per invoice+pax so two pax never collide.
+                    $__ppDigits = preg_replace('/[^0-9]/', '', hash('sha256', $invoice_id . '|pp|' . $i));
+                    $__ppDigits = str_pad(substr($__ppDigits, 0, 8), 8, '0', STR_PAD_LEFT);
+                    $pax[$i]['passport_no'] = 'A' . $__ppDigits;
+                }
+                if (empty($pax[$i]['passport_exp'])) {
+                    $pax[$i]['passport_exp'] = date('Y-m-d', strtotime('+10 years'));
+                }
+                if (empty($pax[$i]['nationality'])) {
+                    $pax[$i]['nationality'] = $__defIso;
+                }
+                if ($__needPassportFull) {
+                    // "Full detail" — also send issuing country + issue date.
+                    if (empty($pax[$i]['passport_issuing_country'])) {
+                        $pax[$i]['passport_issuing_country'] = $pax[$i]['nationality'] ?? $__defIso;
                     }
-                    if (empty($pax[$i]['nationality']) && $__domIso !== '') {
-                        $pax[$i]['nationality'] = $__domIso;
+                    if (empty($pax[$i]['passport_issue_date'])) {
+                        $pax[$i]['passport_issue_date'] = date('Y-m-d', strtotime('-2 years'));
                     }
                 }
-                // Adivaha also demanded "PAN card number is required for this fare"
-                // on this domestic NG fare. PAN is an Indian tax doc that NG domestic
-                // travellers don't have; send a FORMAT-VALID placeholder (5 letters,
-                // 4 digits, 1 letter — spec ABCDE1234F) so the presence check passes.
-                // Domestic-only; never sent on international trips.
-                if (empty($pxEntry['pan'])) {
-                    $__h = strtoupper(hash('sha256', $invoice_id . '|pan|' . $i));
-                    $__letters = preg_replace('/[^A-Z]/', '', $__h);
-                    $__digits  = preg_replace('/[^0-9]/', '', $__h);
-                    $__letters = str_pad(substr($__letters, 0, 5), 5, 'A');
-                    $__digits  = str_pad(substr($__digits, 0, 4), 4, '0', STR_PAD_LEFT);
-                    $pax[$i]['pan'] = $__letters . $__digits . substr($__letters, 0, 1);
+            }
+
+            // PAN — ADULTS ONLY (spec: children/infants ride the lead adult's PAN,
+            // send none). Real value if present, else a structurally-valid placeholder.
+            if ($__needPan && $__paxType === 'adult') {
+                if (empty($pax[$i]['pan'])) {
+                    $pax[$i]['pan'] = $__makePan((string) ($pax[$i]['last_name'] ?? ''), $invoice_id . '|pan|' . $i);
                 }
             }
         }

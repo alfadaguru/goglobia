@@ -137,6 +137,21 @@ $router->post('flights/adivaha/revalidate', function () use ($db) {
             if ($parts) $baggageDisplay = implode(', ', $parts);
         }
 
+        // COMPLIANCE (2026-11-11): Adivaha tells us PER-FARE what traveller docs the
+        // airline requires — pan_required / passport_required / passport_full_detail_required
+        // / gst_mandatory / gst_allowed. This is the AUTHORITATIVE signal the issue step
+        // uses to decide what to send (real value when the traveller gave one, else a
+        // valid placeholder) instead of guessing "domestic" from airport codes. Carry it
+        // through so the booking stores it. Adivaha-only.
+        $compliance = is_array($offer['compliance'] ?? null) ? $offer['compliance'] : [];
+        $complianceOut = [
+            'pan_required'                  => !empty($compliance['pan_required']),
+            'passport_required'             => !empty($compliance['passport_required']),
+            'passport_full_detail_required' => !empty($compliance['passport_full_detail_required']),
+            'gst_mandatory'                 => !empty($compliance['gst_mandatory']),
+            'gst_allowed'                   => !empty($compliance['gst_allowed']),
+        ];
+
         echo json_encode([
             'status'  => true,
             'message' => $priceChanged
@@ -156,6 +171,7 @@ $router->post('flights/adivaha/revalidate', function () use ($db) {
                 'actual_price'      => round((float) $converted['price'], 2),
                 'currency'          => $currency,
                 'baggage'           => $baggageDisplay,
+                'compliance'        => $complianceOut,
             ],
         ]);
 
