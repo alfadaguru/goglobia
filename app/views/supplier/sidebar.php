@@ -48,10 +48,20 @@ if (preg_match('#/supplier/stays/(?:edit/|site/)?(\d+)#', $cur, $m)) {
 } elseif (!empty($_GET['stay_id'])) {
     $activeStay = (int) $_GET['stay_id'];
 }
-// Verify ownership — never render a property context the user can't access.
+// Verify ACCESS — never render a property context the user can't access, but don't
+// require 'hotels:view' specifically. A front-desk staffer legitimately has
+// reservations/rooms access without property-editing rights; gating the WHOLE property
+// sidebar on hotels:view hid Front desk / Room rack / Housekeeping etc. from them and
+// left them stuck on the global sidebar even while standing on a property page (report
+// V2 #2). Enter property mode if the user may view ANY property-scoped area; each sidebar
+// item is still individually permission-gated below, so this only decides which MENU shows.
 $stayName = '';
 if ($activeStay > 0) {
-    if (!$can('hotels', 'view', $activeStay)) { $activeStay = 0; }
+    $canSeeProperty = $can('hotels', 'view', $activeStay)
+        || $can('reservations', 'view', $activeStay)
+        || $can('rooms', 'view', $activeStay)
+        || $can('rates', 'view', $activeStay);
+    if (!$canSeeProperty) { $activeStay = 0; }
     else {
         try { $s = $db->get('stays', ['name'], ['id' => $activeStay]); $stayName = (string) ($s['name'] ?? ''); }
         catch (\Throwable $e) { $activeStay = 0; }
