@@ -24,6 +24,79 @@
 
 require_once __DIR__ . '/aiHttp.php';
 
+if (!function_exists('gia_voice_config_chain')) {
+    /**
+     * Ordered provider config chain for voice (primary + backups), same source as
+     * GIA chat. Falls back to the single active config if the chain helper is
+     * unavailable (back-compat). Returns [] when no provider is configured.
+     */
+    function gia_voice_config_chain($db): array
+    {
+        if (function_exists('passportAiProviderConfigChain')) {
+            $chain = \passportAiProviderConfigChain($db);
+            if (is_array($chain) && $chain !== []) {
+                return $chain;
+            }
+        }
+        $single = function_exists('passportAiActiveProviderConfig')
+            ? \passportAiActiveProviderConfig($db) : null;
+        return is_array($single) ? [$single] : [];
+    }
+}
+
+if (!function_exists('gia_voice_should_failover')) {
+    /**
+     * Decide from a voice helper's error string whether to try the next key.
+     * The per-provider voice helpers return strings like "STT http 401" /
+     * "TTS http 429" / "STT transport error: …". We parse any embedded HTTP code
+     * and defer to the shared aiProviderErrorIsFailoverable policy (auth/billing/
+     * quota/5xx/transport only — not a malformed request). Transport/missing-key
+     * errors with no code are treated as failoverable (a different key may work).
+     */
+    function gia_voice_should_failover(string $error): bool
+    {
+        $http = 0;
+        if (preg_match('/\bhttp\s*(\d{3})\b/i', $error, $m)) {
+            $http = (int) $m[1];
+        }
+        if ($http === 0) {
+            // transport error / key missing / empty transcript: a different key
+            // (esp. a different provider) may still succeed — allow failover.
+            return true;
+        }
+        return function_exists('aiProviderErrorIsFailoverable')
+            ? \aiProviderErrorIsFailoverable($http, $error)
+            : in_array($http, [401, 402, 403, 408, 429], true) || $http >= 500;
+    }
+}
+
+if (!function_exists('gia_voice_chain_has_next_stt')) {
+    /** Is there a later chain entry that has a server STT path (openai|gemini)? */
+    function gia_voice_chain_has_next_stt(array $chain, int $afterIndex): bool
+    {
+        for ($i = $afterIndex + 1; $i < count($chain); $i++) {
+            $k = strtolower(trim((string) ($chain[$i]['key'] ?? '')));
+            if ($k === 'openai' || $k === 'gemini') {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('gia_voice_chain_has_next_tts')) {
+    /** Is there a later chain entry that has a server TTS path (openai only)? */
+    function gia_voice_chain_has_next_tts(array $chain, int $afterIndex): bool
+    {
+        for ($i = $afterIndex + 1; $i < count($chain); $i++) {
+            if (strtolower(trim((string) ($chain[$i]['key'] ?? ''))) === 'openai') {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 if (!function_exists('gia_voice_enabled')) {
     /**
      * Is the GIA voice feature switched on in admin settings?
@@ -141,23 +214,42 @@ if (!function_exists('gia_voice_transcribe')) {
             return $fail('No audio received.', false);
         }
 
-        $cfg = passportAiActiveProviderConfig($db);
-        if (!is_array($cfg)) {
+        // Walk the key chain (primary + backups). STT has a server path for openai
+        // (Whisper) and gemini only; a claude entry is skipped. On a key-fixable
+        // error we advance to the next key; otherwise fail SOFT to the browser.
+        $chain = gia_voice_config_chain($db);
+        if ($chain === []) {
             return $fail('No provider — use browser.');
         }
-        $key     = strtolower(trim((string) ($cfg['key'] ?? '')));
-        $apiKey  = trim((string) ($cfg['api_key'] ?? ''));
-        $timeout = (int) ($cfg['timeout'] ?? 30);
+        $hadServerPath = false;
+        $lastErr = '';
+        foreach ($chain as $ci => $cfg) {
+            $key     = strtolower(trim((string) ($cfg['key'] ?? '')));
+            $apiKey  = trim((string) ($cfg['api_key'] ?? ''));
+            $timeout = (int) ($cfg['timeout'] ?? 30);
 
-        if ($key === 'openai') {
-            return gia_voice_transcribe_openai($audioBytes, $mime, $apiKey, $timeout);
-        }
-        if ($key === 'gemini') {
-            return gia_voice_transcribe_gemini($audioBytes, $mime, $apiKey, trim((string) ($cfg['model'] ?? '')), trim((string) ($cfg['endpoint'] ?? '')), $timeout);
+            if ($key === 'openai') {
+                $res = gia_voice_transcribe_openai($audioBytes, $mime, $apiKey, $timeout);
+            } elseif ($key === 'gemini') {
+                $res = gia_voice_transcribe_gemini($audioBytes, $mime, $apiKey, trim((string) ($cfg['model'] ?? '')), trim((string) ($cfg['endpoint'] ?? '')), $timeout);
+            } else {
+                continue; // claude/unknown: no server STT for this entry — try next key
+            }
+            $hadServerPath = true;
+            if (!empty($res['ok'])) {
+                return $res;
+            }
+            $lastErr = (string) ($res['error'] ?? '');
+            if (gia_voice_should_failover($lastErr) && gia_voice_chain_has_next_stt($chain, $ci)) {
+                error_log('[gia] voice STT key ' . (string) ($cfg['fallback_label'] ?? ('rank' . $ci))
+                    . ' failed (' . substr($lastErr, 0, 100) . ') — trying next backup key');
+                continue;
+            }
+            return $res; // not failoverable, or no further STT-capable key
         }
 
-        // Claude / unknown: no server STT -> browser.
-        return $fail('Provider has no server STT — use browser.');
+        // No chain entry had a server STT path (e.g. all claude) -> browser.
+        return $fail($hadServerPath ? ('STT failed: ' . $lastErr) : 'Provider has no server STT — use browser.');
     }
 }
 
@@ -313,20 +405,38 @@ if (!function_exists('gia_voice_speak')) {
         }
         $speed = $prefs['speed'];
 
-        $cfg = passportAiActiveProviderConfig($db);
-        if (!is_array($cfg)) {
+        // Walk the key chain (primary + backups). TTS has a server path for openai
+        // only; non-openai entries are skipped. Fail over on a key-fixable error.
+        $chain = gia_voice_config_chain($db);
+        if ($chain === []) {
             return $fail('No provider — use browser.');
         }
-        $key     = strtolower(trim((string) ($cfg['key'] ?? '')));
-        $apiKey  = trim((string) ($cfg['api_key'] ?? ''));
-        $timeout = (int) ($cfg['timeout'] ?? 30);
+        $hadServerPath = false;
+        $lastErr = '';
+        foreach ($chain as $ci => $cfg) {
+            $key     = strtolower(trim((string) ($cfg['key'] ?? '')));
+            $apiKey  = trim((string) ($cfg['api_key'] ?? ''));
+            $timeout = (int) ($cfg['timeout'] ?? 30);
 
-        if ($key === 'openai') {
-            return gia_voice_speak_openai($text, $voice, $apiKey, $timeout, $speed);
+            if ($key !== 'openai') {
+                continue; // only openai has a server TTS path — try next key
+            }
+            $hadServerPath = true;
+            $res = gia_voice_speak_openai($text, $voice, $apiKey, $timeout, $speed);
+            if (!empty($res['ok'])) {
+                return $res;
+            }
+            $lastErr = (string) ($res['error'] ?? '');
+            if (gia_voice_should_failover($lastErr) && gia_voice_chain_has_next_tts($chain, $ci)) {
+                error_log('[gia] voice TTS key ' . (string) ($cfg['fallback_label'] ?? ('rank' . $ci))
+                    . ' failed (' . substr($lastErr, 0, 100) . ') — trying next backup key');
+                continue;
+            }
+            return $res;
         }
 
-        // Gemini TTS is not GA; Claude has no voice -> browser.
-        return $fail('Provider has no server TTS — use browser.');
+        // No chain entry had a server TTS path -> browser.
+        return $fail($hadServerPath ? ('TTS failed: ' . $lastErr) : 'Provider has no server TTS — use browser.');
     }
 }
 

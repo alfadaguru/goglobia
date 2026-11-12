@@ -15309,6 +15309,13 @@ function passportAiSettings($db): array
         'max_file_size' => $config['max_file_size'],
         'allowed_file_types' => $config['allowed_file_types'],
         'ai_fallbacks' => $config['ai_fallbacks'] ?? [],
+        // Voice settings — surfaced so gia_voice_enabled()/gia_voice_prefs() can read
+        // them here (previously omitted, which left server STT/TTS unreachable — it
+        // always fell through to the browser voice regardless of this toggle).
+        'voice_enabled' => !empty($config['voice_enabled']),
+        'voice_tts_voice' => (string) ($config['voice_tts_voice'] ?? 'nova'),
+        'voice_speed' => (float) ($config['voice_speed'] ?? 1.0),
+        'voice_autospeak' => !empty($config['voice_autospeak']),
     ];
 }
 

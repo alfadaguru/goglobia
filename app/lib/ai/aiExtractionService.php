@@ -20,10 +20,18 @@ class aiExtractionService
             return $this->failAndLog('AI_DISABLED', 'Passport scanning is currently disabled.');
         }
 
-        $config = passportAiActiveProviderConfig($this->db);
-        if ($config === null) {
+        // Ordered key chain (primary + backups). On a key-fixable failure we advance
+        // to the next entry (see extractWithChain). A single-key install → 1 entry.
+        $chain = function_exists('passportAiProviderConfigChain')
+            ? passportAiProviderConfigChain($this->db) : [];
+        if ($chain === []) {
+            $single = passportAiActiveProviderConfig($this->db);
+            if (is_array($single)) { $chain = [$single]; }
+        }
+        if ($chain === []) {
             return $this->failAndLog('AI_NOT_CONFIGURED', 'Passport AI is not configured. Add a valid API key under Admin → Settings → AI.');
         }
+        $config = $chain[0]; // primary — used for validation (size/type limits are shared)
 
         if (!$this->isValidPassengerKey($passengerKey)) {
             return $this->fail('AI_INVALID_PASSENGER', 'Invalid passenger reference.');
@@ -56,30 +64,51 @@ class aiExtractionService
                 return $this->fail('AI_CORRUPT_IMAGE', 'The uploaded file could not be read. Please try another image.');
             }
 
-            $this->logEvent('request_initiated', [
-                'provider' => $config['key'],
-                'passenger' => $passengerKey,
-                'booking' => substr($bookingHash, 0, 6) . '…',
-            ]);
-
-            $provider = $this->makeProvider($config['key']);
-            if ($provider === null) {
-                return $this->failAndLog('AI_PROVIDER_UNSUPPORTED', 'The selected AI provider is not available yet.', $config, $passengerKey);
-            }
-
-            $result = $provider->extract($binary, $mimeType, $config);
-            unset($result['usage']);
-
-            if (!empty($result['status'])) {
-                $this->logEvent('processing_completed', [
-                    'provider' => $config['key'],
+            // Walk the key chain: try the primary, fail over to each backup on a
+            // key-fixable error (bad key / quota / provider down). A content failure
+            // (bad image, low confidence) or a same-provider model error is NOT
+            // retried — a different key wouldn't change it.
+            $result = null;
+            for ($ci = 0; $ci < count($chain); $ci++) {
+                $cfg = $chain[$ci];
+                $this->logEvent('request_initiated', [
+                    'provider' => $cfg['key'],
                     'passenger' => $passengerKey,
+                    'booking' => substr($bookingHash, 0, 6) . '…',
                 ]);
-            } else {
+
+                $provider = $this->makeProvider($cfg['key']);
+                if ($provider === null) {
+                    // Unsupported provider for this entry — treat like a failoverable
+                    // error so a later usable key can still run.
+                    $result = ['status' => false, 'error_code' => 'AI_PROVIDER_UNSUPPORTED', 'message' => 'The selected AI provider is not available yet.'];
+                } else {
+                    $result = $provider->extract($binary, $mimeType, $cfg);
+                    unset($result['usage']);
+                }
+
+                if (!empty($result['status'])) {
+                    $this->logEvent('processing_completed', [
+                        'provider' => $cfg['key'],
+                        'passenger' => $passengerKey,
+                    ]);
+                    break;
+                }
+
+                $errCode = (string) ($result['error_code'] ?? 'UNKNOWN');
                 $this->logEvent('processing_failed', [
-                    'provider' => $config['key'],
-                    'error_code' => $result['error_code'] ?? 'UNKNOWN',
+                    'provider' => $cfg['key'],
+                    'error_code' => $errCode,
                 ]);
+
+                $hasNext = ($ci + 1) < count($chain);
+                $nextProvider = $hasNext ? strtolower(trim((string) ($chain[$ci + 1]['key'] ?? ''))) : '';
+                if ($hasNext && $this->ocrErrorIsFailoverable($errCode, (string) ($cfg['key'] ?? ''), $nextProvider)) {
+                    error_log('[ai] passport OCR key ' . (string) ($cfg['fallback_label'] ?? ('rank' . $ci))
+                        . ' failed (' . $errCode . ') — trying next backup key');
+                    continue;
+                }
+                break; // success handled above; here = not failoverable or no more keys
             }
 
             // Never leak provider raw payloads / keys to browser.
@@ -105,6 +134,37 @@ class aiExtractionService
             'gemini' => new geminiProvider(),
             default => null,
         };
+    }
+
+    /**
+     * Should passport OCR fall through to the next key for this provider error_code?
+     * True for key/quota/outage/unsupported — a different key (or provider) can fix
+     * those. An invalid-MODEL error only fails over when the NEXT key is a DIFFERENT
+     * provider (same provider would hit the same bad model). Content failures (bad
+     * image, low confidence, invalid response) are NOT retried — a different key
+     * reads the same photo the same way.
+     *
+     * @param string $curProvider  provider key of the entry that just failed
+     * @param string $nextProvider provider key of the next entry (for the model case)
+     */
+    private function ocrErrorIsFailoverable(string $errorCode, string $curProvider, string $nextProvider): bool
+    {
+        $code = strtoupper(trim($errorCode));
+        $failover = [
+            'AI_INVALID_API_KEY',        // bad/expired key
+            'AI_QUOTA_EXCEEDED',         // billing / rate / quota
+            'AI_PROVIDER_UNAVAILABLE',   // transport / 5xx
+            'AI_PROVIDER_UNSUPPORTED',   // this entry's provider can't run here
+            'AI_RATE_LIMITED',
+        ];
+        if (in_array($code, $failover, true)) {
+            return true;
+        }
+        // A bad model only resolves on a DIFFERENT provider's key.
+        if ($code === 'AI_INVALID_MODEL') {
+            return $nextProvider !== '' && $nextProvider !== strtolower(trim($curProvider));
+        }
+        return false;
     }
 
     private function validateUploadedFile(array $file, array $config): array
