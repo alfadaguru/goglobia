@@ -3,7 +3,9 @@
 // POS outlet screen (inc S24). $outlet, $menu, $openOrders, $orderLines[oid][],
 // $orderTotals[oid], $checkedIn [invoice=>label], $canEdit.
 $outlet      = $outlet ?? [];
-$menu        = (isset($menu) && is_array($menu)) ? $menu : [];
+// Read $posMenu (route passes it under this name on purpose — header.php leaves a
+// stray $menu CMS-row in scope that would otherwise clobber this outlet's menu list).
+$menu        = (isset($posMenu) && is_array($posMenu)) ? $posMenu : [];
 $openOrders  = (isset($openOrders) && is_array($openOrders)) ? $openOrders : [];
 $orderLines  = (isset($orderLines) && is_array($orderLines)) ? $orderLines : [];
 $orderTotals = (isset($orderTotals) && is_array($orderTotals)) ? $orderTotals : [];

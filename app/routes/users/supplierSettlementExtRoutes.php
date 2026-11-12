@@ -70,7 +70,11 @@ $router->get('/supplier/settlement', function () use ($SECURE, $db) {
     $destination = function_exists('supplier_payout_destination') ? supplier_payout_destination($db, $owner) : [];
     $chargebacks = function_exists('supplier_chargebacks_for_owner') ? supplier_chargebacks_for_owner($db, $owner, 20) : [];
     $summary     = function_exists('supplier_earning_summary') ? supplier_earning_summary($db, $owner) : [];
-    $currencies  = array_keys($available) ?: [$currency];
+    // NOTE: pass as $settleCurrencies, NOT $currencies. includes/header.php (line 227)
+    // sets $currencies = $GLOBALS['currencies'] (currency ROW arrays) before this view
+    // renders; a plain $currencies here would be clobbered by it and the <select> would
+    // cast row-arrays to string → "Array to string conversion" warnings → HTTP 500.
+    $settleCurrencies = array_keys($available) ?: [$currency];
 
     $title = 'Settlement'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";

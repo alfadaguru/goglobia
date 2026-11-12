@@ -5,7 +5,9 @@
   $requisitions = (isset($requisitions) && is_array($requisitions)) ? $requisitions : [];
   $wastage      = (isset($wastage) && is_array($wastage)) ? $wastage : [];
   $variance     = (isset($variance) && is_array($variance)) ? $variance : ['rows' => [], 'totals' => []];
-  $menu         = (isset($menu) && is_array($menu)) ? $menu : [];
+  // Read $menuRows (route passes it under this name on purpose — see the route:
+  // header.php leaves a stray $menu CMS-row in scope that would clobber a plain $menu).
+  $menu         = (isset($menuRows) && is_array($menuRows)) ? $menuRows : [];
   $propList     = (isset($propList) && is_array($propList)) ? $propList : [];
   $ingByStay    = (isset($ingByStay) && is_array($ingByStay)) ? $ingByStay : [];
   $units        = (isset($units) && is_array($units)) ? $units : [];

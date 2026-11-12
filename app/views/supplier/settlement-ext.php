@@ -11,7 +11,10 @@ $statement   = (isset($statement) && is_array($statement)) ? $statement : [];
 $feeReport   = (isset($feeReport) && is_array($feeReport)) ? $feeReport : [];
 $destination = (isset($destination) && is_array($destination)) ? $destination : [];
 $chargebacks = (isset($chargebacks) && is_array($chargebacks)) ? $chargebacks : [];
-$currencies  = (isset($currencies) && is_array($currencies)) ? $currencies : [];
+// Read $settleCurrencies (route passes it under this name on purpose — header.php
+// leaves $currencies = $GLOBALS['currencies'] (row arrays) in scope, which would
+// otherwise clobber the list of currency-code strings this <select> expects).
+$currencies  = (isset($settleCurrencies) && is_array($settleCurrencies)) ? $settleCurrencies : [];
 $currency    = (string) ($currency ?? 'NGN');
 $from        = (string) ($from ?? date('Y-m-01'));
 $to          = (string) ($to ?? date('Y-m-d'));

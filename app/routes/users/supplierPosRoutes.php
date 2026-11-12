@@ -76,7 +76,10 @@ $router->get('/supplier/pos/outlet/([0-9]+)', function ($outletId) use ($SECURE,
     if (!$outlet) { _supplier_stays_deny('That outlet is not yours.'); }
     $stayId = (int) $outlet['stay_id'];
 
-    $menu = $db->select('stays_menu_items', ['id', 'category', 'name', 'price', 'active'],
+    // Pass the outlet menu as $posMenu, NOT $menu: includes/header.php (rendered just
+    // below) leaves a stray `$menu` CMS header-row in view scope that would clobber a
+    // plain $menu, breaking the POS menu grid (undefined keys / array-to-string → 500).
+    $posMenu = $db->select('stays_menu_items', ['id', 'category', 'name', 'price', 'active'],
         ['outlet_id' => (int) $outlet['id'], 'ORDER' => ['category' => 'ASC', 'name' => 'ASC']]) ?: [];
     $openOrders = $db->select('pos_orders', ['id', 'table_label', 'status', 'created_at'],
         ['outlet_id' => (int) $outlet['id'], 'status' => 'open', 'ORDER' => ['id' => 'DESC']]) ?: [];

@@ -33,7 +33,11 @@ $router->get('/supplier/kitchen', function () use ($SECURE, $db) {
     $requisitions = function_exists('kitchen_requisition_list') ? kitchen_requisition_list($db, $stayIds, 100) : [];
     $wastage      = function_exists('kitchen_waste_list') ? kitchen_waste_list($db, $stayIds, 100) : [];
     $variance     = function_exists('kitchen_variance_report') ? kitchen_variance_report($db, $stayIds, $from, $to) : ['rows' => [], 'totals' => []];
-    $menu         = function_exists('kitchen_menu_profitability') ? kitchen_menu_profitability($db, $stayIds, $from, $to) : [];
+    // NOTE: pass the profitability list as $menuRows, NOT $menu. includes/header.php
+    // runs before this view and leaves a leftover `$menu` loop variable (the last CMS
+    // header-menu row) in scope; a plain `$menu` here would be clobbered by it and the
+    // profitability table would iterate CMS rows → undefined-key warnings → HTTP 500.
+    $menuRows     = function_exists('kitchen_menu_profitability') ? kitchen_menu_profitability($db, $stayIds, $from, $to) : [];
 
     // A single recipe's BOM is shown when ?recipe=ID is passed and owned.
     $bomRecipe = null; $bomLines = [];
