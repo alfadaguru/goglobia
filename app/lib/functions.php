@@ -14785,7 +14785,58 @@ function aiConfigurationDefaults(): array
         'max_file_size' => 5242880,
         'allowed_file_types' => ['jpg', 'jpeg', 'png', 'webp'],
         'providers' => passportAiEmptyProvidersConfig(),
+        // Ordered backup keys. When the primary provider/key fails with a
+        // key-fixable error (bad/expired key, billing/quota, provider outage),
+        // GIA walks this list top-to-bottom until one answers. Each entry can be
+        // ANY provider, so you can fail over claude -> openai -> gemini.
+        'ai_fallbacks' => [],
     ];
+}
+
+/**
+ * Max number of backup/fallback AI keys the admin UI exposes and we honour.
+ */
+if (!defined('AI_FALLBACK_MAX')) {
+    define('AI_FALLBACK_MAX', 3);
+}
+
+/**
+ * Normalize the ordered backup-key list from a raw ai_configuration payload.
+ * Each surviving entry is ['provider'=>claude|openai|gemini, 'api_key'=>…, 'model'=>…].
+ * Entries with an unknown provider or an empty key are dropped (so a blank backup
+ * row in the admin form never becomes a dead link in the chain). Capped at
+ * AI_FALLBACK_MAX.
+ */
+function aiFallbacksNormalize($raw): array
+{
+    if (is_string($raw) && trim($raw) !== '') {
+        $decoded = json_decode($raw, true);
+        $raw = is_array($decoded) ? $decoded : [];
+    }
+    if (!is_array($raw)) {
+        return [];
+    }
+    $registry = passportAiProvidersRegistry();
+    $out = [];
+    foreach ($raw as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $provider = strtolower(trim((string) ($entry['provider'] ?? $entry['key'] ?? '')));
+        $apiKey = trim((string) ($entry['api_key'] ?? ''));
+        if ($provider === '' || !isset($registry[$provider]) || $apiKey === '') {
+            continue; // unknown provider or no key → not a usable fallback
+        }
+        $out[] = [
+            'provider' => $provider,
+            'api_key' => $apiKey,
+            'model' => trim((string) ($entry['model'] ?? '')),
+        ];
+        if (count($out) >= AI_FALLBACK_MAX) {
+            break;
+        }
+    }
+    return $out;
 }
 
 /**
@@ -14987,6 +15038,8 @@ function aiConfigurationNormalize($raw): array
     $providersRaw = $data['providers'] ?? $data['providers_config'] ?? $data['ai_providers_config'] ?? null;
     $providers = passportAiDecodeProvidersConfig($providersRaw);
 
+    $fallbacks = aiFallbacksNormalize($data['ai_fallbacks'] ?? $data['fallbacks'] ?? []);
+
     return [
         'passport_enabled' => $passport,
         'passport_local_enabled' => $passportLocal,
@@ -15000,6 +15053,7 @@ function aiConfigurationNormalize($raw): array
         'max_file_size' => $maxFileSize,
         'allowed_file_types' => $types,
         'providers' => $providers,
+        'ai_fallbacks' => $fallbacks,
     ];
 }
 
@@ -15254,6 +15308,7 @@ function passportAiSettings($db): array
         'timeout' => $config['timeout'],
         'max_file_size' => $config['max_file_size'],
         'allowed_file_types' => $config['allowed_file_types'],
+        'ai_fallbacks' => $config['ai_fallbacks'] ?? [],
     ];
 }
 
@@ -15482,6 +15537,113 @@ function passportAiActiveProviderConfig($db): ?array
         'max_file_size' => $settings['max_file_size'],
         'allowed_file_types' => $settings['allowed_file_types'],
     ]);
+}
+
+/**
+ * Ordered list of usable provider configs for GIA chat: the active (primary)
+ * provider first, then each configured backup key in order. Callers try them
+ * top-to-bottom and advance to the next only on a key-fixable failure (see
+ * aiProviderErrorIsFailoverable). Each entry is a full provider config (same
+ * shape passportAiActiveProviderConfig returns) tagged with 'fallback_rank'
+ * (0 = primary) and 'fallback_label' for operator logging.
+ *
+ * Returns [] when GIA isn't enabled or the primary has no key (same gate as
+ * passportAiActiveProviderConfig), so existing "not configured" handling is
+ * unchanged.
+ */
+function passportAiProviderConfigChain($db): array
+{
+    $primary = passportAiActiveProviderConfig($db);
+    if ($primary === null) {
+        return [];
+    }
+
+    $settings = passportAiSettings($db);
+    $chain = [array_merge($primary, [
+        'fallback_rank' => 0,
+        'fallback_label' => 'primary:' . (string) ($primary['key'] ?? $settings['provider']),
+    ])];
+
+    $fallbacks = is_array($settings['ai_fallbacks'] ?? null) ? $settings['ai_fallbacks'] : [];
+    $providersConfig = $settings['providers_config'];
+    $seen = [];
+    $rank = 1;
+    foreach ($fallbacks as $fb) {
+        $provider = strtolower(trim((string) ($fb['provider'] ?? '')));
+        $apiKey = trim((string) ($fb['api_key'] ?? ''));
+        if ($provider === '' || $apiKey === '') {
+            continue;
+        }
+        // De-dupe: skip a backup that is byte-identical to one already in the chain
+        // (same provider + key) — it would only burn another failed attempt.
+        $dedupe = $provider . '|' . $apiKey;
+        if (isset($seen[$dedupe])) {
+            continue;
+        }
+
+        // Build a resolved config for this backup using its OWN key/model, falling
+        // back to the provider's saved endpoint/secret and registry defaults.
+        $override = $providersConfig[$provider] ?? [];
+        $override['api_key'] = $apiKey;
+        if (trim((string) ($fb['model'] ?? '')) !== '') {
+            $override['model'] = trim((string) $fb['model']);
+        }
+        $resolved = passportAiResolveProviderConfig($provider, [$provider => $override]);
+        if ($resolved === null || trim((string) ($resolved['api_key'] ?? '')) === '') {
+            continue;
+        }
+        if ($resolved['needs_secret'] && trim((string) ($resolved['api_secret'] ?? '')) === '') {
+            continue; // can't use a backup that structurally needs a secret it lacks
+        }
+
+        $seen[$dedupe] = true;
+        $chain[] = array_merge($resolved, [
+            'timeout' => $settings['timeout'],
+            'max_file_size' => $settings['max_file_size'],
+            'allowed_file_types' => $settings['allowed_file_types'],
+            'fallback_rank' => $rank,
+            'fallback_label' => 'backup' . $rank . ':' . $provider,
+        ]);
+        $rank++;
+    }
+
+    return $chain;
+}
+
+/**
+ * Should GIA fall through to the NEXT key for this provider error? True only for
+ * failures a different key/provider could actually fix: bad/expired key (401),
+ * billing/credit/quota exhaustion (402/429, and the Anthropic 400 "credit balance
+ * too low" special case), and provider-side outages (5xx / network). A plain
+ * invalid_request (400, our side) is NOT failoverable — it fails the same on every
+ * key, so we stop and surface it instead of burning the whole chain.
+ *
+ * @param int    $http  HTTP status from the provider (0 = transport/network error)
+ * @param string $error raw error text from the provider (for the 400-billing probe)
+ */
+function aiProviderErrorIsFailoverable(int $http, string $error = ''): bool
+{
+    if ($http === 0) {
+        return true; // transport/DNS/timeout → a different endpoint may succeed
+    }
+    if (in_array($http, [401, 402, 403, 408, 429], true)) {
+        return true; // auth / payment-required / quota / timeout
+    }
+    if ($http >= 500) {
+        return true; // provider outage
+    }
+    if ($http === 400) {
+        // Anthropic returns 400 (not 402) for "Your credit balance is too low".
+        // OpenAI/others phrase quota/billing in the body too. Only THOSE 400s fail
+        // over; a genuine malformed-request 400 does not.
+        $e = strtolower($error);
+        foreach (['credit balance', 'billing', 'quota', 'insufficient', 'rate limit', 'payment'] as $needle) {
+            if (strpos($e, $needle) !== false) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /**

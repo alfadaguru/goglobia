@@ -128,14 +128,28 @@ class giaAgent
      */
     public function run(string $userMessage, array $history = []): array
     {
-        $config = function_exists('passportAiActiveProviderConfig')
-            ? \passportAiActiveProviderConfig($this->db)
-            : null;
-        if (!is_array($config) || trim((string) ($config['api_key'] ?? '')) === '') {
+        // Resolve the ordered key chain: primary first, then each backup key. GIA
+        // tries them in order and advances to the next ONLY on a key-fixable error
+        // (bad key / billing / quota / provider outage). A single-key install just
+        // gets a one-element chain, so behaviour is unchanged without backups.
+        $chain = function_exists('passportAiProviderConfigChain')
+            ? \passportAiProviderConfigChain($this->db)
+            : [];
+        if (empty($chain)) {
+            // Back-compat: fall back to the single-config resolver if the chain
+            // helper is unavailable for any reason.
+            $single = function_exists('passportAiActiveProviderConfig')
+                ? \passportAiActiveProviderConfig($this->db) : null;
+            if (is_array($single) && trim((string) ($single['api_key'] ?? '')) !== '') {
+                $chain = [$single];
+            }
+        }
+        if (empty($chain) || trim((string) ($chain[0]['api_key'] ?? '')) === '') {
             // Log the real reason for operators; the traveler just hears GIA is resting.
             error_log('[gia] not configured: no active AI provider/key resolved');
             return $this->fail("I'm just getting set up and can't chat just yet. Please check back soon!", 'AI_NOT_CONFIGURED');
         }
+        $config = $chain[0];
 
         $messages = $history;
         $messages[] = ['role' => 'user', 'text' => $userMessage];
@@ -152,11 +166,36 @@ class giaAgent
                 return $this->partial($messages, $toolRuns, $usage, 'GIA timed out while working on this. Please try again.', 'AI_TIMEOUT', $provider, $model);
             }
 
-            $resp = $this->provider->chat($messages, $tools, $config, $this->systemPrompt);
-            $provider = (string) ($resp['provider'] ?? $provider);
-            $model = (string) ($resp['model'] ?? $model);
-            $usage['input_tokens']  += (int) ($resp['usage']['input_tokens'] ?? 0);
-            $usage['output_tokens'] += (int) ($resp['usage']['output_tokens'] ?? 0);
+            // Call the provider, failing over through the key chain on key-fixable
+            // errors (bad key / billing / quota / outage). Each call is stateless, so
+            // retrying the SAME messages with the next key is safe mid-conversation.
+            $resp = null;
+            for ($ci = 0; $ci < count($chain); $ci++) {
+                $cfg = $chain[$ci];
+                $resp = $this->provider->chat($messages, $tools, $cfg, $this->systemPrompt);
+                $provider = (string) ($resp['provider'] ?? $provider);
+                $model = (string) ($resp['model'] ?? $model);
+                $usage['input_tokens']  += (int) ($resp['usage']['input_tokens'] ?? 0);
+                $usage['output_tokens'] += (int) ($resp['usage']['output_tokens'] ?? 0);
+
+                if ($resp['ok'] ?? false) {
+                    $config = $cfg; // stick with this key for the rest of the turn
+                    break;
+                }
+
+                $http = (int) ($resp['http'] ?? 0);
+                $err  = (string) ($resp['error'] ?? '');
+                $hasNext = ($ci + 1) < count($chain);
+                $failoverable = !function_exists('aiProviderErrorIsFailoverable')
+                    || \aiProviderErrorIsFailoverable($http, $err);
+                if ($hasNext && $failoverable) {
+                    error_log('[gia] key ' . (string) ($cfg['fallback_label'] ?? ('rank' . $ci))
+                        . ' failed (http=' . $http . ' ' . substr($err, 0, 120) . ') — trying next backup key');
+                    continue; // try the next key in the chain
+                }
+                // No more keys, or this error is not key-fixable → surface it.
+                break;
+            }
 
             if (!($resp['ok'] ?? false)) {
                 // Raw provider detail (http + error) is logged AND carried as `debug`

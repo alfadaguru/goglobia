@@ -99,6 +99,12 @@ $aiModelsList = [
         'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku',
     ],
 ];
+
+// Ordered BACKUP keys: primary fails -> GIA tries these in order. Prefill the saved
+// rows. Like the primary field, each key renders into a type=password input (hidden
+// on screen); leaving it re-posts the stored key, so no masked round-trip is needed.
+$aiFallbackMax = defined('AI_FALLBACK_MAX') ? AI_FALLBACK_MAX : 3;
+$aiFallbacksSaved = is_array($ai['ai_fallbacks'] ?? null) ? $ai['ai_fallbacks'] : [];
 ?>
 <div x-data="aiSettingsTab({
     provider: '<?= htmlspecialchars($aiActiveProvider, ENT_QUOTES) ?>',
@@ -413,6 +419,58 @@ $aiModelsList = [
                     <?php endif; ?>
                 </div>
             <?php endforeach; ?>
+        </div>
+    </div>
+
+    <!-- Backup keys — ordered fallback chain. If the primary provider/key fails
+         (bad/expired key, billing/quota exhausted, or the provider is down), GIA
+         automatically tries these in order until one answers. Each row can be ANY
+         provider, so you can fail over e.g. Claude -> OpenAI -> Gemini. -->
+    <div class="mt-6">
+        <div class="section">
+            <div class="flex items-start gap-2 min-w-0 mb-4">
+                <div class="w-6 h-6 bg-amber-50 rounded flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="material-symbols-outlined text-amber-600 text-sm">backup</span>
+                </div>
+                <div class="min-w-0">
+                    <h3 class="text-base font-medium text-gray-900">Backup keys (automatic failover)</h3>
+                    <p class="text-xs text-gray-500">Tried top-to-bottom only when the primary key fails (bad key, billing/quota, or outage). Leave blank to skip. A backup can use a different provider.</p>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <?php for ($fbI = 0; $fbI < $aiFallbackMax; $fbI++):
+                    $fbRow = $aiFallbacksSaved[$fbI] ?? ['provider' => '', 'api_key' => '', 'model' => ''];
+                    $fbProvider = (string) ($fbRow['provider'] ?? '');
+                    $fbKey = (string) ($fbRow['api_key'] ?? '');
+                    $fbModel = (string) ($fbRow['model'] ?? '');
+                    ?>
+                    <div class="flex flex-col lg:flex-row lg:items-end gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50/50">
+                        <div class="form-control w-full lg:w-40 shrink-0">
+                            <label class="text-xs text-gray-500">Backup <?= $fbI + 1 ?> provider</label>
+                            <select name="ai_fallbacks[<?= $fbI ?>][provider]" class="select">
+                                <option value="">— none —</option>
+                                <?php foreach ($registry as $pk => $pm): ?>
+                                    <option value="<?= $pk ?>" <?= $fbProvider === $pk ? 'selected' : '' ?>><?= htmlspecialchars($pm['label']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-control flex-1 min-w-0">
+                            <label class="text-xs text-gray-500">API key</label>
+                            <input type="password" name="ai_fallbacks[<?= $fbI ?>][api_key]" class="input"
+                                autocomplete="new-password" placeholder="Enter backup API key"
+                                value="<?= htmlspecialchars($fbKey) ?>">
+                        </div>
+                        <div class="form-control w-full lg:w-48 shrink-0">
+                            <label class="text-xs text-gray-500">Model <span class="text-gray-400">(optional)</span></label>
+                            <input type="text" name="ai_fallbacks[<?= $fbI ?>][model]" class="input"
+                                value="<?= htmlspecialchars($fbModel) ?>"
+                                placeholder="provider default">
+                        </div>
+                    </div>
+                <?php endfor; ?>
+            </div>
+            <p class="text-xs text-gray-400 mt-3">Note: a plain malformed-request error is <strong>not</strong> retried on other keys (it would fail the same way on all of them). Only key/billing/quota/outage errors trigger failover.</p>
         </div>
     </div>
 

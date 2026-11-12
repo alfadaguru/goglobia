@@ -510,6 +510,35 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             $passportLocalOn = false;
         }
 
+        // Ordered BACKUP keys (ai_fallbacks[]): primary fails → GIA walks these.
+        // Each posted row is {provider, api_key, model}. A masked (unchanged) key
+        // is restored from the existing stored row at the same rank; blank rows are
+        // dropped by aiFallbacksNormalize so an empty UI row never joins the chain.
+        $existingFallbacks = is_array($aiExisting['ai_fallbacks'] ?? null) ? $aiExisting['ai_fallbacks'] : [];
+        $postedFallbacks = $_POST['ai_fallbacks'] ?? [];
+        if (!is_array($postedFallbacks)) {
+            $postedFallbacks = [];
+        }
+        $fallbacksIn = [];
+        $fbMax = defined('AI_FALLBACK_MAX') ? AI_FALLBACK_MAX : 3;
+        $fbIndex = 0;
+        foreach ($postedFallbacks as $row) {
+            if (!is_array($row)) { continue; }
+            if ($fbIndex >= $fbMax) { break; }
+            $fbProvider = strtolower(trim((string) ($row['provider'] ?? '')));
+            $fbKey = trim((string) ($row['api_key'] ?? ''));
+            // Preserve a stored key the admin left masked/untouched.
+            if (function_exists('passportAiIsMaskedSecret') && passportAiIsMaskedSecret($fbKey)) {
+                $fbKey = trim((string) ($existingFallbacks[$fbIndex]['api_key'] ?? ''));
+            }
+            $fallbacksIn[] = [
+                'provider' => $fbProvider,
+                'api_key' => $fbKey,
+                'model' => trim((string) ($row['model'] ?? '')),
+            ];
+            $fbIndex++;
+        }
+
         // Single JSON column for all AI settings (legacy flat AI columns are obsolete)
         $settingsData['ai_configuration'] = aiConfigurationEncode([
             'passport_enabled' => $passportOn,
@@ -524,6 +553,7 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'max_file_size' => $maxFileSize !== null ? $maxFileSize : 5242880,
             'allowed_file_types' => $allowedTypes !== '' ? $allowedTypes : 'jpg,jpeg,png,webp',
             'providers' => $providersConfig,
+            'ai_fallbacks' => $fallbacksIn,
         ]);
 
         $uploadErrors = [];
