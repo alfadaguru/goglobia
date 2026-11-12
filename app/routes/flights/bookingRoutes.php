@@ -1373,6 +1373,41 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
             }
         }
 
+        // PRE-PAYMENT PASSENGER VALIDATION (Adivaha, A-03) — Adivaha's airlines ALWAYS
+        // require a valid DOB per passenger; a missing DOB only fails at the
+        // post-payment /book 422 → auto-refund (pay, then refunded). Validate DOB here
+        // BEFORE charging. Passport/PAN are route-dependent and filled accurately at
+        // issue from the live `compliance` flag, so they do NOT block checkout.
+        //
+        // The validation is inline (not a require of the adivaha module) because both
+        // adivaha module files register routes / `global $router` at top level and are
+        // unsafe to lazy-load from this main-app route. The same logic lives in
+        // adivaha_validate_pax_dob() (issue.php) for the issue path; keep them in sync.
+        if (strtolower((string) $supplierName) === 'adivaha') {
+            $__adN = 0;
+            foreach ((array) $passengers as $__pxKey => $__px) {
+                if (!is_array($__px) || !preg_match('/^(adult|child|infant)_\d+$/', (string) $__pxKey)) { continue; }
+                $__adN++;
+                $__who = trim((string) ($__px['first_name'] ?? '') . ' ' . (string) ($__px['last_name'] ?? '')) ?: ('Passenger ' . $__adN);
+                if (trim((string) ($__px['first_name'] ?? '')) === '' || trim((string) ($__px['last_name'] ?? '')) === '') {
+                    throw new Exception($__who . ': first and last name are required.');
+                }
+                $__dob = '';
+                $__isoDob = trim((string) ($__px['dob'] ?? $__px['date_of_birth'] ?? ''));
+                if ($__isoDob !== '' && preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $__isoDob, $__m)) {
+                    $__dob = $__m[1] . '-' . $__m[2] . '-' . $__m[3];
+                } elseif (!empty($__px['dob_year']) && !empty($__px['dob_month']) && !empty($__px['dob_day'])) {
+                    $__dob = $__px['dob_year'] . '-' . str_pad((string) $__px['dob_month'], 2, '0', STR_PAD_LEFT) . '-' . str_pad((string) $__px['dob_day'], 2, '0', STR_PAD_LEFT);
+                }
+                if ($__dob === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $__dob) || strtotime($__dob) === false) {
+                    throw new Exception($__who . ': a valid date of birth (YYYY-MM-DD) is required for this flight.');
+                }
+                if (strtotime($__dob) > time()) {
+                    throw new Exception($__who . ': the date of birth cannot be in the future.');
+                }
+            }
+        }
+
         // Insert into bookings table
         $db->insert('bookings', [
             'invoice_id' => $invoiceId,

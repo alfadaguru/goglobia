@@ -58,6 +58,62 @@ if (!function_exists('adivaha_pax_type')) {
     }
 }
 
+if (!function_exists('adivaha_validate_pax_dob')) {
+    /**
+     * PRE-PAYMENT validation (A-03): Adivaha's airlines require a valid date of
+     * birth for EVERY passenger (domestic AND international) — a missing DOB yields a
+     * post-payment 422 "date of birth is required" → auto-refund (customer pays, then
+     * gets refunded). Validate it at the checkout/submit gate instead, BEFORE charging.
+     *
+     * We validate DOB + name only here. Passport/PAN are route-dependent and are
+     * filled accurately at issue time from the live `compliance` flag (placeholders
+     * when the traveller has none) — so they must NOT block checkout.
+     *
+     * Reads the SAME traveller shape issue.php's pax builder reads (ISO `dob`/
+     * `date_of_birth`, or `dob_year/dob_month/dob_day`), keyed adult_N/child_N/infant_N.
+     *
+     * @param array|string $travellers the booking's travellers (array or JSON string)
+     * @return array{ok:bool,message:string}
+     */
+    function adivaha_validate_pax_dob($travellers): array
+    {
+        if (is_string($travellers)) { $travellers = json_decode($travellers, true); }
+        if (!is_array($travellers)) { $travellers = []; }
+
+        $n = 0;
+        foreach ($travellers as $paxKey => $p) {
+            if (!is_array($p) || !preg_match('/^(adult|child|infant)_\d+$/', (string) $paxKey)) { continue; }
+            $n++;
+            $who = trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? '')) ?: ('Passenger ' . $n);
+
+            if (trim((string) ($p['first_name'] ?? '')) === '' || trim((string) ($p['last_name'] ?? '')) === '') {
+                return ['ok' => false, 'message' => $who . ': first and last name are required.'];
+            }
+
+            // DOB — mirror the issue.php builder: ISO, else split parts.
+            $dob = '';
+            $isoDob = trim((string) ($p['dob'] ?? $p['date_of_birth'] ?? ''));
+            if ($isoDob !== '' && preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $isoDob, $m)) {
+                $dob = $m[1] . '-' . $m[2] . '-' . $m[3];
+            } elseif (!empty($p['dob_year']) && !empty($p['dob_month']) && !empty($p['dob_day'])) {
+                $dob = $p['dob_year'] . '-' . str_pad((string) $p['dob_month'], 2, '0', STR_PAD_LEFT) . '-' . str_pad((string) $p['dob_day'], 2, '0', STR_PAD_LEFT);
+            }
+            if ($dob === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob) || strtotime($dob) === false) {
+                return ['ok' => false, 'message' => $who . ': a valid date of birth (YYYY-MM-DD) is required for this flight.'];
+            }
+            // Not in the future.
+            if (strtotime($dob) > time()) {
+                return ['ok' => false, 'message' => $who . ': the date of birth cannot be in the future.'];
+            }
+        }
+
+        if ($n === 0) {
+            return ['ok' => false, 'message' => 'No passengers found for this booking.'];
+        }
+        return ['ok' => true, 'message' => ''];
+    }
+}
+
 $router->post('flights/adivaha/issue', function () use ($db) {
     header('Content-Type: application/json');
 
@@ -604,6 +660,90 @@ $router->post('flights/adivaha/issue', function () use ($db) {
         }
         if ($res['http_code'] === 422) {
             echo json_encode(['status' => false, 'message' => 'Additional passenger details required by the airline: ' . adivahaExtractError($res), 'invoice_id' => $invoice_id]);
+            exit;
+        }
+
+        // 7b-DANGER. 5xx — DO NOT auto-refund (A-01 double-loss guard).
+        //   • 500 (spec): "The airline confirmed a PNR but local persistence failed.
+        //     The PNR is in the message — contact support; do NOT retry the same key."
+        //     => the ticket IS issued and our Adivaha wallet IS debited. Returning
+        //     status:false here would make the gateway auto-refund the customer, so
+        //     we'd have PAID for a live ticket AND refunded = double loss.
+        //   • 502: an ambiguous upstream/gateway error — the booking MAY have gone
+        //     through. Treating it as a clean failure (and refunding) is unsafe.
+        // For both, HOLD the booking for manual reconciliation (pending, paid, NO
+        // refund) and surface the PNR/reference we can salvage from the body. We try
+        // a booking-details read-back when the body gives us a reference; otherwise
+        // we parse the record-locator (6-char) out of the 500 message per spec.
+        if (($res['http_code'] ?? 0) >= 500) {
+            $body     = is_array($res['data'] ?? null) ? $res['data'] : [];
+            $rawMsg   = adivahaExtractError($res);
+
+            // Salvage a booking/order reference if the body carries one.
+            $salvageRef = '';
+            foreach (['reference', 'booking_reference', 'order_id', 'id'] as $k) {
+                $v = trim((string) ($body[$k] ?? ($body['booking'][$k] ?? '')));
+                if ($v !== '') { $salvageRef = $v; break; }
+            }
+
+            // Salvage the PNR — from a structured field or the 500 message text
+            // (spec: "the PNR is in the message"). A PNR is a 6-char record locator.
+            $salvagePnr = trim((string) ($body['pnr'] ?? ($body['booking']['pnr'] ?? '')));
+            if ($salvagePnr === '' && $rawMsg !== '' && preg_match('/\b([A-Z0-9]{6})\b/', strtoupper($rawMsg), $mm)) {
+                $salvagePnr = $mm[1];
+            }
+
+            // Authoritative confirm: if we have a reference, read it back from Adivaha
+            // (the booking-details endpoint) to learn the real status/PNR.
+            $readback = null;
+            if ($salvageRef !== '' && isset($base, $bearer)) {
+                try {
+                    $bd = adivahaApiRequest('GET', $base . '/flights/booking-details?reference=' . urlencode($salvageRef), null, $bearer, [], 30);
+                    adivahaLog('book/5xx-readback', ['reference' => $salvageRef], $bd['raw'], $bd['http_code'], $bd['curl_error'], $invoice_id);
+                    if (!empty($bd['success']) && is_array($bd['data'])) {
+                        $readback = $bd['data']['data'] ?? $bd['data'];
+                        if ($salvagePnr === '') { $salvagePnr = trim((string) ($readback['pnr'] ?? '')); }
+                        if (empty($salvageRef)) { $salvageRef = (string) ($readback['reference'] ?? ''); }
+                    }
+                } catch (\Throwable $e) { error_log('adivaha 5xx read-back: ' . $e->getMessage()); }
+            }
+
+            // Persist a HELD-FOR-REVIEW state: paid, not confirmed, needs an operator
+            // to reconcile with Adivaha support. pnr is written only if we actually
+            // salvaged one; supplier_ref is stored so cancel/void/booking-details work
+            // and the idempotency guard treats this as "already in flight" (no re-book).
+            $merged = array_merge($booking_data, [
+                'supplier'            => 'adivaha',
+                'supplier_ref'        => $salvageRef ?: ($booking_data['supplier_ref'] ?? ''),
+                'order_id'            => $salvageRef ?: ($booking_data['order_id'] ?? ''),
+                'adivaha_5xx'         => ['http' => $res['http_code'], 'message' => $rawMsg, 'response' => $body, 'readback' => $readback],
+                'review_state'        => 'airline_confirmed_persist_failed',
+            ]);
+            $writeData = [
+                'booking_status'        => 'pending',
+                'booking_data'          => json_encode($merged),
+                'booking_payment_issue' => 'Supplier ' . (int) $res['http_code'] . ' after payment — ticket may be ISSUED at the airline; held for manual review (do NOT refund blindly). ' . substr($rawMsg, 0, 160),
+            ];
+            if ($salvagePnr !== '') { $writeData['pnr'] = $salvagePnr; }
+            try { $db->update('bookings', $writeData, ['invoice_id' => $invoice_id]); } catch (\Throwable $e) { error_log('adivaha 5xx persist: ' . $e->getMessage()); }
+
+            error_log('ADIVAHA ISSUE 5xx HELD-FOR-REVIEW | invoice=' . $invoice_id . ' http=' . $res['http_code'] . ' ref=' . $salvageRef . ' pnr=' . $salvagePnr . ' — customer NOT refunded (possible issued ticket).');
+
+            // status:true so the payment gateway does NOT auto-refund. booking_status
+            // 'pending' keeps it out of the "confirmed/issued" set; ops reconciles.
+            echo json_encode([
+                'status'            => true,
+                'pnr'               => $salvagePnr,
+                'booking_reference' => $salvageRef,
+                'reference'         => $salvageRef,
+                'order_id'          => $salvageRef,
+                'is_ticketed'       => false,
+                'booking_status'    => 'pending',
+                'review_required'   => true,
+                'message'           => 'Payment accepted; the ticket may already be issued at the airline but the supplier reported a ' . (int) $res['http_code'] . '. Held for review — our team will confirm your PNR shortly. You have NOT been refunded.',
+                'response_error'    => $rawMsg,
+                'invoice_id'        => $invoice_id,
+            ]);
             exit;
         }
 
