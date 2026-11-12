@@ -25,10 +25,15 @@ $router->get('/supplier/groups', function () use ($SECURE, $db) {
     if (function_exists('group_cutoff_sweep')) { group_cutoff_sweep($db, $stayId); }
 
     $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId]);
-    $groups = function_exists('groups_for_property') ? groups_for_property($db, $stayId) : [];
+    // NB: use $bookingGroups, NOT $groups — the supplier sidebar (included by header.php
+    // below) builds its own nav into a variable literally named $groups, which would
+    // CLOBBER a page-level $groups and make the view iterate sidebar nav items as if they
+    // were booking groups (Undefined array key "id" → 500). Keep the page data in its own
+    // name so the header include can't stomp it.
+    $bookingGroups = function_exists('groups_for_property') ? groups_for_property($db, $stayId) : [];
     // Per-group: totals + blocks + rooming + folio for the open ones.
     $gTotals = []; $gBlocks = []; $gItems = []; $gMembers = []; $gPickup = [];
-    foreach ($groups as $g) {
+    foreach ($bookingGroups as $g) {
         $gid = (int) $g['id'];
         $gTotals[$gid] = function_exists('group_totals') ? group_totals($db, $gid) : ['charges'=>0,'payments'=>0,'balance'=>0];
         $gBlocks[$gid] = $db->select('stays_group_blocks', ['id', 'room_id', 'option_id', 'date_from', 'date_to', 'qty', 'cutoff_date', 'rate', 'state'], ['group_id' => $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];

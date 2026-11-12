@@ -1,9 +1,11 @@
 <?php @$SECURE or die('Access Denied!'); ?>
 <?php
-// Group & block reservations (inc S38). $stay, $groups, $gTotals[gid], $gBlocks[gid][],
+// Group & block reservations (inc S38). $stay, $bookingGroups, $gTotals[gid], $gBlocks[gid][],
 // $gItems[gid][], $gMembers[gid]=count, $rooms (with _options), $roomTypes, $canEdit.
 $stay      = (isset($stay) && is_array($stay)) ? $stay : [];
-$groups    = (isset($groups) && is_array($groups)) ? $groups : [];
+// Read from $bookingGroups (NOT $groups) — the sidebar overwrites a global $groups with
+// its nav model during the header include, so this page keeps its data under its own name.
+$groups    = (isset($bookingGroups) && is_array($bookingGroups)) ? $bookingGroups : [];
 $gTotals   = (isset($gTotals) && is_array($gTotals)) ? $gTotals : [];
 $gBlocks   = (isset($gBlocks) && is_array($gBlocks)) ? $gBlocks : [];
 $gItems    = (isset($gItems) && is_array($gItems)) ? $gItems : [];
