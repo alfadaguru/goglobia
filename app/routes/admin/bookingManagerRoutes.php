@@ -539,6 +539,22 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         $moduleName  = $supplier;
         $bookingChannel = 'admin_live';
         $bookingData = ['flight_data' => $offerBd, 'booking_data' => $offerBd, 'admin_created' => true];
+        // TICKET DISPLAY ITINERARY (flights). The supplier BOOK response echoes only
+        // the handle (trace_id/offer_id) and frequently legs:null, so the e-ticket
+        // PDF would render blank (no route/times/airline). The console forwards the
+        // search offer's segment groups (flight_segments = segments[leg][seg], the
+        // SAME 2-D shape ft_normalize_legs reads as flight_data.segments). Merge them
+        // into flight_data so GENERATE_BOOKING_PDF has a full itinerary to render.
+        // Does NOT affect booking_data (the issue handle) — purely for display.
+        if ($serviceType === 'flights') {
+            $fltSegs = $_POST['flight_segments'] ?? '';
+            if (is_string($fltSegs) && $fltSegs !== '') { $fltSegs = json_decode($fltSegs, true); }
+            if (is_array($fltSegs) && !empty($fltSegs)) {
+                $bookingData['flight_data'] = is_array($offerBd)
+                    ? array_merge($offerBd, ['segments' => $fltSegs])
+                    : ['segments' => $fltSegs];
+            }
+        }
         if ($serviceType === 'stays') {
             // Hotels: the console sends the CHOSEN rate as selected_rooms=
             //   [{room_name, quantity, option:{<handle>, total_price, board_name,...}}]
@@ -952,6 +968,21 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
     if ($method === 'mark_paid_now') {
         if (!bm_is_senior_admin($db)) {
             bmAdminJson(['status' => false, 'message' => 'Only an admin or super-admin can confirm a payment received.'], 403);
+        }
+        // DOUBLE-CHARGE GUARD. If a virtual account (DVA) is already live for this
+        // booking, settling here would mark it paid + issue the ticket WITHOUT
+        // deactivating the DVA — so a customer who later transfers into that NUBAN
+        // is charged a SECOND time (gia_bp_confirm keys idempotency on its own
+        // ledger row, not on bookings.payment_status, so it records the duplicate
+        // and never refunds it). Refuse until the DVA is expired/cancelled, mirroring
+        // the manual_transfer mutual-exclusion guard above. (A DVA only exists in
+        // NGN flows; non-DVA bookings pass straight through.)
+        require_once dirname(__DIR__, 3) . '/app/lib/ai/gia_booking_payment.php';
+        if (function_exists('gia_bp_get')) {
+            $existingDva = gia_bp_get($db, $invoiceId);
+            if (is_array($existingDva) && in_array(strtolower((string) ($existingDva['status'] ?? '')), ['pending', 'paid'], true)) {
+                bmAdminJson(['status' => false, 'message' => 'A virtual account (bank-transfer) is still open for this booking — the customer could pay it and be charged twice. Wait for it to expire/confirm (or cancel it) before confirming a cash/transfer payment here.'], 409);
+            }
         }
         // Optional amount-received check (same money-safety as /verify): if given
         // and short of the amount due, refuse unless confirm_short is set.

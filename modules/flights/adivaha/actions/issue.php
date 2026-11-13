@@ -134,9 +134,15 @@ $router->post('flights/adivaha/issue', function () use ($db) {
         }
 
         // 2. Idempotency: already issued → return existing PNR, do NOT re-book.
+        // A non-empty pnr means the airline gave us a real ticket, so report
+        // is_ticketed + booking_status too — otherwise bm_settle's "trulyIssued"
+        // gate (which requires those fields) under-reports a genuinely-ticketed
+        // flight as "pending" and suppresses the ticket email.
         if (!empty($booking['pnr'])) {
             echo json_encode([
                 'status'            => true,
+                'is_ticketed'       => true,
+                'booking_status'    => 'confirmed',
                 'message'           => 'Booking already issued',
                 'pnr'               => $booking['pnr'],
                 'booking_reference' => $booking['pnr'],
@@ -173,7 +179,25 @@ $router->post('flights/adivaha/issue', function () use ($db) {
                 $__rbData   = is_array($__rb['data'] ?? null) ? ($__rb['data']['data'] ?? $__rb['data']) : [];
                 $__rbPnr    = trim((string) ($__rbData['pnr'] ?? ''));
                 $__rbStatus = strtolower((string) ($__rbData['status'] ?? ''));
-                $__rbTicketed = !empty($__rbData['is_ticketed']) || $__rbStatus === 'confirmed' || $__rbStatus === 'ticketed';
+                // REAL ticket signal only (match the fresh-book invariant at
+                // issue.php:811). booking-details (FlightBookingDetail) carries
+                // is_ticketed PER-LEG (legs[].is_ticketed), NOT top-level — and
+                // status==='confirmed' is a WORKFLOW state, not proof the airline
+                // emitted the e-ticket. So a bare status='confirmed' must NOT be
+                // treated as ticketed, or we'd send a "ticket issued" email for a
+                // flight with no document (the exact false-ISSUED bug this path
+                // exists to avoid). Accept ONLY: an explicit top-level is_ticketed,
+                // OR a non-empty document/ticket URL, OR every leg is_ticketed.
+                $__rbLegs = (isset($__rbData['legs']) && is_array($__rbData['legs'])) ? $__rbData['legs'] : [];
+                $__allLegsTicketed = false;
+                if (!empty($__rbLegs)) {
+                    $__allLegsTicketed = true;
+                    foreach ($__rbLegs as $__lg) {
+                        if (empty($__lg['is_ticketed'])) { $__allLegsTicketed = false; break; }
+                    }
+                }
+                $__rbDocUrl = trim((string) ($__rbData['document_url'] ?? $__rbData['ticket_url'] ?? ''));
+                $__rbTicketed = !empty($__rbData['is_ticketed']) || $__allLegsTicketed || $__rbDocUrl !== '';
                 if ($__rbPnr !== '' && $__rbTicketed) {
                     // Airline has confirmed since last time → finalise.
                     if (is_array($__existingBd)) {

@@ -828,7 +828,8 @@ $svcIcons = [
         <h2 class="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2"><span class="material-symbols-outlined text-lg">account_balance_wallet</span>Take payment</h2>
         <p class="text-xs text-slate-500 mb-3">Invoice <span class="font-mono" x-text="invoiceId"></span> · <span x-text="price.currency||baseCurrency"></span> <span class="tabular-nums" x-text="Number(price.sell).toLocaleString()"></span></p>
 
-        <div class="space-y-2">
+        <!-- Payment tenders — hidden once the booking is SETTLED so you can't pay twice. -->
+        <div class="space-y-2" x-show="!settled">
           <?php if (!empty($bm['is_senior'])): ?>
           <!-- ONE-CLICK: payment received → confirm + issue NOW (senior admin). For a
                LIVE flight this is also the RELIABLE path — issue fires immediately,
@@ -836,9 +837,9 @@ $svcIcons = [
           <button class="btn primary w-full justify-start" @click="payNow()" :disabled="paying">
             <span class="material-symbols-outlined" x-show="!paying">task_alt</span>
             <span class="material-symbols-outlined animate-spin" x-show="paying">progress_activity</span>
-            <span x-text="paying ? 'Confirming…' : 'Payment received — confirm &amp; issue now'"></span>
+            <span x-text="paying ? 'Confirming — do NOT close or retry…' : 'Payment received — confirm &amp; issue now'"></span>
           </button>
-          <p class="text-[11px] text-slate-400 -mt-1 mb-1">Use this when you already have the money (cash/transfer). Marks paid and issues the ticket immediately — no waiting for verification.</p>
+          <p class="text-[11px] text-slate-400 -mt-1 mb-1">Use this when you already have the money (cash/transfer). Marks paid and issues the ticket immediately — no waiting for verification. A live ticket can take up to a minute to issue — please wait.</p>
           <?php endif; ?>
           <button class="btn outline w-full justify-start" @click="payDva()" :disabled="paying">
             <span class="material-symbols-outlined">qr_code_2</span><span>Generate virtual account (bank transfer)</span>
@@ -849,6 +850,20 @@ $svcIcons = [
           <button class="btn outline w-full justify-start" @click="payOffline()" :disabled="paying" x-show="mode==='manual'">
             <span class="material-symbols-outlined">done_all</span><span>Mark paid (settled offline)</span>
           </button>
+        </div>
+
+        <!-- SETTLED done-state: the booking is paid (and, for a live ticket, issued).
+             Replaces the pay buttons so an already-booked ticket can't be paid again. -->
+        <div class="rounded-lg bg-emerald-50 border border-emerald-200 p-3" x-show="settled">
+          <div class="flex items-center gap-2 text-emerald-800 font-semibold">
+            <span class="material-symbols-outlined">check_circle</span>
+            <span>Paid &amp; booked</span>
+            <span class="font-mono text-xs bg-emerald-100 rounded px-1.5 py-0.5" x-show="settledPnr" x-text="'PNR '+settledPnr"></span>
+          </div>
+          <div class="text-sm text-emerald-700 mt-1" x-text="settleMsg || 'This booking is settled.'"></div>
+          <a class="btn outline w-full justify-center mt-3" :href="base+'admin/bookings'">
+            <span class="material-symbols-outlined">receipt_long</span><span>View in bookings</span>
+          </a>
         </div>
 
         <!-- DVA result -->
@@ -988,7 +1003,7 @@ function bookingMgr() {
     // in booking_date (falls back to now if blank/invalid).
     bookedDate:'',
     creating:false, created:false, invoiceId:'', clientToken:'',
-    paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
+    paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false, settled:false, settledPnr:'',
     // Inline form validation/result message (replaces the old blocking alert()s;
     // mirrors the pay step's settleMsg). formMsgOk=false renders red, true green.
     formMsg:'', formMsgOk:false,
@@ -1806,6 +1821,13 @@ function bookingMgr() {
               payload.origin = this.live.origin||'';
               payload.destination = this.live.destination||'';
               payload.is_international = this.isInternational ? '1' : '0';
+              // DISPLAY ITINERARY for the e-ticket PDF. The supplier BOOK response
+              // echoes only the handle (trace_id/offer_id) and often legs:null — so
+              // without this the ticket renders blank (no route/times/airline). The
+              // search offer card (r.segments) already holds the full itinerary; send
+              // the raw segment groups so the backend persists them as
+              // flight_data.routes[].segments (the shape ft_normalize_legs reads).
+              payload.flight_segments = JSON.stringify(Array.isArray(r.segments) ? r.segments : []);
             }
           }
         } else {
@@ -1848,25 +1870,46 @@ function bookingMgr() {
     // outcome: ticket issued (+PNR), or paid-but-supplier-not-ticketed-yet.
     async payNow(){
       if(!confirm('Confirm you have RECEIVED this payment? This marks the booking paid and issues the ticket now.')) return;
-      this.paying=true; this.settleMsg='';
+      this.paying=true; this.settleMsg=''; this.settleMsgOk=false;
+      // A live ticket issue is a synchronous supplier call that can take a while.
+      // Give it a generous client timeout so a slow issue doesn't look like a dead
+      // page — but if it DOES time out, the booking may still have gone through, so
+      // we tell the operator to CHECK (not pay again).
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(), 90000);
       try{
-        const res=await fetch(this.base+'admin/booking-manager/pay',{method:'POST',body:this.form({invoice_id:this.invoiceId,method:'mark_paid_now'})});
+        const res=await fetch(this.base+'admin/booking-manager/pay',{method:'POST',signal:ctrl.signal,body:this.form({invoice_id:this.invoiceId,method:'mark_paid_now'})});
         const data=await res.json();
         this.dva=null; this.manualPay=false;
         this.settleMsgOk=!!data.status;
-        if(data.status && data.issued){ this.settleMsg='Paid and ticket issued'+(data.pnr?(' — PNR '+data.pnr):'')+'.'; }
-        else if(data.status && data.pending_issue){ this.settleMsgOk=false; this.settleMsg=data.message||'Paid, but the supplier has not ticketed yet. Re-check / Retry issue on the verification page.'; }
-        else { this.settleMsg=data.message||(data.status?'Paid.':'Could not confirm the payment.'); }
-      }catch(e){ this.settleMsgOk=false; this.settleMsg='Payment step failed — try again.'; }
-      this.paying=false;
+        if(data.status && data.issued){
+          // Fully done: paid + ticketed. Lock the panel into the done-state.
+          this.settled=true; this.settledPnr=data.pnr||'';
+          this.settleMsgOk=true; this.settleMsg='Payment confirmed and ticket issued'+(data.pnr?(' — PNR '+data.pnr):'')+'.';
+        } else if(data.status && data.pending_issue){
+          // Paid, but the supplier has NOT ticketed yet. Mark it settled-for-payment
+          // (no more pay buttons) but flag that issuing must be finished on verify.
+          this.settled=true; this.settledPnr='';
+          this.settleMsgOk=false; this.settleMsg=data.message||'Paid — but the supplier has not ticketed yet. Finish issuing on the verification page (Re-check / Retry issue).';
+        } else if(data.status){
+          this.settled=true; this.settledPnr=data.pnr||''; this.settleMsgOk=true; this.settleMsg=data.message||'Paid.';
+        } else {
+          this.settleMsg=data.message||'Could not confirm the payment.';
+        }
+      }catch(e){
+        this.settleMsgOk=false;
+        this.settleMsg=(e&&e.name==='AbortError')
+          ? 'Still processing at the supplier — this is taking longer than usual. The booking may have gone through: do NOT pay again. Check “Recent office bookings” below or the verification page, and refresh in a moment.'
+          : 'Payment step failed — try again.';
+      }finally{ clearTimeout(t); this.paying=false; }
     },
     async pay(method){
-      this.paying=true; this.settleMsg='';
+      this.paying=true; this.settleMsg=''; this.settleMsgOk=false;
       try{
         const res=await fetch(this.base+'admin/booking-manager/pay',{method:'POST',body:this.form({invoice_id:this.invoiceId,method})});
         const data=await res.json();
         if(method==='dva'){ this.dva=data.dva||null; this.manualPay=false; }
         else if(method==='manual_transfer'){ this.manualPay=true; this.dva=null; this.companyBank=data.company_bank||this.companyBank; }
+        else if(method==='mark_paid_offline' && data.status){ this.settled=true; this.settledPnr=''; this.dva=null; this.manualPay=false; }
         this.settleMsgOk=!!data.status; this.settleMsg=data.message||'';
       }catch(e){ this.settleMsgOk=false; this.settleMsg='Payment step failed'; }
       this.paying=false;
@@ -1877,7 +1920,7 @@ function bookingMgr() {
     // inputs, and mints a new idempotency token so the next create is independent.
     newBooking(){
       this.created=false; this.creating=false; this.invoiceId='';
-      this.dva=null; this.manualPay=false; this.paying=false; this.settleMsg=''; this.settleMsgOk=false;
+      this.dva=null; this.manualPay=false; this.paying=false; this.settleMsg=''; this.settleMsgOk=false; this.settled=false; this.settledPnr='';
       this.formMsg=''; this.formMsgOk=false; this.searchMsg='';
       this.results=[]; this.searched=false; this.searchErrors=[];
       this.selectedOffer=null; this.selectedRaw=null; this.selectedSupplier=''; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null; this.selectedRoomName='';
