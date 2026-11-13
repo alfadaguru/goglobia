@@ -633,12 +633,18 @@ if (!function_exists('bm_notify_paid')) {
                 // bookings, so a confirmed/manual one is invisible to it). So we arm a
                 // shutdown guard that RELEASES the claim unless we reach the success
                 // marker below. A normal failure is also released in the catch.
-                // Stamp a UNIQUE claim value we own, so any later release clears ONLY
-                // our claim — never a fresh claim another process set in between. A
-                // bare NOW() is owner-blind (two releases a second apart could match a
-                // different caller's row). Microsecond precision makes collisions
-                // effectively impossible; we read the value back to release it exactly.
-                $claimStamp = gmdate('Y-m-d H:i:s');
+                // Stamp a claim value we own, so any later release clears ONLY our
+                // claim — never a fresh claim another process set in between (a bare
+                // NOW() is owner-blind). The safety does NOT rest on the stamp being
+                // globally unique (it is second-granular, DATETIME column): it rests on
+                // the atomic `WHERE notified_paid_at IS NULL` claim — only one caller
+                // per row wins — AND the invoice_id filter on BOTH releases, so an
+                // identical stamp on two different invoices can never cross-release.
+                // Use app-local date() (NOT gmdate) so notified_paid_at stays on the
+                // same clock as every other DATETIME on the row (config.php pins the
+                // MySQL session tz to the app offset); the exact string still round-
+                // trips for the = :stamp match.
+                $claimStamp = date('Y-m-d H:i:s');
                 $claim = $db->query(
                     "UPDATE bookings SET notified_paid_at = :stamp WHERE invoice_id = :inv AND notified_paid_at IS NULL",
                     [':stamp' => $claimStamp, ':inv' => $invoiceId]
