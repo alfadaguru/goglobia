@@ -654,8 +654,15 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
         // SUPPLIER-HIDING: resolve the contact we send to KIKOTO (which emails the
         // customer its own booking confirmation). Default company → our contact;
         // 'customer' → the traveller's. ONLY the supplier-bound copy is changed — our
-        // own records below keep $contact['email'] (the real customer). modules/
-        // helpers.php defines supplier_resolve_contact; it is loaded on /api/* requests.
+        // own records below keep $contact['email'] (the real customer).
+        // supplier_resolve_contact lives in modules/helpers.php. On the normal site host
+        // _routes.php loads it for /api/*, but on an AGENT-API request (or the app-
+        // settings exemptions) that load is SKIPPED — so require it here ourselves, or
+        // the function_exists guard below would silently no-op and leak the customer.
+        if (!function_exists('supplier_resolve_contact')) {
+            $__h = dirname(__DIR__, 4) . '/modules/helpers.php';
+            if (is_file($__h)) { require_once $__h; }
+        }
         $__kikEmail = trim((string)($contact['email'] ?? ''));
         $__kikPhone = preg_replace('/[^0-9]/', '', trim((string)($contact['phone'] ?? '')));
         if (function_exists('supplier_resolve_contact')) {
