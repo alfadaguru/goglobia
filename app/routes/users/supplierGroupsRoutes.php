@@ -249,6 +249,8 @@ $router->get('/supplier/groups/([0-9]+)', function ($gid) use ($SECURE, $db) {
         $blockFreeRooms[$bid] = ($blk['state'] === 'held') ? _group_free_rooms_for_block($db, $stayId, $blk) : [];
     }
 
+    // Keep the property sidebar on this drill-in page (its URL has no ?stay_id). Report V2 #4.
+    $GLOBALS['supplierActiveStay'] = $stayId;
     $title = 'Group ' . ($group['reference'] ?? '') . ' — ' . ($stay['name'] ?? '');
     $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";

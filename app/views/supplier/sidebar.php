@@ -41,9 +41,14 @@ $active = function (string $url) use ($cur) {
 // --- Detect the ACTIVE property (drill-in). Path forms:
 //   /supplier/stays/{id}            /supplier/stays/{id}/...    (rooms, calendar)
 //   /supplier/stays/edit/{id}       /supplier/stays/site/{id}
-//   or ?stay_id={id} on a cross-property page.
+//   or ?stay_id={id} on a cross-property page,
+//   or an explicit $supplierActiveStay set by a property SUB-page whose URL carries no
+//   stay_id (e.g. /supplier/pos/outlet/{id}) — the page knows its stay and declares it so
+//   the sidebar stays in property mode instead of reverting to the global one (report V2 #4).
 $activeStay = 0;
-if (preg_match('#/supplier/stays/(?:edit/|site/)?(\d+)#', $cur, $m)) {
+if (!empty($GLOBALS['supplierActiveStay']) && (int) $GLOBALS['supplierActiveStay'] > 0) {
+    $activeStay = (int) $GLOBALS['supplierActiveStay'];
+} elseif (preg_match('#/supplier/stays/(?:edit/|site/)?(\d+)#', $cur, $m)) {
     $activeStay = (int) $m[1];
 } elseif (!empty($_GET['stay_id'])) {
     $activeStay = (int) $_GET['stay_id'];

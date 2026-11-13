@@ -93,6 +93,9 @@ $router->get('/supplier/pos/outlet/([0-9]+)', function ($outletId) use ($SECURE,
     $checkedIn = function_exists('pos_checked_in_reservations') ? pos_checked_in_reservations($db, $stayId) : [];
     $canEdit = supplier_can($db, 'rooms', 'edit', $stayId);
 
+    // Keep the property sidebar on this drill-in page (its URL has no ?stay_id). The
+    // sidebar reads $GLOBALS['supplierActiveStay'] so it stays in property mode (report V2 #4).
+    $GLOBALS['supplierActiveStay'] = $stayId;
     $title = htmlspecialchars((string) $outlet['name']) . ' — POS'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/pos/outlet.php";
