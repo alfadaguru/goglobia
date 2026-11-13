@@ -506,16 +506,27 @@ class NOTIFY {
             $subject = translateTo('resend_invoice', $lang) . " - #$invoiceId";
         }
         
-        // Determine template path (Unified Structure)
-        $templateFile = __DIR__ . "/../views/notifications/emails/$module/$event.php";
-        
-        // Consolidate 'booking', 'booking_payment', and 'resend' into 'booking.php'
-        // This ensures all modules (including 3rd party) use the professional standardized template
-        if ($event === 'booking' || $event === 'booking_payment' || $event === 'resend') {
-            $templateFile = __DIR__ . "/../views/notifications/emails/$module/booking.php";
+        // Determine template path (Unified Structure). Templates are keyed by the
+        // SERVICE (module_type: flights/stays/…), NOT by the supplier ($module =
+        // adivaha/duffel/kiwi/…). A supplier-named module has no own folder, so we
+        // resolve in order: emails/<module>/<tpl> → emails/<moduleType>/<tpl> →
+        // emails/flights/<tpl> (generic fallback for a flight supplier). Without this
+        // every supplier booking logged "Email template not found at .../adivaha/
+        // booking.php" and sent NO ticket email.
+        $tplName = (in_array($event, ['booking', 'booking_payment', 'resend'], true)) ? 'booking' : $event;
+        $emailsBase = __DIR__ . '/../views/notifications/emails/';
+        $candidates = [];
+        if ((string) $module !== '')     { $candidates[] = $emailsBase . $module     . '/' . $tplName . '.php'; }
+        if ((string) $moduleType !== '') { $candidates[] = $emailsBase . $moduleType . '/' . $tplName . '.php'; }
+        // Generic service fallback so a 3rd-party flight/stay supplier still sends an email.
+        $candidates[] = $emailsBase . 'flights/' . $tplName . '.php';
+        $templateFile = '';
+        foreach ($candidates as $cand) { if (is_file($cand)) { $templateFile = $cand; break; } }
+        if ($templateFile === '') {
+            error_log('NOTIFY: no email template for module=' . $module . ' type=' . $moduleType . ' event=' . $event . ' — tried ' . implode(', ', $candidates));
         }
-        
-        if (file_exists($templateFile)) {
+
+        if ($templateFile !== '' && file_exists($templateFile)) {
             // Render the shared booking email body. The TRAVELLER (customer) must
             // receive a PRICE-FREE copy + the no-price TICKET pdf (the traveller's
             // document); the PAYER/OWNER/ADMIN keep the priced copy + the invoice

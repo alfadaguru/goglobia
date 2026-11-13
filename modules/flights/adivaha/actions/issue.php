@@ -150,24 +150,70 @@ $router->post('flights/adivaha/issue', function () use ($db) {
             exit;
         }
 
-        // 2b. On_hold / not-yet-ticketed idempotency: a booking can already exist at
-        // Adivaha (status on_hold) with NO local pnr yet — the pnr check above would
-        // miss it and a retried callback could book a SECOND time (relying only on
-        // Adivaha's Idempotency-Key). If we already stored a supplier reference for
-        // this invoice, the supplier booking exists → do NOT re-book.
+        // 2b. On_hold / not-yet-ticketed: a booking can already exist at Adivaha
+        // (status on_hold) with NO local pnr yet. We must NOT re-book (that would
+        // create a SECOND booking) — but we also must NOT blindly report
+        // "already_issued" with the stale empty PNR (the admin clicks "Retry /
+        // recheck" precisely to see if the airline has NOW confirmed the ticket).
+        // So: RE-POLL Adivaha booking-details for this reference. If a real PNR /
+        // ticketed status has landed, persist it and return CONFIRMED; otherwise
+        // return honestly that it is still awaiting confirmation (NOT issued).
         $__existingBd = json_decode((string) ($booking['booking_data'] ?? ''), true);
         $__existingRef = is_array($__existingBd)
             ? trim((string) ($__existingBd['supplier_ref'] ?? $__existingBd['order_id'] ?? ($__existingBd['adivaha_response']['reference'] ?? '')))
             : '';
         if ($__existingRef !== '') {
+            // Load creds just for the re-poll (idempotent, cheap).
+            $__creds = getAdivahaCredentials($db);
+            if ($__creds && ($__creds['api_key'] ?? '') !== '') {
+                $__bearer = adivahaBearer($db, $__creds);
+                $__base   = $__creds['base_url'];
+                $__rb = adivahaApiRequest('GET', $__base . '/flights/booking-details?reference=' . urlencode($__existingRef), null, $__bearer, [], 30);
+                adivahaLog('recheck/booking-details', ['reference' => $__existingRef], $__rb['raw'], $__rb['http_code'], $__rb['curl_error'], $invoice_id);
+                $__rbData   = is_array($__rb['data'] ?? null) ? ($__rb['data']['data'] ?? $__rb['data']) : [];
+                $__rbPnr    = trim((string) ($__rbData['pnr'] ?? ''));
+                $__rbStatus = strtolower((string) ($__rbData['status'] ?? ''));
+                $__rbTicketed = !empty($__rbData['is_ticketed']) || $__rbStatus === 'confirmed' || $__rbStatus === 'ticketed';
+                if ($__rbPnr !== '' && $__rbTicketed) {
+                    // Airline has confirmed since last time → finalise.
+                    if (is_array($__existingBd)) {
+                        $__existingBd['pnr'] = $__rbPnr;
+                        $__existingBd['adivaha_response'] = $__rbData;
+                        $__existingBd['recheck_confirmed_at'] = gmdate('c');
+                    }
+                    try {
+                        $db->update('bookings', [
+                            'pnr'                   => $__rbPnr,
+                            'booking_status'        => 'confirmed',
+                            'booking_data'          => json_encode($__existingBd),
+                            'booking_payment_issue' => null,
+                            'error_response'        => null,
+                        ], ['invoice_id' => $invoice_id]);
+                    } catch (\Throwable $e) { error_log('adivaha recheck persist: ' . $e->getMessage()); }
+                    echo json_encode([
+                        'status'            => true,
+                        'is_ticketed'       => true,
+                        'booking_status'    => 'confirmed',
+                        'message'           => 'Airline confirmed — PNR ' . $__rbPnr . '.',
+                        'pnr'               => $__rbPnr,
+                        'booking_reference' => $__existingRef,
+                        'reference'         => $__existingRef,
+                        'invoice_id'        => $invoice_id,
+                    ]);
+                    exit;
+                }
+            }
+            // Still not ticketed (or re-poll unavailable) → honest "awaiting", NOT issued.
             echo json_encode([
-                'status'            => true,
-                'message'           => 'Booking already created with Adivaha (awaiting ticketing or confirmation).',
-                'pnr'               => (string) ($booking['pnr'] ?? ''),
+                'status'            => true,  // status:true so the gateway/BM does NOT auto-refund
+                'is_ticketed'       => false,
+                'booking_status'    => 'pending',
+                'message'           => 'Booking is created with the supplier but the airline has NOT confirmed the ticket yet. Re-check again shortly — a PNR will appear once issued.',
+                'pnr'               => '',
                 'booking_reference' => $__existingRef,
                 'reference'         => $__existingRef,
                 'invoice_id'        => $invoice_id,
-                'already_issued'    => true,
+                'awaiting_confirmation' => true,
             ]);
             exit;
         }
