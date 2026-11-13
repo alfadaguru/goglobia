@@ -28076,7 +28076,10 @@ CREATE TABLE `modules` (
   `fare_timer_enabled` tinyint(1) NOT NULL DEFAULT 0,
   `fare_timer_minutes` int(11) NOT NULL DEFAULT 15,
   `hold_enabled` tinyint(1) NOT NULL DEFAULT 0,
-  `booking_class` enum('real','affiliate','own','stub','') NOT NULL DEFAULT ''
+  `booking_class` enum('real','affiliate','own','stub','') NOT NULL DEFAULT '',
+  `supplier_contact_mode` varchar(16) DEFAULT 'company',
+  `supplier_contact_email` varchar(190) DEFAULT NULL,
+  `supplier_contact_phone` varchar(40) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 
 --

@@ -602,8 +602,35 @@ $router->post('flights/adivaha/issue', function () use ($db) {
             ? buildE164PhoneNumber($booking['phone'] ?? '', $phoneIso, $db)
             : (string) ($booking['phone'] ?? '');
 
-        $contactName = trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? '')));
+        // SUPPLIER CONTACT = per-supplier POLICY (default: OUR company, not the
+        // customer). The `contact` block is the BOOKING CONTACT the supplier uses for
+        // its own notifications. Adivaha's India-centric system AUTO-EMAILS this
+        // address a SUPPLIER-BRANDED confirmation + e-ticket (from thewebconz.com).
+        // Passing the customer's email leaked Adivaha's identity straight to the
+        // passenger and bypassed our branded ticket. supplier_resolve_contact() honours
+        // the admin's per-supplier choice (Module edit → "Supplier contact"): 'company'
+        // (hide — the default) sends our company/typed-in contact; 'customer' sends the
+        // real traveller contact for suppliers that require it. Passenger identity still
+        // rides in pax[] (names/DOB/passport are mandatory); only the contact changes.
+        $__custContact = [
+            'name'  => trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))),
+            'email' => (string) ($booking['email'] ?? ($billing['email'] ?? '')),
+            'phone' => (string) ($booking['phone'] ?? ''),
+        ];
+        $__resolved = function_exists('supplier_resolve_contact')
+            ? supplier_resolve_contact($db, 'flights', 'adivaha', $__custContact)
+            : $__custContact;
+
+        $contactName = trim((string) ($__resolved['name'] ?? ''));
         if ($contactName === '') $contactName = (string) ($billing['name'] ?? 'Guest');
+
+        $agencyEmail = (string) ($__resolved['email'] ?? '');
+        // Format the resolved phone with the booking's country logic (E.164).
+        $agencyPhone = trim((string) ($__resolved['phone'] ?? ''));
+        if ($agencyPhone !== '' && function_exists('buildE164PhoneNumber')) {
+            $agencyPhone = buildE164PhoneNumber($agencyPhone, $phoneIso, $db) ?: $agencyPhone;
+        }
+        if ($agencyPhone === '') { $agencyPhone = $phoneE164; }
 
         // COMPANY BILLING ADDRESS fallback: suppliers reject a junk address
         // ('N/A'/'NA'/'000000') with "Address is invalid". When the traveller/
@@ -630,8 +657,8 @@ $router->post('flights/adivaha/issue', function () use ($db) {
 
         $contact = [
             'name'         => $contactName,
-            'email'        => (string) ($booking['email'] ?? ($billing['email'] ?? '')),
-            'phone'        => $phoneE164,
+            'email'        => $agencyEmail,   // OUR agency inbox, NOT the customer (supplier-hiding)
+            'phone'        => $agencyPhone,   // OUR agency phone, NOT the customer
             'address_line' => $addrLine,
             'city'         => $addrCity,
             'country'      => $countryIso,

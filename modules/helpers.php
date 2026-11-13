@@ -1770,3 +1770,136 @@ if (!function_exists('supplierApiLog')) {
             $supplier, $service, $endpoint, (string) $httpCode, (string) $invoiceId, (string) $error));
     }
 }
+
+if (!function_exists('supplier_contact_policy')) {
+    /**
+     * Per-supplier CONTACT POLICY — who the booking contact (name/email/phone) sent
+     * to a supplier should be.
+     *
+     * WHY: some suppliers' booking systems auto-email the `contact` address their
+     * OWN branded confirmation + e-ticket. If we pass the CUSTOMER's email, the
+     * supplier contacts our passenger directly — leaking the supplier's identity
+     * (breach of the supplier-hiding mandate) and bypassing our branded ticket.
+     * So by default we pass OUR COMPANY contact and relay a clean branded ticket
+     * ourselves. But some suppliers legitimately REQUIRE the real traveller contact
+     * (e.g. airline-direct messaging / disruption alerts), so this is configurable
+     * PER SUPPLIER in the module edit screen.
+     *
+     * Stored in dedicated self-healing `modules` columns (NOT `credentials`, which is
+     * enum('1','0'), and NOT the c1..c6 cols which suppliers use for creds/token):
+     *   supplier_contact_mode  : 'company' (default, hide supplier) | 'customer'
+     *   supplier_contact_email : optional typed-in override used when mode='company'
+     *   supplier_contact_phone : optional typed-in override used when mode='company'
+     * The columns are added on demand by ensure_supplier_contact_columns().
+     *
+     * @return array ['mode'=>'company'|'customer', 'email'=>string, 'phone'=>string]
+     *               email/phone are the TYPED-IN company overrides (may be empty).
+     */
+    function supplier_contact_policy($db, string $service, string $module): array
+    {
+        $out = ['mode' => 'company', 'email' => '', 'phone' => ''];
+        try {
+            if (function_exists('ensure_supplier_contact_columns')) { ensure_supplier_contact_columns($db); }
+            $row = $db->get('modules',
+                ['supplier_contact_mode', 'supplier_contact_email', 'supplier_contact_phone'],
+                ['name' => $module, 'type' => $service]);
+            if ($row) {
+                $mode = strtolower(trim((string) ($row['supplier_contact_mode'] ?? 'company')));
+                $out['mode']  = ($mode === 'customer') ? 'customer' : 'company';
+                $out['email'] = trim((string) ($row['supplier_contact_email'] ?? ''));
+                $out['phone'] = trim((string) ($row['supplier_contact_phone'] ?? ''));
+            }
+        } catch (\Throwable $e) {
+            error_log('supplier_contact_policy(' . $service . '/' . $module . '): ' . $e->getMessage());
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('ensure_supplier_contact_columns')) {
+    /**
+     * Self-healing schema: add the per-supplier contact-policy columns to `modules`
+     * if absent (idempotent; swallows failure on a DB user without ALTER rights).
+     * Follows the codebase's ensure*Schema convention. Also update install/db.sql.
+     */
+    function ensure_supplier_contact_columns($db): void
+    {
+        static $done = false;
+        if ($done) { return; }
+        $done = true;
+        try {
+            $cols = $db->query("SHOW COLUMNS FROM `modules` LIKE 'supplier_contact_%'")->fetchAll();
+            $have = [];
+            foreach (($cols ?: []) as $c) { $have[(string) ($c['Field'] ?? '')] = true; }
+            if (empty($have['supplier_contact_mode'])) {
+                $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_mode` VARCHAR(16) DEFAULT 'company'");
+            }
+            if (empty($have['supplier_contact_email'])) {
+                $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_email` VARCHAR(190) DEFAULT NULL");
+            }
+            if (empty($have['supplier_contact_phone'])) {
+                $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_phone` VARCHAR(40) DEFAULT NULL");
+            }
+        } catch (\Throwable $e) {
+            error_log('ensure_supplier_contact_columns: ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('supplier_resolve_contact')) {
+    /**
+     * Resolve the booking CONTACT (name/email/phone) to send a supplier, honouring
+     * the per-supplier policy. Pass the booking's own name/email/phone as the
+     * customer values; this returns what should actually be sent.
+     *
+     *   mode='customer'  → the customer's own name/email/phone (supplier may contact
+     *                      the traveller; use only for suppliers that require it).
+     *   mode='company'   → our company contact: the typed-in module override if set,
+     *                      else settings.contact_email / contact_phone, else a safe
+     *                      fallback to the customer value so a misconfigured install
+     *                      still books rather than failing the supplier's required
+     *                      field. Company NAME = settings.business_name.
+     *
+     * @return array ['name'=>, 'email'=>, 'phone'=>]  (phone is NOT E.164-formatted
+     *               here — the caller formats it with its own country logic).
+     */
+    function supplier_resolve_contact($db, string $service, string $module, array $customer): array
+    {
+        $custName  = trim((string) ($customer['name'] ?? ''));
+        $custEmail = trim((string) ($customer['email'] ?? ''));
+        $custPhone = trim((string) ($customer['phone'] ?? ''));
+
+        $policy = supplier_contact_policy($db, $service, $module);
+        if ($policy['mode'] === 'customer') {
+            return ['name' => ($custName !== '' ? $custName : 'Guest'), 'email' => $custEmail, 'phone' => $custPhone];
+        }
+
+        // COMPANY mode (default — supplier-hiding).
+        $set = [];
+        try {
+            $set = $db->get('settings',
+                ['business_name', 'contact_email', 'email_sender_email', 'admin_email', 'contact_phone'],
+                ['id' => 1]) ?: [];
+        } catch (\Throwable $e) { error_log('supplier_resolve_contact settings: ' . $e->getMessage()); }
+
+        $name = trim((string) ($set['business_name'] ?? ''));
+        if ($name === '') { $name = ($custName !== '' ? $custName : 'Guest'); }
+
+        // Email: typed-in override → settings contact chain → customer (last resort).
+        $email = $policy['email'];
+        if ($email === '') {
+            foreach (['contact_email', 'email_sender_email', 'admin_email'] as $k) {
+                $v = trim((string) ($set[$k] ?? ''));
+                if ($v !== '' && stripos($v, 'example.com') === false) { $email = $v; break; }
+            }
+        }
+        if ($email === '') { $email = $custEmail; }
+
+        // Phone: typed-in override → settings contact phone → customer (last resort).
+        $phone = $policy['phone'];
+        if ($phone === '') { $phone = trim((string) ($set['contact_phone'] ?? '')); }
+        if ($phone === '') { $phone = $custPhone; }
+
+        return ['name' => $name, 'email' => $email, 'phone' => $phone];
+    }
+}

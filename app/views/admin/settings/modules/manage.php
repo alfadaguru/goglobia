@@ -618,6 +618,62 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
                     </div>
                 </div>
 
+                <!-- Supplier Contact Policy (supplier-hiding) -->
+                <?php
+                    // Read the saved policy from the dedicated columns. Default =
+                    // 'company' so suppliers are hidden unless an admin opts in.
+                    $__cmode  = (strtolower((string) ($module['supplier_contact_mode'] ?? 'company')) === 'customer') ? 'customer' : 'company';
+                    $__cemail = (string) ($module['supplier_contact_email'] ?? '');
+                    $__cphone = (string) ($module['supplier_contact_phone'] ?? '');
+                ?>
+                <div class="pb-4 mb-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-base font-semibold text-slate-800 flex items-center gap-2">
+                            <span class="material-symbols-outlined text-lg">contact_mail</span>
+                            Supplier contact
+                        </h2>
+                    </div>
+                    <p class="text-xs text-slate-500 mb-3">
+                        Which contact (email &amp; phone) we send to this supplier when booking. Some suppliers
+                        <strong>auto-email their own branded ticket to this address</strong>, which would reveal the
+                        supplier to your customer. Keep <em>Company</em> to hide the supplier and let us send your
+                        branded ticket; choose <em>Customer</em> only if the supplier requires the traveller’s own contact.
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div class="form-control">
+                            <label for="contact_mode" class="form-label">Contact to pass</label>
+                            <select id="contact_mode" name="contact_mode" class="select input" onchange="document.getElementById('contactCoFields').style.display = this.value==='company' ? '' : 'none';">
+                                <option value="company" <?= $__cmode === 'company' ? 'selected' : '' ?>>Company (hide supplier — recommended)</option>
+                                <option value="customer" <?= $__cmode === 'customer' ? 'selected' : '' ?>>Customer (pass traveller’s own contact)</option>
+                            </select>
+                        </div>
+                        <div class="form-control" id="contactCoEmail" style="<?= $__cmode === 'company' ? '' : 'display:none' ?>">
+                            <label for="contact_email" class="form-label">Company email <span class="text-slate-400">(optional)</span></label>
+                            <input type="email" id="contact_email" name="contact_email" class="input"
+                                   value="<?= htmlspecialchars($__cemail) ?>"
+                                   placeholder="defaults to Settings → contact email">
+                        </div>
+                        <div class="form-control" id="contactCoPhone" style="<?= $__cmode === 'company' ? '' : 'display:none' ?>">
+                            <label for="contact_phone" class="form-label">Company phone <span class="text-slate-400">(optional)</span></label>
+                            <input type="text" id="contact_phone" name="contact_phone" class="input"
+                                   value="<?= htmlspecialchars($__cphone) ?>"
+                                   placeholder="defaults to Settings → contact phone">
+                        </div>
+                    </div>
+                    <script>
+                        (function(){
+                            var sel = document.getElementById('contact_mode');
+                            if (!sel) return;
+                            function sync(){
+                                var show = sel.value === 'company' ? '' : 'none';
+                                var e = document.getElementById('contactCoEmail'); if (e) e.style.display = show;
+                                var p = document.getElementById('contactCoPhone'); if (p) p.style.display = show;
+                            }
+                            sel.addEventListener('change', sync); sync();
+                        })();
+                    </script>
+                </div>
+
                 <!-- Database Configuration Section -->
                 <div class="pb-4 mb-4">
                     <div class="flex items-center justify-between mb-3">

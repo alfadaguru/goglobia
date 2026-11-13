@@ -243,6 +243,28 @@ $router->post(admin.'/settings/modules/edit/(.*)', function ($id) use ($SECURE,$
                 $data['c' . $i] = $_POST['c' . $i] ?? '';
             }
 
+            // SUPPLIER CONTACT POLICY (supplier-hiding). Dedicated self-healing columns
+            // on `modules` (credentials is enum('1','0'); c1..c6 hold creds/token — not
+            // safe to reuse). contact_mode: 'company' (default, hide supplier) or
+            // 'customer' (pass the real traveller contact for suppliers that require it);
+            // optional typed-in company email/phone overrides.
+            if (isset($_POST['contact_mode'])) {
+                // Ensure the columns exist (self-healing; modules/helpers.php's
+                // ensure_supplier_contact_columns isn't loaded in the admin context,
+                // so add them inline here — idempotent, ALTER-right tolerant).
+                try {
+                    $existing = $db->query("SHOW COLUMNS FROM `modules` LIKE 'supplier_contact_%'")->fetchAll();
+                    $have = [];
+                    foreach (($existing ?: []) as $c) { $have[(string) ($c['Field'] ?? '')] = true; }
+                    if (empty($have['supplier_contact_mode']))  { $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_mode` VARCHAR(16) DEFAULT 'company'"); }
+                    if (empty($have['supplier_contact_email'])) { $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_email` VARCHAR(190) DEFAULT NULL"); }
+                    if (empty($have['supplier_contact_phone'])) { $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_phone` VARCHAR(40) DEFAULT NULL"); }
+                } catch (\Throwable $e) { error_log('modules contact-cols ensure: ' . $e->getMessage()); }
+                $data['supplier_contact_mode']  = strtolower(trim((string) $_POST['contact_mode'])) === 'customer' ? 'customer' : 'company';
+                $data['supplier_contact_email'] = trim((string) ($_POST['contact_email'] ?? ''));
+                $data['supplier_contact_phone'] = trim((string) ($_POST['contact_phone'] ?? ''));
+            }
+
             $errors = [];
 
             if (empty($data['name'])) {
