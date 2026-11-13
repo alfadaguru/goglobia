@@ -134,20 +134,23 @@ $router->post('flights/adivaha/issue', function () use ($db) {
         }
 
         // 2. Idempotency: already issued → return existing PNR, do NOT re-book.
-        // A non-empty pnr means the airline gave us a real ticket, so report
-        // is_ticketed + booking_status too — otherwise bm_settle's "trulyIssued"
-        // gate (which requires those fields) under-reports a genuinely-ticketed
-        // flight as "pending" and suppresses the ticket email.
+        // Report is_ticketed/booking_status so bm_settle's "trulyIssued" gate (which
+        // needs them) recognises a genuinely-ticketed flight and sends the ticket.
+        // BUT only claim ticketed when the booking is ACTUALLY confirmed: the 5xx
+        // salvage path stores a PNR while booking_status stays 'pending'
+        // (review_required) — a held-for-review booking is NOT ticketed, so we must
+        // mirror its real state here rather than asserting confirmed unconditionally.
         if (!empty($booking['pnr'])) {
+            $__isConfirmed = strtolower((string) ($booking['booking_status'] ?? '')) === 'confirmed';
             echo json_encode([
                 'status'            => true,
-                'is_ticketed'       => true,
-                'booking_status'    => 'confirmed',
-                'message'           => 'Booking already issued',
+                'is_ticketed'       => $__isConfirmed,
+                'booking_status'    => $__isConfirmed ? 'confirmed' : (string) ($booking['booking_status'] ?? 'pending'),
+                'message'           => $__isConfirmed ? 'Booking already issued' : 'Booking has a PNR but is held for review — not yet ticketed.',
                 'pnr'               => $booking['pnr'],
                 'booking_reference' => $booking['pnr'],
                 'invoice_id'        => $invoice_id,
-                'already_issued'    => true,
+                'already_issued'    => $__isConfirmed,
             ]);
             exit;
         }

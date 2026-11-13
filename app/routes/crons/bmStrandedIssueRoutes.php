@@ -95,6 +95,43 @@ $router->get('/cron/bm-stranded-issue', function () use ($SECURE, $db) {
         }
     }
 
+    // ------------------------------------------------------------------
+    // SECOND SWEEP: un-notified settled bookings (deferred-notify backstop).
+    // The interactive /pay + /verify paths defer bm_notify_paid to AFTER the
+    // response flushes. If the worker dies in that post-response window (deploy
+    // kill, mPDF OOM, time-limit) the customer never gets their ticket/voucher —
+    // and the stranded sweep above does NOT catch it (it only looks at
+    // non-confirmed admin_live rows, so a CONFIRMED or manual booking is
+    // invisible). bm_notify_paid's crash-release guard clears its claim on such a
+    // failure, leaving notified_paid_at NULL — so here we simply re-drive
+    // bm_notify_paid for any PAID booking that was never notified. It is fully
+    // idempotent (atomic notified_paid_at claim) and its own fulfilment guard
+    // skips a paid-but-unissued live booking, so this is safe to run every tick.
+    $renotified = 0; $renotifyFound = 0;
+    try {
+        // EXACT-match the BM/agent channels — NOT Medoo [~] LIKE: the '_' in
+        // 'admin_live'/'admin_manual' defeats Medoo's %..% auto-wrap (known trap), so a
+        // LIKE 'admin_%' would silently match nothing. An IN on the exact values is
+        // unambiguous and covers both BM channels (live + manual).
+        $unnotified = $db->select('bookings', ['invoice_id'], [
+            'payment_status'   => 'paid',
+            'notified_paid_at'  => null,
+            'booking_channel'  => ['admin_live', 'admin_manual'],
+            'ORDER'            => ['id' => 'ASC'],
+            'LIMIT'            => 50,
+        ]) ?: [];
+        $renotifyFound = count($unnotified);
+        foreach ($unnotified as $u) {
+            $uinv = (string) ($u['invoice_id'] ?? '');
+            if ($uinv === '') { continue; }
+            try {
+                if (function_exists('bm_notify_paid')) { bm_notify_paid($db, $uinv); $renotified++; }
+            } catch (\Throwable $e) {
+                error_log('bm-renotify ' . $uinv . ': ' . $e->getMessage());
+            }
+        }
+    } catch (\Throwable $e) { error_log('bm-renotify sweep: ' . $e->getMessage()); }
+
     echo json_encode([
         'success'        => true,
         'run_at'         => date('Y-m-d H:i:s'),
@@ -103,9 +140,11 @@ $router->get('/cron/bm-stranded-issue', function () use ($SECURE, $db) {
         'recovered'      => $recovered,
         'in_flight_skip' => $skipped,
         'still_stranded' => $stillStranded,
+        'renotify_found' => $renotifyFound,
+        'renotified'     => $renotified,
         'results'        => $results,
-        'message'        => sprintf('BM stranded-issue sweep: %d found, %d recovered, %d still stranded, %d in-flight skipped.',
-            count($stranded), $recovered, $stillStranded, $skipped),
+        'message'        => sprintf('BM stranded-issue sweep: %d found, %d recovered, %d still stranded, %d in-flight skipped; renotify: %d found, %d sent.',
+            count($stranded), $recovered, $stillStranded, $skipped, $renotifyFound, $renotified),
     ], JSON_UNESCAPED_SLASHES);
     exit;
 });

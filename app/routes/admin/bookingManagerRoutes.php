@@ -41,20 +41,53 @@ if (!function_exists('bmAdminJsonThenNotify')) {
      */
     function bmAdminJsonThenNotify($payload, array $settle, $db, string $invoiceId): void
     {
-        $notifyDue = !empty($settle['notify_due']);
-        if (!headers_sent()) { http_response_code(200); header('Content-Type: application/json'); }
-        echo json_encode($payload);
-        // Push the body out and close the client connection BEFORE notifying.
-        if (function_exists('fastcgi_finish_request')) {
-            @fastcgi_finish_request();
-        } else {
-            // mod_php: best-effort flush, then still notify inline (can't truly detach).
-            @ob_end_flush(); @flush();
+        $notifyDue        = !empty($settle['notify_due']);
+        $notifyPendingDue = !empty($settle['notify_pending_due']);  // issue-fail notice
+        $body = json_encode($payload);
+        // DISCARD any content already sitting in the output buffers (index.php:2 opens
+        // a top-level ob_start; a view/warning could have left bytes in it) so the
+        // response body is EXACTLY our JSON — prepended stray output would corrupt it.
+        // Only clean when headers aren't sent yet (if they are, we can't fix the body
+        // anyway and must not throw). ob_get_level()-1 keeps the outermost level the
+        // SAPI expects while emptying everything we own.
+        if (!headers_sent()) {
+            while (ob_get_level() > 0) { @ob_end_clean(); }
+            http_response_code(200);
+            header('Content-Type: application/json');
+            // Exact body length so the client knows the response is COMPLETE and closes
+            // the connection promptly (no chunked/keep-alive hang that kills the
+            // "instant" feel).
+            header('Content-Length: ' . strlen($body));
         }
-        if ($notifyDue && function_exists('bm_notify_paid')) {
+        echo $body;
+        // Flush to the SAPI, THEN close the client connection. Draining first is
+        // REQUIRED: fastcgi_finish_request() ships only what reached the SAPI write
+        // buffer, so a still-open PHP ob_* level would be sent as an empty/short body.
+        while (ob_get_level() > 0) { @ob_end_flush(); }
+        @flush();
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();   // FPM/LiteSpeed: detach the client; PHP keeps running
+        }
+        if ($notifyDue || $notifyPendingDue) {
+            // Release the SESSION LOCK before the slow notify. fastcgi_finish_request()
+            // detaches the client but does NOT free the PHP session flock — so without
+            // this, a second request from the SAME admin (another tab) would block on
+            // session_start() for the whole PDF+email+WhatsApp duration. Mirrors the
+            // codebase's own post-response pattern (giaRoutes.php session_write_close).
+            if (session_status() === PHP_SESSION_ACTIVE) { @session_write_close(); }
+            // Under mod_php (no detach) this still runs, just inline — correctness over
+            // latency, so a booking is never left un-notified. ignore_user_abort keeps
+            // it running even if the client already disconnected.
             @ignore_user_abort(true);
             @set_time_limit(120);
-            try { bm_notify_paid($db, $invoiceId); } catch (\Throwable $e) { error_log('bm deferred notify ' . $invoiceId . ': ' . $e->getMessage()); }
+            // notify_due = the paid ticket/voucher; notify_pending_due = the issue-fail
+            // "payment received, finalising" notice. At most one is set per settle.
+            if ($notifyDue && function_exists('bm_notify_paid')) {
+                try { bm_notify_paid($db, $invoiceId); } catch (\Throwable $e) { error_log('bm deferred notify ' . $invoiceId . ': ' . $e->getMessage()); }
+            }
+            if ($notifyPendingDue && function_exists('bm_notify_pending_verification')) {
+                try { bm_notify_pending_verification($db, $invoiceId); } catch (\Throwable $e) { error_log('bm deferred pending-notify ' . $invoiceId . ': ' . $e->getMessage()); }
+            }
         }
         exit;
     }
@@ -580,7 +613,14 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         // Does NOT affect booking_data (the issue handle) — purely for display.
         if ($serviceType === 'flights') {
             $fltSegs = $_POST['flight_segments'] ?? '';
-            if (is_string($fltSegs) && $fltSegs !== '') { $fltSegs = json_decode($fltSegs, true); }
+            // Cap the display-itinerary payload so a malformed/oversized POST can't
+            // bloat the booking_data row. A real itinerary is a few KB; 256KB is a
+            // generous ceiling. Oversized → skip (ticket falls back gracefully).
+            if (is_string($fltSegs) && $fltSegs !== '' && strlen($fltSegs) <= 262144) {
+                $fltSegs = json_decode($fltSegs, true);
+            } else {
+                $fltSegs = null;
+            }
             if (is_array($fltSegs) && !empty($fltSegs)) {
                 $bookingData['flight_data'] = is_array($offerBd)
                     ? array_merge($offerBd, ['segments' => $fltSegs])

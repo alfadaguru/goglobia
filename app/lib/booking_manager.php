@@ -564,10 +564,20 @@ if (!function_exists('bm_settle_booking_payment')) {
         //     is being finalized" — NO ticket/PDF, NO 'confirmed' claim. Idempotent
         //     (pending_notified_at), so the stranded-issue cron retrying this path
         //     every few minutes sends it at most once.
+        // INTERACTIVE path defers this notice too (it does SMTP + WhatsApp HTTP): signal
+        // notify_pending_due and let the route run it AFTER the response flushes, so the
+        // operator isn't held on the failure branch either. Background callers (no flag)
+        // notify inline exactly as before.
+        $__notifyPendingDue = false;
         if (!$__refunded && function_exists('bm_notify_pending_verification')) {
-            try { bm_notify_pending_verification($db, $invoiceId); } catch (\Throwable $e) { error_log('bm_settle issue-fail notify ' . $invoiceId . ': ' . $e->getMessage()); }
+            if ($deferNotify) {
+                $__notifyPendingDue = true;
+            } else {
+                try { bm_notify_pending_verification($db, $invoiceId); } catch (\Throwable $e) { error_log('bm_settle issue-fail notify ' . $invoiceId . ': ' . $e->getMessage()); }
+            }
         }
         return ['ok' => false, 'issued' => false, 'refunded' => $__refunded,
+                'notify_pending_due' => $__notifyPendingDue,
                 'status' => $booking['booking_status'] ?? 'pending',
                 'message' => $__refunded
                     ? ('Payment recorded but the supplier could not issue — automatically refunded. (' . (string) ($res['message'] ?? 'unknown') . ')')
@@ -615,11 +625,33 @@ if (!function_exists('bm_notify_paid')) {
                     $ensured = true;
                 }
                 // Claim atomically: only the FIRST caller flips NULL -> now and proceeds.
+                // This serializes concurrent callers (two can't both send). BUT the
+                // claim must NOT permanently burn if the send then FAILS — otherwise a
+                // crash mid-PDF (mPDF OOM, an FPM worker killed by a deploy right after
+                // the response flushed) would leave the claim set and NO retry would
+                // ever re-notify (the stranded cron only re-drives non-confirmed live
+                // bookings, so a confirmed/manual one is invisible to it). So we arm a
+                // shutdown guard that RELEASES the claim unless we reach the success
+                // marker below. A normal failure is also released in the catch.
                 $claim = $db->query(
                     "UPDATE bookings SET notified_paid_at = NOW() WHERE invoice_id = :inv AND notified_paid_at IS NULL",
                     [':inv' => $invoiceId]
                 );
                 if (!$claim || $claim->rowCount() < 1) { return; } // another path already notified
+
+                // Release-on-crash guard. $notifyDone is flipped true after the send
+                // succeeds; if a FATAL kills the request before that, this shutdown
+                // handler clears the claim so a later call (or cron) can retry.
+                $notifyDone = false;
+                register_shutdown_function(function () use ($db, $invoiceId, &$notifyDone) {
+                    if ($notifyDone) { return; }
+                    try {
+                        $db->query(
+                            "UPDATE bookings SET notified_paid_at = NULL WHERE invoice_id = :inv AND notified_paid_at IS NOT NULL",
+                            [':inv' => $invoiceId]
+                        );
+                    } catch (\Throwable $e) { error_log('bm_notify_paid claim-release (shutdown): ' . $e->getMessage()); }
+                });
             } else {
                 return; // already notified
             }
@@ -649,6 +681,13 @@ if (!function_exists('bm_notify_paid')) {
                 ], $invoicePdf, $ticketPdf);
             }
 
+            // Primary customer notification (ticket/invoice email) is DONE. Disarm the
+            // release-on-crash guard here — not after the eSIM phone step below, which
+            // is idempotent best-effort and must NOT gate the claim (releasing after a
+            // partial failure there would double-send the email on retry). A fatal
+            // BEFORE this point leaves the guard armed → claim released → safe retry.
+            if (isset($notifyDone)) { $notifyDone = true; }
+
             // eSIM: also deliver the activation to the customer's PHONE (WhatsApp /
             // GIA channel) — a warm message + the BARE QR image + the voucher PDF.
             // eSIM collects phone (now required), and the QR belongs on the phone the
@@ -658,7 +697,21 @@ if (!function_exists('bm_notify_paid')) {
                 && function_exists('esim_deliver_to_phone')) {
                 esim_deliver_to_phone($db, $invoiceId);
             }
-        } catch (\Throwable $e) { error_log('bm_notify_paid: ' . $e->getMessage()); }
+        } catch (\Throwable $e) {
+            error_log('bm_notify_paid: ' . $e->getMessage());
+            // If we FAILED before the primary email went out ($notifyDone still false),
+            // release the claim so a retry can re-notify. If the email already sent
+            // ($notifyDone true), KEEP the claim — a partial failure in a later
+            // best-effort step (eSIM phone) must not trigger a duplicate email.
+            if (isset($notifyDone) && $notifyDone === false && !empty($invoiceId)) {
+                try {
+                    $db->query(
+                        "UPDATE bookings SET notified_paid_at = NULL WHERE invoice_id = :inv AND notified_paid_at IS NOT NULL",
+                        [':inv' => $invoiceId]
+                    );
+                } catch (\Throwable $e2) { error_log('bm_notify_paid claim-release (catch): ' . $e2->getMessage()); }
+            }
+        }
     }
 }
 
