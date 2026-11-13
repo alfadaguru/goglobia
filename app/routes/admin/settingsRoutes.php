@@ -249,25 +249,35 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
         // Include ThemeManager for theme saving
         require_once __DIR__ . '/../../lib/ThemeManager.php';
 
-        // Handle theme saving - check for theme data and active_theme
+        // Handle theme saving - check for theme data and active_theme.
+        // ISOLATED so a theme-write failure (e.g. app/themes not writable by the web
+        // user) cannot abort the WHOLE settings save. Previously a failed/`false`
+        // theme write threw straight to the outer catch, silently discarding every
+        // other change on this form (branding, URLs, AI provider + backup keys, …) —
+        // which looked like "settings just reload and nothing saves". Now it degrades
+        // to a warning and the rest of the save proceeds.
+        $themeWarning = '';
         if (isset($_POST['theme']) && isset($_POST['active_theme']) && is_array($_POST['theme'])) {
+            try {
+                $activeThemeName = $_POST['active_theme'] ?? ThemeManager::getActiveTheme();
 
-            $activeThemeName = $_POST['active_theme'] ?? ThemeManager::getActiveTheme();
+                // Load existing theme to preserve name property
+                $existingTheme = ThemeManager::loadTheme($activeThemeName);
+                $themeConfig = $_POST['theme'];
+                $themeConfig['name'] = $existingTheme['name'] ?? ucfirst(str_replace('-', ' ', $activeThemeName));
 
-            // Load existing theme to preserve name property
-            $existingTheme = ThemeManager::loadTheme($activeThemeName);
-            $themeConfig = $_POST['theme'];
-            $themeConfig['name'] = $existingTheme['name'] ?? ucfirst(str_replace('-', ' ', $activeThemeName));
+                // Save the theme
+                $result = ThemeManager::saveTheme($activeThemeName, $themeConfig);
 
-            // Save the theme
-            $result = ThemeManager::saveTheme($activeThemeName, $themeConfig);
+                if ($result === false) {
+                    throw new Exception('theme file is not writable');
+                }
 
-            if ($result === false) {
-                throw new Exception('Failed to save theme configuration');
+                $_SESSION['message'] = ['type' => 'success', 'text' => 'Theme settings saved successfully!'];
+            } catch (\Throwable $themeEx) {
+                error_log('Settings: theme save skipped (non-fatal): ' . $themeEx->getMessage());
+                $themeWarning = 'Theme changes could not be saved (the theme file is not writable on the server), but your other settings were saved.';
             }
-
-            $_SESSION['message'] = ['type' => 'success', 'text' => 'Theme settings saved successfully!'];
-
         }
 
         $existingSettings = getSettings($db);
@@ -629,11 +639,16 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             }
         }
 
-        if ($result) {
+        if ($result !== false) {
             if (!empty($uploadErrors)) {
                 $_SESSION['message'] = [
                     'type' => 'warning',
                     'text' => T::settings_updated_with_upload_errors . ' ' . implode(', ', $uploadErrors)
+                ];
+            } elseif ($themeWarning !== '') {
+                $_SESSION['message'] = [
+                    'type' => 'warning',
+                    'text' => T::settings_updated_successfully . ' ' . $themeWarning
                 ];
             } elseif ($emailProviderWarning !== '') {
                 $_SESSION['message'] = [
