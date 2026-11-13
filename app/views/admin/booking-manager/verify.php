@@ -8,6 +8,24 @@
 $v        = $GLOBALS['bmVerify'] ?? ['is_senior' => false, 'pending' => [], 'stranded' => []];
 $stranded = $v['stranded'] ?? [];
 $csrf     = $_SESSION['csrf_token'] ?? '';
+
+// Passenger full name(s) from a booking's travellers JSON — the people FLYING
+// (distinct from the booker/customer in first_name+last_name). Returns a short
+// list string like "Ada Obi, Chidi Obi" (or '' when there are no named pax).
+if (!function_exists('bmTravellerNames')) {
+    function bmTravellerNames($travellersJson): array
+    {
+        $t = is_array($travellersJson) ? $travellersJson : json_decode((string) $travellersJson, true);
+        if (!is_array($t)) return [];
+        $names = [];
+        foreach ($t as $k => $p) {
+            if (!is_array($p) || !preg_match('/^(adult|child|infant)_\d+$/', (string) $k)) continue;
+            $n = trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? ''));
+            if ($n !== '') $names[] = $n;
+        }
+        return $names;
+    }
+}
 ?>
 <div class="container py-6" x-data="bmVerify()">
   <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
@@ -29,7 +47,7 @@ $csrf     = $_SESSION['csrf_token'] ?? '';
       <table class="table w-full text-sm">
         <thead><tr class="text-left text-slate-500 border-b border-slate-100">
           <th class="px-4 py-3 font-medium">Invoice</th>
-          <th class="px-4 py-3 font-medium">Customer</th>
+          <th class="px-4 py-3 font-medium">Customer / Passengers</th>
           <th class="px-4 py-3 font-medium">Service</th>
           <th class="px-4 py-3 font-medium">Amount due</th>
           <th class="px-4 py-3 font-medium">Created by</th>
@@ -43,7 +61,13 @@ $csrf     = $_SESSION['csrf_token'] ?? '';
           <?php else: foreach ($v['pending'] as $b): $inv = $b['invoice_id']; $due = (float) ($b['price_markup'] ?? 0); ?>
             <tr x-show="!done['<?= htmlspecialchars($inv, ENT_QUOTES) ?>']">
               <td class="px-4 py-3 font-mono text-slate-700"><?= htmlspecialchars($inv) ?></td>
-              <td class="px-4 py-3"><?= htmlspecialchars(trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? ''))) ?><br><span class="text-xs text-slate-400"><?= htmlspecialchars($b['email'] ?? '') ?></span></td>
+              <td class="px-4 py-3">
+                <?= htmlspecialchars(trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? ''))) ?>
+                <br><span class="text-xs text-slate-400"><?= htmlspecialchars($b['email'] ?? '') ?></span>
+                <?php $pax = bmTravellerNames($b['travellers'] ?? ''); if (!empty($pax)): ?>
+                <div class="text-xs text-slate-500 mt-1"><span class="material-symbols-outlined align-middle" style="font-size:13px;">group</span> <?= htmlspecialchars(implode(', ', $pax)) ?></div>
+                <?php endif; ?>
+              </td>
               <td class="px-4 py-3"><?= htmlspecialchars(ucfirst((string) ($b['module_type'] ?? ''))) ?> · <?= htmlspecialchars((string) ($b['module'] ?? '')) ?></td>
               <td class="px-4 py-3 font-semibold tabular-nums"><?= htmlspecialchars((string) ($b['currency_markup'] ?? '')) ?> <?= number_format($due, 2) ?></td>
               <td class="px-4 py-3 text-xs text-slate-500"><?= htmlspecialchars((string) ($b['created_by_admin'] ?? '')) ?></td>
@@ -70,7 +94,7 @@ $csrf     = $_SESSION['csrf_token'] ?? '';
           <table class="table w-full text-sm">
             <thead><tr class="text-left text-slate-500 border-b border-slate-100">
               <th class="px-4 py-3 font-medium">Invoice</th>
-              <th class="px-4 py-3 font-medium">Customer</th>
+              <th class="px-4 py-3 font-medium">Customer / Passengers</th>
               <th class="px-4 py-3 font-medium">Service</th>
               <th class="px-4 py-3 font-medium">Amount</th>
               <th class="px-4 py-3 font-medium">Action</th>
@@ -94,7 +118,13 @@ $csrf     = $_SESSION['csrf_token'] ?? '';
               ?>
                 <tr x-show="!done['<?= htmlspecialchars($inv, ENT_QUOTES) ?>']">
                   <td class="px-4 py-3 font-mono text-slate-700"><?= htmlspecialchars($inv) ?></td>
-                  <td class="px-4 py-3"><?= htmlspecialchars(trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? ''))) ?><br><span class="text-xs text-slate-400"><?= htmlspecialchars($b['email'] ?? '') ?></span></td>
+                  <td class="px-4 py-3">
+                    <?= htmlspecialchars(trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? ''))) ?>
+                    <br><span class="text-xs text-slate-400"><?= htmlspecialchars($b['email'] ?? '') ?></span>
+                    <?php $spax = bmTravellerNames($b['travellers'] ?? ''); if (!empty($spax)): ?>
+                    <div class="text-xs text-slate-500 mt-1"><span class="material-symbols-outlined align-middle" style="font-size:13px;">group</span> <?= htmlspecialchars(implode(', ', $spax)) ?></div>
+                    <?php endif; ?>
+                  </td>
                   <td class="px-4 py-3"><?= htmlspecialchars(ucfirst((string) ($b['module_type'] ?? ''))) ?> · <?= htmlspecialchars((string) ($b['module'] ?? '')) ?></td>
                   <td class="px-4 py-3 font-semibold tabular-nums"><?= htmlspecialchars((string) ($b['currency_markup'] ?? '')) ?> <?= number_format((float) ($b['price_markup'] ?? 0), 2) ?></td>
                   <td class="px-4 py-3">

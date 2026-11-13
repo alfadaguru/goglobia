@@ -692,7 +692,34 @@ $svcIcons = [
 
       <!-- ============ CUSTOMER + PASSENGERS (both modes) ============ -->
       <div class="card p-4">
-        <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">person</span>Customer</h2>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-base font-semibold text-slate-800 flex items-center gap-2"><span class="material-symbols-outlined text-lg">person</span>Customer</h2>
+          <button type="button" class="text-xs text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1" @click="newCustomer()">
+            <span class="material-symbols-outlined" style="font-size:16px;">person_add</span>New customer
+          </button>
+        </div>
+
+        <!-- Find an existing customer by name / email / phone (live). Picking one
+             fills the fields below; "New customer" clears them to type a fresh one. -->
+        <div class="form-control relative mb-3">
+          <span class="form-label">Find existing customer</span>
+          <input class="input" x-model="custSearch.q" @input.debounce.300ms="searchCustomer()" @focus="custSearch.q.length>=2 && searchCustomer()" @blur="custSearchBlur()"
+                 placeholder="Search by name, email or phone…" autocomplete="off">
+          <div class="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto" x-show="custSearch.open && (custSearch.items.length || custSearch.searched)" x-cloak>
+            <template x-for="(c,i) in custSearch.items" :key="i">
+              <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-50" @mousedown.prevent="pickCustomer(c)">
+                <span class="font-medium text-slate-800" x-text="((c.first_name||'')+' '+(c.last_name||'')).trim()||'(no name)'"></span>
+                <span class="text-[10px] uppercase tracking-wide text-slate-400 ml-1" x-text="c.source==='account'?'account':'past booking'"></span>
+                <span class="block text-xs text-slate-500" x-text="[c.email, c.phone].filter(Boolean).join(' · ')"></span>
+              </button>
+            </template>
+            <div class="px-3 py-2 text-xs text-slate-400 flex items-center justify-between" x-show="custSearch.searched && !custSearch.items.length">
+              <span>No match.</span>
+              <button type="button" class="text-emerald-600 hover:text-emerald-700" @mousedown.prevent="newCustomer(custSearch.q)">+ Create new customer</button>
+            </div>
+          </div>
+        </div>
+
         <div class="grid sm:grid-cols-2 gap-3">
           <label class="form-control"><span class="form-label">First name *</span><input class="input" x-model="cust.first_name"></label>
           <label class="form-control"><span class="form-label">Last name *</span><input class="input" x-model="cust.last_name"></label>
@@ -929,6 +956,7 @@ function bookingMgr() {
       esim:    ['package_name','country','data_amount','validity','iccid','reference'],
     },
     cust: { first_name:'', last_name:'', email:'', phone:'', ticket_email:'' },
+    custSearch: { q:'', items:[], open:false, searched:false },
     pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', nationality:'', dob:'', ticket_number:'' }],
     price: { sell:0, cost:0, currency:'' },
 
@@ -996,6 +1024,40 @@ function bookingMgr() {
     addPax(t){ this.pax.push({ type:t, title: (t==='child'||t==='infant')?'Mstr':'Mr', first_name:'', last_name:'', passport_number:'', nationality:'', dob:'', ticket_number:'' }); },
 
     form(o){ const f=new FormData(); f.append('csrf_token',this.csrf); for(const k in o){ let v=o[k]; if(v===null||v===undefined) v=''; if(typeof v==='object') v=JSON.stringify(v); f.append(k,v);} return f; },
+
+    // ---- CUSTOMER SEARCH (find an existing customer by name/email/phone) ----
+    async searchCustomer(){
+      const q=(this.custSearch.q||'').trim();
+      if(q.length<2){ this.custSearch.items=[]; this.custSearch.open=false; this.custSearch.searched=false; return; }
+      try{
+        const res=await fetch(this.base+'admin/booking-manager/search-customer',{method:'POST',body:this.form({q})});
+        const d=await res.json();
+        this.custSearch.items=(d&&d.customers)?d.customers:[];
+        this.custSearch.open=true; this.custSearch.searched=true;
+      }catch(e){ this.custSearch.items=[]; this.custSearch.open=true; this.custSearch.searched=true; }
+    },
+    pickCustomer(c){
+      this.cust.first_name=c.first_name||''; this.cust.last_name=c.last_name||'';
+      this.cust.email=c.email||''; this.cust.phone=c.phone||'';
+      // keep ticket_email as-is (staff may send the ticket elsewhere)
+      this.custSearch.q=((c.first_name||'')+' '+(c.last_name||'')).trim();
+      this.custSearch.open=false;
+    },
+    // Clear the customer fields to type a brand-new one. Optionally seed the name
+    // from the current search text (when the staffer clicks "+ Create new").
+    newCustomer(seed){
+      this.cust={ first_name:'', last_name:'', email:'', phone:'', ticket_email:'' };
+      this.custSearch.items=[]; this.custSearch.open=false; this.custSearch.searched=false;
+      const s=(typeof seed==='string'?seed:'').trim();
+      // If the seed looks like an email/phone, prefill that field; else treat as a name.
+      if(s){
+        if(s.includes('@')){ this.cust.email=s; }
+        else if(/^[\d+\-\s()]{5,}$/.test(s)){ this.cust.phone=s.replace(/[^\d+]/g,''); }
+        else { const parts=s.split(/\s+/); this.cust.first_name=parts[0]||''; this.cust.last_name=parts.slice(1).join(' ')||''; }
+      }
+      this.custSearch.q='';
+    },
+    custSearchBlur(){ setTimeout(()=>{ this.custSearch.open=false; }, 150); },
 
     // ---- Airport autocomplete (reuses the admin flights endpoint) ----------
     async acSearch(which){
@@ -1795,7 +1857,8 @@ function bookingMgr() {
       this.rail.selTrain=null; this.rail.selSeat=null; this.rail.trains=[];
       this.ferry.sel=null; this.ferry.sailings=[];
       this.cust={ first_name:'', last_name:'', email:'', phone:'', ticket_email:'' };
-      this.pax=[{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', nationality:'', ticket_number:'' }];
+      this.custSearch={ q:'', items:[], open:false, searched:false };
+      this.pax=[{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', nationality:'', dob:'', ticket_number:'' }];
       this.price={ sell:0, cost:0, currency:'' };
       this.clientToken=this.newToken();
       try{ window.scrollTo({ top:0, behavior:'smooth' }); }catch(e){}

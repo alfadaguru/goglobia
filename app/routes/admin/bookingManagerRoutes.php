@@ -249,6 +249,55 @@ $router->post(admin . '/booking-manager/search', function () use ($SECURE, $db) 
 });
 
 // ---------------------------------------------------------------------------
+// POST /admin/booking-manager/search-customer — find an existing customer by
+// name / email / phone so staff don't re-type a known customer. Searches BOTH
+// registered users AND prior walk-in bookings (BM walk-ins have user_id=NULL and
+// live only on the booking row), de-duped by email, returning name/email/phone.
+// ---------------------------------------------------------------------------
+$router->post(admin . '/booking-manager/search-customer', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'add');
+    if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
+
+    $q = trim((string) ($_POST['q'] ?? ''));
+    if (mb_strlen($q) < 2) { bmAdminJson(['status' => true, 'customers' => []]); }
+    // Medoo [~] auto-wraps %q% only when the needle has NO special char; wrap it
+    // ourselves so a needle containing '_'/'@'/digits still does a substring LIKE.
+    $like = '%' . $q . '%';
+
+    $out = [];       // email(lowercased) => customer
+    $push = function (array $c) use (&$out) {
+        $email = strtolower(trim((string) ($c['email'] ?? '')));
+        $key = $email !== '' ? $email : ('p:' . trim((string) ($c['phone'] ?? '')) . '|' . strtolower(trim(($c['first_name'] ?? '') . ($c['last_name'] ?? ''))));
+        if ($key === '' || $key === 'p:|') return;
+        if (!isset($out[$key])) { $out[$key] = $c; }
+    };
+
+    // 1) Registered users (customers/agents — not staff/admin, which aren't travellers).
+    try {
+        $users = $db->select('users', ['first_name', 'last_name', 'email', 'phone', 'phone_country_code'], [
+            'OR' => ['first_name[~]' => $like, 'last_name[~]' => $like, 'email[~]' => $like, 'phone[~]' => $like],
+            'LIMIT' => 12, 'ORDER' => ['first_name' => 'ASC'],
+        ]) ?: [];
+        foreach ($users as $u) { $u['source'] = 'account'; $push($u); }
+    } catch (\Throwable $e) { error_log('bm search-customer users: ' . $e->getMessage()); }
+
+    // 2) Prior walk-in bookings' customer fields (repeat walk-ins who have no account).
+    try {
+        $rows = $db->select('bookings', ['first_name', 'last_name', 'email', 'phone', 'phone_country_code'], [
+            'OR' => ['first_name[~]' => $like, 'last_name[~]' => $like, 'email[~]' => $like, 'phone[~]' => $like],
+            'ORDER' => ['id' => 'DESC'], 'LIMIT' => 30,
+        ]) ?: [];
+        foreach ($rows as $r) {
+            if (trim((string) ($r['email'] ?? '')) === '' && trim((string) ($r['phone'] ?? '')) === '') continue;
+            $r['source'] = 'booking'; $push($r);
+        }
+    } catch (\Throwable $e) { error_log('bm search-customer bookings: ' . $e->getMessage()); }
+
+    bmAdminJson(['status' => true, 'customers' => array_values(array_slice($out, 0, 12))]);
+});
+
+// ---------------------------------------------------------------------------
 // POST /admin/booking-manager/read-ticket — AI-read an uploaded flight ticket.
 // Staff upload a ticket (PDF or image) that was booked elsewhere; the connected
 // AI (Claude, native PDF reading) extracts the flight details and returns them
@@ -1038,7 +1087,9 @@ $router->get(admin . '/booking-manager/verify', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     admin_require($db, 'bookings', 'view');
     $isSenior = bm_is_senior_admin($db);
-    $cols = ['invoice_id', 'first_name', 'last_name', 'email', 'module', 'module_type', 'booking_status', 'payment_status', 'price_markup', 'currency_markup', 'created_by_admin', 'pnr', 'created_at'];
+    // `travellers` is included so BOTH queues can show the passenger name(s), not
+    // only the booker/customer name (first_name+last_name is the person who booked).
+    $cols = ['invoice_id', 'first_name', 'last_name', 'email', 'module', 'module_type', 'booking_status', 'payment_status', 'price_markup', 'currency_markup', 'created_by_admin', 'pnr', 'created_at', 'travellers'];
     $pending = $isSenior ? ($db->select('bookings', $cols,
         ['payment_status' => 'awaiting_verification', 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]
     ) ?: []) : [];
@@ -1049,10 +1100,9 @@ $router->get(admin . '/booking-manager/verify', function () use ($SECURE, $db) {
     // A live booking that issued becomes booking_status='confirmed' (+ a PNR), so
     // "paid AND not confirmed AND admin_live" is the reliable stranded signal —
     // no fragile pnr null-vs-'' test needed.
-    // Stranded rows also carry `travellers` so the UI can offer a DOB fix (the #1
-    // reason a live flight fails to issue: a missing per-passenger date of birth).
-    $strandedCols = array_merge($cols, ['travellers']);
-    $stranded = $isSenior ? ($db->select('bookings', $strandedCols, [
+    // Stranded rows use the same cols ($cols already includes `travellers`, used
+    // for both the passenger-name display and the DOB-fix on failed-to-issue rows).
+    $stranded = $isSenior ? ($db->select('bookings', $cols, [
         'payment_status' => 'paid',
         'booking_status[!]' => 'confirmed',
         'booking_channel[~]' => 'admin_live',
