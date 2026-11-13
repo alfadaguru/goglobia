@@ -76,13 +76,39 @@ $csrf     = $_SESSION['csrf_token'] ?? '';
               <th class="px-4 py-3 font-medium">Action</th>
             </tr></thead>
             <tbody class="divide-y divide-slate-100">
-              <?php foreach ($stranded as $b): $inv = $b['invoice_id']; ?>
+              <?php foreach ($stranded as $b): $inv = $b['invoice_id'];
+                    // Find real passengers (adult_/child_/infant_) that are MISSING a dob,
+                    // so the senior can supply it before retrying (the #1 issue-failure).
+                    $trav = json_decode((string) ($b['travellers'] ?? '[]'), true);
+                    $needDob = [];
+                    if (is_array($trav)) {
+                        foreach ($trav as $pk => $pv) {
+                            if (!is_array($pv) || !preg_match('/^(adult|child|infant)_\d+$/', (string) $pk)) { continue; }
+                            $hasDob = trim((string) ($pv['dob'] ?? $pv['date_of_birth'] ?? '')) !== '';
+                            if (!$hasDob && strpos((string) $pk, 'infant_') !== 0) {
+                                $needDob[$pk] = trim((string) ($pv['first_name'] ?? '') . ' ' . (string) ($pv['last_name'] ?? '')) ?: $pk;
+                            }
+                        }
+                    }
+                    $isFlight = strtolower((string) ($b['module_type'] ?? '')) === 'flights';
+              ?>
                 <tr x-show="!done['<?= htmlspecialchars($inv, ENT_QUOTES) ?>']">
                   <td class="px-4 py-3 font-mono text-slate-700"><?= htmlspecialchars($inv) ?></td>
                   <td class="px-4 py-3"><?= htmlspecialchars(trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? ''))) ?><br><span class="text-xs text-slate-400"><?= htmlspecialchars($b['email'] ?? '') ?></span></td>
                   <td class="px-4 py-3"><?= htmlspecialchars(ucfirst((string) ($b['module_type'] ?? ''))) ?> · <?= htmlspecialchars((string) ($b['module'] ?? '')) ?></td>
                   <td class="px-4 py-3 font-semibold tabular-nums"><?= htmlspecialchars((string) ($b['currency_markup'] ?? '')) ?> <?= number_format((float) ($b['price_markup'] ?? 0), 2) ?></td>
                   <td class="px-4 py-3">
+                    <?php if ($isFlight && !empty($needDob)): ?>
+                    <div class="mb-2 space-y-1">
+                      <p class="text-[11px] text-red-600">Missing date of birth — the airline needs it to issue:</p>
+                      <?php foreach ($needDob as $pk => $pname): ?>
+                      <label class="flex items-center gap-2 text-xs">
+                        <span class="text-slate-600 w-32 truncate"><?= htmlspecialchars($pname) ?></span>
+                        <input type="date" class="input input-sm" x-model="dobs['<?= htmlspecialchars($inv, ENT_QUOTES) ?>']['<?= htmlspecialchars($pk, ENT_QUOTES) ?>']">
+                      </label>
+                      <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
                     <button class="btn outline sm" @click="retry('<?= htmlspecialchars($inv, ENT_QUOTES) ?>')" :disabled="busy['<?= htmlspecialchars($inv, ENT_QUOTES) ?>']">
                       <span class="material-symbols-outlined">refresh</span><span>Retry issue</span>
                     </button>
@@ -102,6 +128,12 @@ function bmVerify(){
   return {
     csrf:'<?= htmlspecialchars($csrf, ENT_QUOTES) ?>', base:'<?= root ?>',
     refs:{}, amts:{}, busy:{}, done:{}, msg:'', msgOk:false,
+    // Per-invoice DOB entries the senior can fill in for a stranded booking that
+    // failed to issue for lack of a date of birth. Seeded so x-model has a target.
+    dobs:{ <?php foreach (($stranded ?? []) as $b): $inv = $b['invoice_id'];
+             $trav = json_decode((string) ($b['travellers'] ?? '[]'), true); $keys=[];
+             if (is_array($trav)) { foreach ($trav as $pk=>$pv){ if (is_array($pv) && preg_match('/^(adult|child)_\d+$/',(string)$pk)) { $keys[]=$pk; } } }
+             if ($keys): ?>'<?= htmlspecialchars($inv, ENT_QUOTES) ?>':{<?php foreach ($keys as $k): ?>'<?= htmlspecialchars($k, ENT_QUOTES) ?>':'',<?php endforeach; ?>},<?php endif; endforeach; ?> },
     async verify(inv, due){
       // Amount received: blank = "full amount due" (the input placeholder shows it).
       const received = (this.amts[inv]===undefined||this.amts[inv]===null||(''+this.amts[inv]).trim()==='')
@@ -132,6 +164,10 @@ function bmVerify(){
       this.busy[inv]=true; this.msg='';
       try{
         const f=new FormData(); f.append('csrf_token',this.csrf); f.append('invoice_id',inv);
+        // If the senior entered any missing DOBs for this booking, send them so the
+        // backend patches the travellers before re-firing the supplier issue.
+        const dob=this.dobs[inv];
+        if(dob && Object.keys(dob).some(k=>(dob[k]||'').trim())){ f.append('traveller_dobs', JSON.stringify(dob)); }
         const res=await fetch(this.base+'admin/booking-manager/retry-issue',{method:'POST',body:f});
         const data=await res.json();
         this.msgOk=!!data.status; this.msg=(data.settle&&data.settle.message)||data.message||'';

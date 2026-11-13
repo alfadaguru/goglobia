@@ -978,6 +978,36 @@ $router->post(admin . '/booking-manager/retry-issue', function () use ($SECURE, 
     if (!empty($booking['pnr'])) {
         bmAdminJson(['status' => true, 'already_issued' => true, 'message' => 'This booking already has a PNR.']);
     }
+
+    // FIX A MISSING DOB on an existing booking before retrying. A live flight
+    // booked without a per-passenger date of birth fails at the supplier issue
+    // ("date of birth is required"). The senior can supply the DOBs here —
+    // traveller_dobs = { "adult_0":"1990-05-01", "child_0":"2015-03-12", ... }
+    // (or a flat list in traveller order) — and we merge them into the stored
+    // travellers JSON before re-firing issue, so the retry can actually succeed.
+    $dobInput = $_POST['traveller_dobs'] ?? '';
+    if (is_string($dobInput) && $dobInput !== '') { $dobInput = json_decode($dobInput, true); }
+    if (is_array($dobInput) && !empty($dobInput)) {
+        $travellers = json_decode((string) ($booking['travellers'] ?? '[]'), true);
+        if (is_array($travellers)) {
+            $flatIdx = 0;
+            foreach ($travellers as $k => &$t) {
+                if (!is_array($t) || !preg_match('/^(adult|child|infant)_\d+$/', (string) $k)) { continue; }
+                // Keyed by passenger key, or positional (flat array in traveller order).
+                $dob = $dobInput[$k] ?? ($dobInput[$flatIdx] ?? '');
+                $flatIdx++;
+                $dob = trim((string) $dob);
+                if ($dob !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob) && strtotime($dob) !== false) {
+                    $t['dob'] = $dob;
+                    $t['date_of_birth'] = $dob; // some suppliers read this key
+                }
+            }
+            unset($t);
+            $db->update('bookings', ['travellers' => json_encode($travellers)], ['invoice_id' => $invoiceId]);
+            $booking['travellers'] = json_encode($travellers);
+        }
+    }
+
     // method is cosmetic here — bm_settle takes the issue-only recovery path for a
     // paid live booking with no PNR, and never re-charges / re-audits.
     // refund_if_fail=1 = the senior's explicit "give up and refund if it fails
@@ -1019,7 +1049,10 @@ $router->get(admin . '/booking-manager/verify', function () use ($SECURE, $db) {
     // A live booking that issued becomes booking_status='confirmed' (+ a PNR), so
     // "paid AND not confirmed AND admin_live" is the reliable stranded signal —
     // no fragile pnr null-vs-'' test needed.
-    $stranded = $isSenior ? ($db->select('bookings', $cols, [
+    // Stranded rows also carry `travellers` so the UI can offer a DOB fix (the #1
+    // reason a live flight fails to issue: a missing per-passenger date of birth).
+    $strandedCols = array_merge($cols, ['travellers']);
+    $stranded = $isSenior ? ($db->select('bookings', $strandedCols, [
         'payment_status' => 'paid',
         'booking_status[!]' => 'confirmed',
         'booking_channel[~]' => 'admin_live',

@@ -27,13 +27,24 @@ if (!function_exists('bm_current_admin_level')) {
         if (($_SESSION['user_role'] ?? '') !== 'admin') return 0;
         $uid = $_SESSION['user_id'] ?? '';
         if ($uid === '') return 0;
+        // A genuine role='admin' IS an admin (senior) — floor the level at 1. The
+        // admin_level column (default 0) only ELEVATES to super-admin (2); it must
+        // never DEMOTE a real admin below senior. Without this floor, the main
+        // admin (admin_level=0 on every existing install) was treated as "staff"
+        // and the Payment Verification queue + company-bank features were hidden
+        // from them — so a manual-transfer booking parked in awaiting_verification
+        // was invisible to everyone. (Staff proper are role='employee' → return 0
+        // at the guard above, so this does not over-promote them.)
         try {
             $row = $db->get('users', ['admin_level'], ['user_id' => $uid]);
-            return $row ? max(0, min(2, (int) ($row['admin_level'] ?? 0))) : 0;
+            if (!$row) return 1;                       // admin session, row missing → still admin
+            $lvl = max(0, min(2, (int) ($row['admin_level'] ?? 0)));
+            return max(1, $lvl);                        // admin floor = 1 (senior)
         } catch (\Throwable $e) {
-            // Column may not exist yet on an un-migrated DB — treat as staff.
+            // Column may not exist yet on an un-migrated DB — a real admin is still
+            // senior (don't lock admins out of verification on an un-migrated DB).
             error_log('bm_current_admin_level: ' . $e->getMessage());
-            return 0;
+            return 1;
         }
     }
 }
