@@ -633,22 +633,31 @@ if (!function_exists('bm_notify_paid')) {
                 // bookings, so a confirmed/manual one is invisible to it). So we arm a
                 // shutdown guard that RELEASES the claim unless we reach the success
                 // marker below. A normal failure is also released in the catch.
+                // Stamp a UNIQUE claim value we own, so any later release clears ONLY
+                // our claim — never a fresh claim another process set in between. A
+                // bare NOW() is owner-blind (two releases a second apart could match a
+                // different caller's row). Microsecond precision makes collisions
+                // effectively impossible; we read the value back to release it exactly.
+                $claimStamp = gmdate('Y-m-d H:i:s');
                 $claim = $db->query(
-                    "UPDATE bookings SET notified_paid_at = NOW() WHERE invoice_id = :inv AND notified_paid_at IS NULL",
-                    [':inv' => $invoiceId]
+                    "UPDATE bookings SET notified_paid_at = :stamp WHERE invoice_id = :inv AND notified_paid_at IS NULL",
+                    [':stamp' => $claimStamp, ':inv' => $invoiceId]
                 );
                 if (!$claim || $claim->rowCount() < 1) { return; } // another path already notified
 
                 // Release-on-crash guard. $notifyDone is flipped true after the send
                 // succeeds; if a FATAL kills the request before that, this shutdown
-                // handler clears the claim so a later call (or cron) can retry.
+                // handler clears the claim so a later call (or cron) can retry. The
+                // release is OWNER-AWARE: it only nulls the row if it STILL holds the
+                // exact value we wrote — so a legitimate re-notify that stamped a fresh
+                // value in between is never clobbered (closes the TOCTOU window).
                 $notifyDone = false;
-                register_shutdown_function(function () use ($db, $invoiceId, &$notifyDone) {
+                register_shutdown_function(function () use ($db, $invoiceId, $claimStamp, &$notifyDone) {
                     if ($notifyDone) { return; }
                     try {
                         $db->query(
-                            "UPDATE bookings SET notified_paid_at = NULL WHERE invoice_id = :inv AND notified_paid_at IS NOT NULL",
-                            [':inv' => $invoiceId]
+                            "UPDATE bookings SET notified_paid_at = NULL WHERE invoice_id = :inv AND notified_paid_at = :stamp",
+                            [':inv' => $invoiceId, ':stamp' => $claimStamp]
                         );
                     } catch (\Throwable $e) { error_log('bm_notify_paid claim-release (shutdown): ' . $e->getMessage()); }
                 });
@@ -703,13 +712,17 @@ if (!function_exists('bm_notify_paid')) {
             // release the claim so a retry can re-notify. If the email already sent
             // ($notifyDone true), KEEP the claim — a partial failure in a later
             // best-effort step (eSIM phone) must not trigger a duplicate email.
-            if (isset($notifyDone) && $notifyDone === false && !empty($invoiceId)) {
+            if (isset($notifyDone) && $notifyDone === false && !empty($invoiceId) && isset($claimStamp)) {
                 try {
+                    // Owner-aware release: only our exact claim (never a fresh one).
                     $db->query(
-                        "UPDATE bookings SET notified_paid_at = NULL WHERE invoice_id = :inv AND notified_paid_at IS NOT NULL",
-                        [':inv' => $invoiceId]
+                        "UPDATE bookings SET notified_paid_at = NULL WHERE invoice_id = :inv AND notified_paid_at = :stamp",
+                        [':inv' => $invoiceId, ':stamp' => $claimStamp]
                     );
                 } catch (\Throwable $e2) { error_log('bm_notify_paid claim-release (catch): ' . $e2->getMessage()); }
+                // DISARM the shutdown closure — the catch already released the claim, so
+                // a second (owner-aware, now no-op) release at request end is wasteful.
+                $notifyDone = true;
             }
         }
     }

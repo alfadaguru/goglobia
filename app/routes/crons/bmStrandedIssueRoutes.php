@@ -96,27 +96,36 @@ $router->get('/cron/bm-stranded-issue', function () use ($SECURE, $db) {
     }
 
     // ------------------------------------------------------------------
-    // SECOND SWEEP: un-notified settled bookings (deferred-notify backstop).
+    // SECOND SWEEP: un-notified SETTLED bookings (deferred-notify backstop).
     // The interactive /pay + /verify paths defer bm_notify_paid to AFTER the
     // response flushes. If the worker dies in that post-response window (deploy
     // kill, mPDF OOM, time-limit) the customer never gets their ticket/voucher —
     // and the stranded sweep above does NOT catch it (it only looks at
     // non-confirmed admin_live rows, so a CONFIRMED or manual booking is
     // invisible). bm_notify_paid's crash-release guard clears its claim on such a
-    // failure, leaving notified_paid_at NULL — so here we simply re-drive
-    // bm_notify_paid for any PAID booking that was never notified. It is fully
-    // idempotent (atomic notified_paid_at claim) and its own fulfilment guard
-    // skips a paid-but-unissued live booking, so this is safe to run every tick.
+    // failure, leaving notified_paid_at NULL — so here we re-drive bm_notify_paid.
+    //
+    // CRITICAL scope: only booking_status='confirmed' rows. A deferred notify is
+    // ONLY ever issued for a booking bm_settle already CONFIRMED (it returns
+    // notify_due solely on the confirmed/manual path). An on-hold / not-yet-
+    // ticketed LIVE flight is left 'pending' WITHOUT an issue-error field, so it
+    // would slip past bm_notify_paid's fulfilment guard (which only blocks
+    // pending+error) and get a PREMATURE 'ticket issued' email. Requiring
+    // 'confirmed' here is the real fulfilment signal and keeps those pending rows
+    // out entirely — which also means stuck-pending bookings can't starve the
+    // id-ASC/LIMIT window. Idempotent (atomic notified_paid_at claim).
     $renotified = 0; $renotifyFound = 0;
     try {
-        // EXACT-match the BM/agent channels — NOT Medoo [~] LIKE: the '_' in
+        // EXACT-match the channels — NOT Medoo [~] LIKE: the '_' in
         // 'admin_live'/'admin_manual' defeats Medoo's %..% auto-wrap (known trap), so a
         // LIKE 'admin_%' would silently match nothing. An IN on the exact values is
-        // unambiguous and covers both BM channels (live + manual).
+        // unambiguous. 'agent' is included for parity even though agent settles notify
+        // inline today — a harmless, guard-protected backstop if that ever changes.
         $unnotified = $db->select('bookings', ['invoice_id'], [
             'payment_status'   => 'paid',
+            'booking_status'   => 'confirmed',     // real fulfilment signal — never a pending/on-hold flight
             'notified_paid_at'  => null,
-            'booking_channel'  => ['admin_live', 'admin_manual'],
+            'booking_channel'  => ['admin_live', 'admin_manual', 'agent'],
             'ORDER'            => ['id' => 'ASC'],
             'LIMIT'            => 50,
         ]) ?: [];

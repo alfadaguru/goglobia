@@ -56,8 +56,12 @@ if (!function_exists('bmAdminJsonThenNotify')) {
             header('Content-Type: application/json');
             // Exact body length so the client knows the response is COMPLETE and closes
             // the connection promptly (no chunked/keep-alive hang that kills the
-            // "instant" feel).
-            header('Content-Length: ' . strlen($body));
+            // "instant" feel). ONLY when the SAPI isn't gzip-compressing the body — a
+            // Content-Length of the UNCOMPRESSED JSON would mismatch a shorter gzipped
+            // body and make a strict client hang waiting for bytes that never come.
+            $__zlib = (string) @ini_get('zlib.output_compression');
+            $__compressing = ($__zlib !== '' && $__zlib !== '0' && strtolower($__zlib) !== 'off');
+            if (!$__compressing) { header('Content-Length: ' . strlen($body)); }
         }
         echo $body;
         // Flush to the SAPI, THEN close the client connection. Draining first is
