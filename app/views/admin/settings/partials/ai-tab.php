@@ -438,39 +438,63 @@ $aiFallbacksSaved = is_array($ai['ai_fallbacks'] ?? null) ? $ai['ai_fallbacks'] 
                 </div>
             </div>
 
-            <div class="space-y-3">
+            <div class="space-y-4">
                 <?php for ($fbI = 0; $fbI < $aiFallbackMax; $fbI++):
-                    $fbRow = $aiFallbacksSaved[$fbI] ?? ['provider' => '', 'api_key' => '', 'model' => ''];
+                    $fbRow = $aiFallbacksSaved[$fbI] ?? ['provider' => '', 'api_key' => '', 'model' => '', 'enabled' => true];
                     $fbProvider = (string) ($fbRow['provider'] ?? '');
                     $fbKey = (string) ($fbRow['api_key'] ?? '');
                     $fbModel = (string) ($fbRow['model'] ?? '');
+                    // A saved row with a key defaults to enabled unless explicitly off.
+                    $fbEnabled = !array_key_exists('enabled', $fbRow) ? true : (bool) $fbRow['enabled'];
                     ?>
-                    <div class="flex flex-col lg:flex-row lg:items-end gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50/50">
-                        <div class="form-control w-full lg:w-40 shrink-0">
-                            <label class="text-xs text-gray-500">Backup <?= $fbI + 1 ?> provider</label>
-                            <select name="ai_fallbacks[<?= $fbI ?>][provider]" class="select">
-                                <option value="">— none —</option>
-                                <?php foreach ($registry as $pk => $pm): ?>
-                                    <option value="<?= $pk ?>" <?= $fbProvider === $pk ? 'selected' : '' ?>><?= htmlspecialchars($pm['label']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                    <div class="rounded-lg border border-gray-200 bg-gray-50/60 p-4"
+                         x-data="{ on: <?= $fbEnabled ? 'true' : 'false' ?> }">
+                        <!-- Row header: rank + on/off toggle -->
+                        <div class="flex items-center justify-between gap-3 mb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold"><?= $fbI + 1 ?></span>
+                                <span class="text-sm font-medium text-gray-800">Backup key <?= $fbI + 1 ?></span>
+                                <span class="text-[11px] px-2 py-0.5 rounded-full"
+                                      :class="on ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'"
+                                      x-text="on ? 'Enabled' : 'Disabled'"></span>
+                            </div>
+                            <label class="switch-container switch-md switch-blue shrink-0 cursor-pointer">
+                                <!-- Only submits ai_fallbacks[i][enabled]=1 when ON -->
+                                <input type="checkbox" name="ai_fallbacks[<?= $fbI ?>][enabled]" value="1"
+                                       class="switch-input" <?= $fbEnabled ? 'checked' : '' ?>
+                                       x-on:change="on = $event.target.checked">
+                                <div class="switch-track"><div class="switch-thumb"></div></div>
+                            </label>
                         </div>
-                        <div class="form-control flex-1 min-w-0">
-                            <label class="text-xs text-gray-500">API key</label>
-                            <input type="password" name="ai_fallbacks[<?= $fbI ?>][api_key]" class="input"
-                                autocomplete="new-password" placeholder="Enter backup API key"
-                                value="<?= htmlspecialchars($fbKey) ?>">
-                        </div>
-                        <div class="form-control w-full lg:w-48 shrink-0">
-                            <label class="text-xs text-gray-500">Model <span class="text-gray-400">(optional)</span></label>
-                            <input type="text" name="ai_fallbacks[<?= $fbI ?>][model]" class="input"
-                                value="<?= htmlspecialchars($fbModel) ?>"
-                                placeholder="provider default">
+
+                        <!-- Fields: disabled rows dim but stay editable so you can fix a key before re-enabling -->
+                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3" :class="on ? '' : 'opacity-60'">
+                            <div class="form-control sm:col-span-3">
+                                <label class="text-xs text-gray-500">Provider</label>
+                                <select name="ai_fallbacks[<?= $fbI ?>][provider]" class="select w-full">
+                                    <option value="">— none —</option>
+                                    <?php foreach ($registry as $pk => $pm): ?>
+                                        <option value="<?= $pk ?>" <?= $fbProvider === $pk ? 'selected' : '' ?>><?= htmlspecialchars($pm['label']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="form-control sm:col-span-5">
+                                <label class="text-xs text-gray-500">API key</label>
+                                <input type="password" name="ai_fallbacks[<?= $fbI ?>][api_key]" class="input w-full"
+                                    autocomplete="new-password" placeholder="Enter backup API key"
+                                    value="<?= htmlspecialchars($fbKey) ?>">
+                            </div>
+                            <div class="form-control sm:col-span-4">
+                                <label class="text-xs text-gray-500">Model <span class="text-gray-400">(optional)</span></label>
+                                <input type="text" name="ai_fallbacks[<?= $fbI ?>][model]" class="input w-full"
+                                    value="<?= htmlspecialchars($fbModel) ?>"
+                                    placeholder="provider default">
+                            </div>
                         </div>
                     </div>
                 <?php endfor; ?>
             </div>
-            <p class="text-xs text-gray-400 mt-3">Note: a plain malformed-request error is <strong>not</strong> retried on other keys (it would fail the same way on all of them). Only key/billing/quota/outage errors trigger failover.</p>
+            <p class="text-xs text-gray-400 mt-3">Turn a backup <strong>Off</strong> to park its key without deleting it — it stays saved but is skipped. A plain malformed-request error is <strong>not</strong> retried on other keys (it would fail the same way on all of them); only key/billing/quota/outage errors trigger failover.</p>
         </div>
     </div>
 

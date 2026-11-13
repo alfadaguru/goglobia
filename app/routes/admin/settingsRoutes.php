@@ -541,9 +541,13 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             if (function_exists('passportAiIsMaskedSecret') && passportAiIsMaskedSecret($fbKey)) {
                 $fbKey = trim((string) ($existingFallbacks[$fbIndex]['api_key'] ?? ''));
             }
+            // enabled = the per-row toggle. Checkbox posts '1' only when ON; when the
+            // toggle is OFF the browser sends nothing, so default to disabled here.
+            $fbEnabled = isset($row['enabled']) && ((string) $row['enabled'] === '1' || $row['enabled'] === 'on' || $row['enabled'] === true);
             $fallbacksIn[] = [
                 'provider' => $fbProvider,
                 'api_key' => $fbKey,
+                'enabled' => $fbEnabled,
                 'model' => trim((string) ($row['model'] ?? '')),
             ];
             $fbIndex++;

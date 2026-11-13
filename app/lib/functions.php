@@ -14827,10 +14827,20 @@ function aiFallbacksNormalize($raw): array
         if ($provider === '' || !isset($registry[$provider]) || $apiKey === '') {
             continue; // unknown provider or no key → not a usable fallback
         }
+        // enabled flag (default true). A disabled backup keeps its key stored but
+        // is skipped by the failover chain — so admins can park a key without
+        // deleting it. Accepts bool, '1'/'0', 'true'/'false'.
+        $enabledRaw = $entry['enabled'] ?? true;
+        if (is_string($enabledRaw)) {
+            $enabled = ($enabledRaw === '1' || strtolower($enabledRaw) === 'true');
+        } else {
+            $enabled = (bool) $enabledRaw;
+        }
         $out[] = [
             'provider' => $provider,
             'api_key' => $apiKey,
             'model' => trim((string) ($entry['model'] ?? '')),
+            'enabled' => $enabled,
         ];
         if (count($out) >= AI_FALLBACK_MAX) {
             break;
@@ -15579,6 +15589,10 @@ function passportAiProviderConfigChain($db): array
         $provider = strtolower(trim((string) ($fb['provider'] ?? '')));
         $apiKey = trim((string) ($fb['api_key'] ?? ''));
         if ($provider === '' || $apiKey === '') {
+            continue;
+        }
+        // Skip a backup the admin has switched OFF (key stays stored, just parked).
+        if (array_key_exists('enabled', $fb) && !$fb['enabled']) {
             continue;
         }
         // De-dupe: skip a backup that is byte-identical to one already in the chain
