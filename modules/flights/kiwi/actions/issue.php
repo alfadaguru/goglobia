@@ -168,6 +168,8 @@ $router->post('flights/kiwi/issue', function() use ($db) {
             : ['email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')];
         $__kiwiEmail = (string)($__kiwiContact['email'] ?? ($booking['email'] ?? ''));
         $__kiwiPhone = (string)($__kiwiContact['phone'] ?? ($booking['phone'] ?? ''));
+        // Company mode: resolved contact WINS over any per-pax email (mobile-API leak).
+        $__kiwiCompany = (($__kiwiContact['mode'] ?? 'company') === 'company');
 
         foreach ($travellers as $traveller) {
             $passengerType = strtoupper($traveller['type'] ?? 'adult');
@@ -192,8 +194,8 @@ $router->post('flights/kiwi/issue', function() use ($db) {
                 'name' => $traveller['first_name'] ?? $traveller['firstName'] ?? '',
                 'surname' => $traveller['last_name'] ?? $traveller['lastName'] ?? '',
                 'nationality' => $traveller['nationality'] ?? 'US',
-                'email' => $traveller['email'] ?? $__kiwiEmail,
-                'phone' => $traveller['phone'] ?? $__kiwiPhone
+                'email' => ($__kiwiCompany || empty($traveller['email'])) ? $__kiwiEmail : $traveller['email'],
+                'phone' => ($__kiwiCompany || empty($traveller['phone'])) ? $__kiwiPhone : $traveller['phone']
             ];
             
             // Date of birth — REQUIRED. Do NOT fabricate it: a placeholder DOB

@@ -619,7 +619,16 @@ $router->post('/stays/ratehawk/issue', function() use ($db) {
             $__rhR = supplier_resolve_contact($db, 'stays', 'ratehawk',
                 ['name' => trim((string)(($primaryGuest['first_name'] ?? $booking['first_name'] ?? '') . ' ' . ($primaryGuest['last_name'] ?? $booking['last_name'] ?? ''))), 'email' => $__rhEmail, 'phone' => (string) ($__rhPhone ?: ($booking['phone'] ?? ''))]);
             $__rhEmail = (string) ($__rhR['email'] ?? $__rhEmail);
-            if (!empty($__rhR['phone'])) { $__rhPhone = $normalizePhone($rawCountry, (string) $__rhR['phone']); }
+            if (!empty($__rhR['phone'])) {
+                $__rhCompany = (($__rhR['mode'] ?? 'company') === 'company');
+                // Only re-normalise with the CUSTOMER's country ($rawCountry) for a
+                // CUSTOMER phone. A company number already carries its own code —
+                // normalising it against the customer's country would corrupt it; pass
+                // it through, and if it has no '+' assume it's already supplier-ready.
+                $__rhPhone = $__rhCompany
+                    ? (string) $__rhR['phone']
+                    : $normalizePhone($rawCountry, (string) $__rhR['phone']);
+            }
         }
         $userPayload = [
             'email' => $__rhEmail,

@@ -651,6 +651,20 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
         $kikotoVehicles = $priceCheck['vehicles'];
         $kikotoPets     = $priceCheck['pets'];
 
+        // SUPPLIER-HIDING: resolve the contact we send to KIKOTO (which emails the
+        // customer its own booking confirmation). Default company → our contact;
+        // 'customer' → the traveller's. ONLY the supplier-bound copy is changed — our
+        // own records below keep $contact['email'] (the real customer). modules/
+        // helpers.php defines supplier_resolve_contact; it is loaded on /api/* requests.
+        $__kikEmail = trim((string)($contact['email'] ?? ''));
+        $__kikPhone = preg_replace('/[^0-9]/', '', trim((string)($contact['phone'] ?? '')));
+        if (function_exists('supplier_resolve_contact')) {
+            $__kikR = supplier_resolve_contact($db, 'ferries', 'kikoto',
+                ['name' => trim((string)($contact['name'] ?? '')), 'email' => $__kikEmail, 'phone' => (string)($contact['phone'] ?? '')]);
+            $__kikEmail = (string)($__kikR['email'] ?? $__kikEmail);
+            $__kikPhone = preg_replace('/[^0-9]/', '', (string)($__kikR['phone'] ?? $__kikPhone));
+        }
+
         // STEP 1: CREATE DRAFT BOOKING WITH KIKOTO
         // Kikoto's contact "title" only accepts mr/mrs (confirmed via API: "ms"/"miss"/"dr"
         // are rejected with "title is invalid") — map any other title down to that binary set,
@@ -659,9 +673,9 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
             'title'              => in_array(strtolower(trim($contact['title'] ?? '')), ['mrs', 'ms', 'miss'], true) ? 'mrs' : 'mr',
             'name'               => trim($contact['name']),
             'first_surname'      => trim($contact['first_surname']),
-            'email'              => trim($contact['email']),
+            'email'              => $__kikEmail,
             'phone_country_code' => $phoneCode,
-            'phone'              => preg_replace('/[^0-9]/', '', trim($contact['phone'])),
+            'phone'              => $__kikPhone,
             'sailings'           => $kikotoSailingsForBooking,
             'passengers'         => $kikotoPassengers,
         ];

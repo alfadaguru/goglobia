@@ -1826,7 +1826,6 @@ if (!function_exists('ensure_supplier_contact_columns')) {
     {
         static $done = false;
         if ($done) { return; }
-        $done = true;
         try {
             $cols = $db->query("SHOW COLUMNS FROM `modules` LIKE 'supplier_contact_%'")->fetchAll();
             $have = [];
@@ -1840,8 +1839,18 @@ if (!function_exists('ensure_supplier_contact_columns')) {
             if (empty($have['supplier_contact_phone'])) {
                 $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_phone` VARCHAR(40) DEFAULT NULL");
             }
+            // Latch $done ONLY when all three columns are confirmed present — so a
+            // failed ALTER (transient error / missing right on that run) is retried on
+            // a later call instead of being permanently skipped by a premature flag.
+            $re = $db->query("SHOW COLUMNS FROM `modules` LIKE 'supplier_contact_%'")->fetchAll();
+            $present = [];
+            foreach (($re ?: []) as $c) { $present[(string) ($c['Field'] ?? '')] = true; }
+            $done = !empty($present['supplier_contact_mode'])
+                 && !empty($present['supplier_contact_email'])
+                 && !empty($present['supplier_contact_phone']);
         } catch (\Throwable $e) {
             error_log('ensure_supplier_contact_columns: ' . $e->getMessage());
+            // leave $done=false so a later call retries
         }
     }
 }
@@ -1871,35 +1880,59 @@ if (!function_exists('supplier_resolve_contact')) {
 
         $policy = supplier_contact_policy($db, $service, $module);
         if ($policy['mode'] === 'customer') {
-            return ['name' => ($custName !== '' ? $custName : 'Guest'), 'email' => $custEmail, 'phone' => $custPhone];
+            return ['mode' => 'customer', 'name' => ($custName !== '' ? $custName : 'Guest'), 'email' => $custEmail, 'phone' => $custPhone];
         }
 
         // COMPANY mode (default — supplier-hiding).
         $set = [];
         try {
             $set = $db->get('settings',
-                ['business_name', 'contact_email', 'email_sender_email', 'admin_email', 'contact_phone'],
+                ['business_name', 'contact_email', 'email_sender_email', 'admin_email', 'contact_phone', 'site_url'],
                 ['id' => 1]) ?: [];
         } catch (\Throwable $e) { error_log('supplier_resolve_contact settings: ' . $e->getMessage()); }
 
         $name = trim((string) ($set['business_name'] ?? ''));
         if ($name === '') { $name = ($custName !== '' ? $custName : 'Guest'); }
 
-        // Email: typed-in override → settings contact chain → customer (last resort).
-        $email = $policy['email'];
+        // Email: typed-in override → settings contact chain → a SAFE no-reply at our
+        // own domain. CRITICAL: company mode must NEVER fall back to the customer's
+        // email — that would silently re-introduce the exact supplier leak this whole
+        // feature prevents (on an install with blank settings contacts the operator
+        // would THINK the supplier is hidden while we hand it the passenger's address).
+        // So when no real company contact resolves, synthesise noreply@<our-domain>.
+        $email = trim((string) ($policy['email'] ?? ''));
         if ($email === '') {
             foreach (['contact_email', 'email_sender_email', 'admin_email'] as $k) {
                 $v = trim((string) ($set[$k] ?? ''));
                 if ($v !== '' && stripos($v, 'example.com') === false) { $email = $v; break; }
             }
         }
-        if ($email === '') { $email = $custEmail; }
+        if ($email === '') {
+            // Derive our domain from email_sender_email → site_url → a last-ditch host.
+            $domain = '';
+            $sender = trim((string) ($set['email_sender_email'] ?? ''));
+            if (strpos($sender, '@') !== false) { $domain = substr(strrchr($sender, '@'), 1); }
+            if ($domain === '' || stripos($domain, 'example.com') !== false) {
+                $host = parse_url(trim((string) ($set['site_url'] ?? '')), PHP_URL_HOST);
+                if (is_string($host) && $host !== '') { $domain = preg_replace('/^www\./i', '', $host); }
+            }
+            if ($domain === '' || stripos($domain, 'example.com') !== false) {
+                $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
+                if ($host !== '' && stripos($host, 'localhost') === false && stripos($host, '127.0.0.1') === false) {
+                    $domain = preg_replace('/^www\./i', '', (string) $host);
+                }
+            }
+            if ($domain === '') { $domain = 'noreply.local'; }   // never the customer
+            $email = 'noreply@' . $domain;
+        }
 
         // Phone: typed-in override → settings contact phone → customer (last resort).
-        $phone = $policy['phone'];
+        // A phone alone does not reveal the supplier's identity (no branded email), so
+        // the customer-phone fallback is acceptable to satisfy a required field.
+        $phone = trim((string) ($policy['phone'] ?? ''));
         if ($phone === '') { $phone = trim((string) ($set['contact_phone'] ?? '')); }
         if ($phone === '') { $phone = $custPhone; }
 
-        return ['name' => $name, 'email' => $email, 'phone' => $phone];
+        return ['mode' => 'company', 'name' => $name, 'email' => $email, 'phone' => $phone];
     }
 }

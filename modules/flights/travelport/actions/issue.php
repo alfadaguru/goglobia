@@ -297,6 +297,8 @@ $router->post('flights/travelport/issue', function () use ($db) {
                 : ['email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')];
             $__tpEmail = (string)($__tpContact['email'] ?? '') !== '' ? (string)$__tpContact['email'] : ((string)($booking['email'] ?? 'test@example.com'));
             $__tpPhone = (string)($__tpContact['phone'] ?? '') !== '' ? (string)$__tpContact['phone'] : ((string)($booking['phone'] ?? '3001234567'));
+            // Company mode: resolved phone WINS over any per-pax phone (no partial leak).
+            $__tpCompany = (($__tpContact['mode'] ?? 'company') === 'company');
 
             $passengerCounts = [];
             $p = 1;
@@ -337,7 +339,7 @@ $router->post('flights/travelport/issue', function () use ($db) {
                     "Telephone" => [[
                         "@type" => "Telephone",
                         "countryAccessCode" => preg_replace('/[^0-9]/', '', (string) ($pax['country_code'] ?? $booking['phone_country_code'] ?? '1')) ?: '1',
-                        "phoneNumber" => preg_replace('/[^0-9]/', '', (string) ($pax['phone'] ?? $__tpPhone)),
+                        "phoneNumber" => preg_replace('/[^0-9]/', '', $__tpCompany ? $__tpPhone : (string) ($pax['phone'] ?? $__tpPhone)),
                         "id" => "phone_" . $p,
                         "role" => "Mobile",
                     ]],

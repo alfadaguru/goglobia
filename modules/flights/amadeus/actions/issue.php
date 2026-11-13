@@ -79,6 +79,18 @@ $router->post('flights/amadeus/issue', function() use ($db) {
             throw new Exception('Booking not found for invoice_id: ' . $invoice_id);
         }
 
+        // SUPPLIER-HIDING: resolve the booking contact ONCE at handler scope so EVERY
+        // contact site in the order payload (primary traveler, additional travelers,
+        // and the order-level contacts[] block) sends OUR contact in company mode —
+        // not just the primary. Default company → our contact; 'customer' → the
+        // traveller's. Computed here so it is in scope regardless of branch.
+        $__amResolvedTop = function_exists('supplier_resolve_contact')
+            ? supplier_resolve_contact($db, 'flights', 'amadeus',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')])
+            : ['email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')];
+        $__amEmail = (string)($__amResolvedTop['email'] ?? '') !== '' ? (string)$__amResolvedTop['email'] : trim((string)($booking['email'] ?? ''));
+        $__amPhone = (string)($__amResolvedTop['phone'] ?? '') !== '' ? (string)$__amResolvedTop['phone'] : trim((string)($booking['phone'] ?? ''));
+
 
         // Check if already issued
         if (!empty($booking['pnr'])) {
@@ -305,14 +317,10 @@ $router->post('flights/amadeus/issue', function() use ($db) {
                 $pgEmail = trim((string)($booking['email'] ?? ''));
                 $pgPhone = trim((string)($booking['phone'] ?? ''));
                 $pgMissing = [];
-                // SUPPLIER-HIDING: validate that a real contact EXISTS (below, on the
-                // customer values), but SEND the per-supplier resolved contact to the
-                // airline so Amadeus doesn't email our customer a supplier-branded
-                // notice. Default policy = company; 'customer' passes the traveller's.
-                $__amResolved = function_exists('supplier_resolve_contact')
-                    ? supplier_resolve_contact($db, 'flights', 'amadeus',
-                        ['name' => trim($pgFirst . ' ' . $pgLast), 'email' => $pgEmail, 'phone' => $pgPhone])
-                    : ['email' => $pgEmail, 'phone' => $pgPhone];
+                // Contact sent to Amadeus = the handler-scope resolved contact
+                // ($__amEmail/$__amPhone), so company mode hides the supplier at EVERY
+                // contact site. We still validate below that a real customer contact
+                // EXISTS (so an empty booking is rejected, not silently company-filled).
                 if ($pgFirst === '') { $pgMissing[] = 'first name'; }
                 if ($pgLast === '')  { $pgMissing[] = 'last name'; }
                 if ($pgDob === '')   { $pgMissing[] = 'date of birth'; }
@@ -333,12 +341,12 @@ $router->post('flights/amadeus/issue', function() use ($db) {
                     ],
                     'gender' => strtoupper($primaryGuest['gender'] ?? 'MALE'),
                     'contact' => [
-                        'emailAddress' => (string)($__amResolved['email'] ?? $pgEmail),
+                        'emailAddress' => $__amEmail,
                         'phones' => [
                             [
                                 'deviceType' => 'MOBILE',
                                 'countryCallingCode' => (string)($primaryGuest['phone_country_code'] ?? '1'),
-                                'number' => (string)($__amResolved['phone'] ?? $pgPhone)
+                                'number' => $__amPhone
                             ]
                         ]
                     ]
@@ -398,12 +406,12 @@ $router->post('flights/amadeus/issue', function() use ($db) {
                         ],
                         'gender' => strtoupper($traveler['gender'] ?? 'MALE'),
                         'contact' => [
-                            'emailAddress' => trim((string)($booking['email'] ?? '')),
+                            'emailAddress' => $__amEmail,
                             'phones' => [
                                 [
                                     'deviceType' => 'MOBILE',
                                     'countryCallingCode' => (string)($traveler['phone_country_code'] ?? '1'),
-                                    'number' => trim((string)($booking['phone'] ?? ''))
+                                    'number' => $__amPhone
                                 ]
                             ]
                         ]
@@ -483,10 +491,10 @@ $router->post('flights/amadeus/issue', function() use ($db) {
                             [
                                 'deviceType' => 'MOBILE',
                                 'countryCallingCode' => $booking['phone_country_code'] ?? '1',
-                                'number' => preg_replace('/[^0-9]/', '', (string)($booking['phone'] ?? ''))
+                                'number' => preg_replace('/[^0-9]/', '', $__amPhone)
                             ]
                         ],
-                        'emailAddress' => trim((string)($booking['email'] ?? '')),
+                        'emailAddress' => $__amEmail,
                         // Address: send only the real value; omit the line rather
                         // than fabricate '123 Main Street'. Amadeus contact address
                         // is optional at order level.

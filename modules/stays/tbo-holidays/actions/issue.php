@@ -257,19 +257,35 @@ $router->post('stays/tbo-holidays/issue', function () use ($db) {
         // SUPPLIER-HIDING: validated a real contact exists; now resolve what we SEND
         // to TBO so it doesn't email our customer directly (default company;
         // 'customer' passes the traveller's own).
+        $__tbhCompany = false;
         if (function_exists('supplier_resolve_contact')) {
             $__tbhR = supplier_resolve_contact($db, 'stays', 'tbo-holidays',
                 ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string) $email, 'phone' => (string) $phone]);
             $email = (string) ($__tbhR['email'] ?? $email);
             $phone = (string) ($__tbhR['phone'] ?? $phone);
+            $__tbhCompany = (($__tbhR['mode'] ?? 'company') === 'company');
         }
         $phoneDigits = preg_replace('/\D+/', '', (string) $phone);
-        $countryCodeDigits = preg_replace('/\D+/', '', (string) ($booking['phone_country_code'] ?? ''));
-        if ($countryCodeDigits !== '' && strpos($phoneDigits, $countryCodeDigits) !== 0) {
-            $phoneDigits = $countryCodeDigits . $phoneDigits;
+        // Only prepend the CUSTOMER's country code to a CUSTOMER phone. A company
+        // number (company mode) already carries its own code — prepending the
+        // customer's would corrupt it.
+        if (!$__tbhCompany) {
+            $countryCodeDigits = preg_replace('/\D+/', '', (string) ($booking['phone_country_code'] ?? ''));
+            if ($countryCodeDigits !== '' && strpos($phoneDigits, $countryCodeDigits) !== 0) {
+                $phoneDigits = $countryCodeDigits . $phoneDigits;
+            }
         }
+        // A malformed CUSTOMER phone is a real data problem (reject). But a company
+        // phone must NEVER hard-fail an already-PAID booking — fall back to the
+        // validated customer phone for the supplier field rather than aborting.
         if (strlen($phoneDigits) < 7 || strlen($phoneDigits) > 15) {
-            throw new Exception('A valid international customer phone number is required for TBO booking.');
+            if ($__tbhCompany) {
+                $phoneDigits = preg_replace('/\D+/', '', (string) ($booking['phone'] ?? ''));
+                $__cc = preg_replace('/\D+/', '', (string) ($booking['phone_country_code'] ?? ''));
+                if ($__cc !== '' && strpos($phoneDigits, $__cc) !== 0) { $phoneDigits = $__cc . $phoneDigits; }
+            } else {
+                throw new Exception('A valid international customer phone number is required for TBO booking.');
+            }
         }
 
         $clientRef = $invoiceId;

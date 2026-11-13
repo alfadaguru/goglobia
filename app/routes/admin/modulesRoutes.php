@@ -130,6 +130,22 @@ $router->post(admin.'/settings/modules/add', function () use ($SECURE,$db) {
                 $data['c' . $i] = $_POST['c' . $i] ?? '';
             }
 
+            // SUPPLIER CONTACT POLICY (supplier-hiding) — persist on CREATE too, so a
+            // mode/email/phone chosen while adding a module isn't silently dropped.
+            if (isset($_POST['contact_mode'])) {
+                try {
+                    $existing = $db->query("SHOW COLUMNS FROM `modules` LIKE 'supplier_contact_%'")->fetchAll();
+                    $have = [];
+                    foreach (($existing ?: []) as $c) { $have[(string) ($c['Field'] ?? '')] = true; }
+                    if (empty($have['supplier_contact_mode']))  { $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_mode` VARCHAR(16) DEFAULT 'company'"); }
+                    if (empty($have['supplier_contact_email'])) { $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_email` VARCHAR(190) DEFAULT NULL"); }
+                    if (empty($have['supplier_contact_phone'])) { $db->query("ALTER TABLE `modules` ADD COLUMN `supplier_contact_phone` VARCHAR(40) DEFAULT NULL"); }
+                } catch (\Throwable $e) { error_log('modules contact-cols ensure (add): ' . $e->getMessage()); }
+                $data['supplier_contact_mode']  = strtolower(trim((string) $_POST['contact_mode'])) === 'customer' ? 'customer' : 'company';
+                $data['supplier_contact_email'] = trim((string) ($_POST['contact_email'] ?? ''));
+                $data['supplier_contact_phone'] = trim((string) ($_POST['contact_phone'] ?? ''));
+            }
+
             $errors = [];
 
             if (empty($data['name'])) {

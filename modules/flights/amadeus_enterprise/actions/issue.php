@@ -663,6 +663,15 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
         if ($contactEmail === '' || !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
             throw new Exception('A valid contact email is required to issue this booking.');
         }
+        // SUPPLIER-HIDING: this ORDER-LEVEL contact is rebuilt from raw $booking above,
+        // bypassing the per-traveller resolve — so resolve it here too, or company mode
+        // would still leak the customer to Amadeus via the order contacts[] block.
+        if (function_exists('supplier_resolve_contact')) {
+            $__aeOrderR = supplier_resolve_contact($db, 'flights', 'amadeus_enterprise',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => $contactEmail, 'phone' => $contactPhone]);
+            $contactEmail = (string)($__aeOrderR['email'] ?? $contactEmail);
+            [, $contactPhone] = $normalizePhone((string)($__aeOrderR['phone'] ?? $contactPhone), $phoneCallingCode);
+        }
 
         $contactCountry = $normalizeCountryCode((string)(
             $amadeusTravelers[0]['documents'][0]['nationality']

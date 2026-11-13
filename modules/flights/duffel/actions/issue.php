@@ -283,6 +283,9 @@ $router->post('flights/duffel/issue', function () use ($db) {
             : ['email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')];
         $__duffelEmail = (string)($__duffelContact['email'] ?? ($booking['email'] ?? ''));
         $__duffelPhone = (string)($__duffelContact['phone'] ?? ($booking['phone'] ?? ''));
+        // In COMPANY mode, a per-pax email (settable via the mobile/REST API) must NOT
+        // override the resolved company contact, or the customer would still leak.
+        $__duffelCompany = (($__duffelContact['mode'] ?? 'company') === 'company');
 
         // Build passengers array from all travellers (iterate root level)
         if (is_array($travellers)) {
@@ -380,9 +383,11 @@ $router->post('flights/duffel/issue', function () use ($db) {
 
                 // Add email and phone for passengers (resolved per supplier policy —
                 // default our contact, so Duffel/the airline doesn't email the customer).
-                $passenger_data['email'] = !empty($passenger['email']) ? $passenger['email'] : $__duffelEmail;
+                // In company mode the resolved contact WINS over any per-pax email so a
+                // mobile-API-supplied pax email cannot leak the customer.
+                $passenger_data['email'] = ($__duffelCompany || empty($passenger['email'])) ? $__duffelEmail : $passenger['email'];
 
-                $orig_phone = !empty($passenger['phone']) ? $passenger['phone'] : $__duffelPhone;
+                $orig_phone = ($__duffelCompany || empty($passenger['phone'])) ? $__duffelPhone : $passenger['phone'];
                 $countryIso = resolveCountryIso($booking['phone_country_code'] ?? '', $db) ?: 'US';
                 $e164Phone  = buildE164PhoneNumber($orig_phone, $countryIso, $db);
                 // In test mode use Duffel's test phone to avoid validation errors

@@ -365,16 +365,19 @@ if (!function_exists('tiqwa_build_pax')) {
         $travellers = json_decode((string) ($booking['travellers'] ?? ''), true);
         if (!is_array($travellers)) { $travellers = []; }
 
-        // SUPPLIER-HIDING: the per-pax contact FALLBACK is the booking contact, which
-        // Tiqwa notifies. Resolve it per supplier policy (default company → our
-        // contact; 'customer' → the traveller's). Per-pax explicit values are kept.
+        // SUPPLIER-HIDING: the per-pax contact (which Tiqwa notifies) is resolved per
+        // supplier policy — default company → our contact; 'customer' → the traveller's.
+        // In company mode the resolved contact WINS over any per-pax email/phone (which
+        // is settable via the mobile/REST API), so a per-pax value cannot leak.
         $contactEmail = trim((string) ($booking['email'] ?? ''));
         $contactPhone = trim((string) ($booking['phone'] ?? ''));
+        $__tqCompany = true;
         if (function_exists('supplier_resolve_contact')) {
             $__tqR = supplier_resolve_contact($db, 'flights', 'tiqwa',
                 ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => $contactEmail, 'phone' => $contactPhone]);
             $contactEmail = (string) ($__tqR['email'] ?? $contactEmail);
             $contactPhone = (string) ($__tqR['phone'] ?? $contactPhone);
+            $__tqCompany = (($__tqR['mode'] ?? 'company') === 'company');
         }
 
         $pax = [];
@@ -403,8 +406,8 @@ if (!function_exists('tiqwa_build_pax')) {
                 'last_name'      => (string) ($p['last_name'] ?? ''),
                 'gender'         => $gender,
                 'title'          => $title,
-                'email'          => trim((string) ($p['email'] ?? '')) ?: $contactEmail,
-                'phone_number'   => trim((string) ($p['phone'] ?? $p['phone_number'] ?? '')) ?: $contactPhone,
+                'email'          => $__tqCompany ? $contactEmail : (trim((string) ($p['email'] ?? '')) ?: $contactEmail),
+                'phone_number'   => $__tqCompany ? $contactPhone : (trim((string) ($p['phone'] ?? $p['phone_number'] ?? '')) ?: $contactPhone),
             ];
             if ($dob !== '') $entry['dob'] = $dob;
 
