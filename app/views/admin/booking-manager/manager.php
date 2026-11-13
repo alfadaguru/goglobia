@@ -829,11 +829,22 @@ $svcIcons = [
         <p class="text-xs text-slate-500 mb-3">Invoice <span class="font-mono" x-text="invoiceId"></span> · <span x-text="price.currency||baseCurrency"></span> <span class="tabular-nums" x-text="Number(price.sell).toLocaleString()"></span></p>
 
         <div class="space-y-2">
+          <?php if (!empty($bm['is_senior'])): ?>
+          <!-- ONE-CLICK: payment received → confirm + issue NOW (senior admin). For a
+               LIVE flight this is also the RELIABLE path — issue fires immediately,
+               inside the supplier's short fare window, instead of waiting. -->
+          <button class="btn primary w-full justify-start" @click="payNow()" :disabled="paying">
+            <span class="material-symbols-outlined" x-show="!paying">task_alt</span>
+            <span class="material-symbols-outlined animate-spin" x-show="paying">progress_activity</span>
+            <span x-text="paying ? 'Confirming…' : 'Payment received — confirm &amp; issue now'"></span>
+          </button>
+          <p class="text-[11px] text-slate-400 -mt-1 mb-1">Use this when you already have the money (cash/transfer). Marks paid and issues the ticket immediately — no waiting for verification.</p>
+          <?php endif; ?>
           <button class="btn outline w-full justify-start" @click="payDva()" :disabled="paying">
             <span class="material-symbols-outlined">qr_code_2</span><span>Generate virtual account (bank transfer)</span>
           </button>
           <button class="btn outline w-full justify-start" @click="payManual()" :disabled="paying">
-            <span class="material-symbols-outlined">account_balance</span><span>Manual bank transfer to our account</span>
+            <span class="material-symbols-outlined">account_balance</span><span>Manual bank transfer (verify later)</span>
           </button>
           <button class="btn outline w-full justify-start" @click="payOffline()" :disabled="paying" x-show="mode==='manual'">
             <span class="material-symbols-outlined">done_all</span><span>Mark paid (settled offline)</span>
@@ -1832,6 +1843,23 @@ function bookingMgr() {
     async payDva(){ await this.pay('dva'); },
     async payManual(){ await this.pay('manual_transfer'); },
     async payOffline(){ if(!confirm('Mark this booking paid (settled offline)?')) return; await this.pay('mark_paid_offline'); },
+    // One-click: confirm payment received + issue NOW (senior admin). Settles and,
+    // for a live booking, fires the supplier issue immediately. Reports the honest
+    // outcome: ticket issued (+PNR), or paid-but-supplier-not-ticketed-yet.
+    async payNow(){
+      if(!confirm('Confirm you have RECEIVED this payment? This marks the booking paid and issues the ticket now.')) return;
+      this.paying=true; this.settleMsg='';
+      try{
+        const res=await fetch(this.base+'admin/booking-manager/pay',{method:'POST',body:this.form({invoice_id:this.invoiceId,method:'mark_paid_now'})});
+        const data=await res.json();
+        this.dva=null; this.manualPay=false;
+        this.settleMsgOk=!!data.status;
+        if(data.status && data.issued){ this.settleMsg='Paid and ticket issued'+(data.pnr?(' — PNR '+data.pnr):'')+'.'; }
+        else if(data.status && data.pending_issue){ this.settleMsgOk=false; this.settleMsg=data.message||'Paid, but the supplier has not ticketed yet. Re-check / Retry issue on the verification page.'; }
+        else { this.settleMsg=data.message||(data.status?'Paid.':'Could not confirm the payment.'); }
+      }catch(e){ this.settleMsgOk=false; this.settleMsg='Payment step failed — try again.'; }
+      this.paying=false;
+    },
     async pay(method){
       this.paying=true; this.settleMsg='';
       try{

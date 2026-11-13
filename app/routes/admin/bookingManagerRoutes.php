@@ -943,6 +943,51 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
         bmAdminJson(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? '']);
     }
 
+    // ONE-CLICK PAID + CONFIRM (senior admin). The admin has ALREADY received the
+    // money (cash/transfer in hand) — so there's no reason to park it in
+    // awaiting_verification and wait for a second person. This settles NOW: marks
+    // paid AND (for a live booking) fires the supplier issue immediately, which is
+    // also what makes a LIVE flight actually ticketable — issue fires inside the
+    // supplier's short fare window instead of hours later. Works on live OR manual.
+    if ($method === 'mark_paid_now') {
+        if (!bm_is_senior_admin($db)) {
+            bmAdminJson(['status' => false, 'message' => 'Only an admin or super-admin can confirm a payment received.'], 403);
+        }
+        // Optional amount-received check (same money-safety as /verify): if given
+        // and short of the amount due, refuse unless confirm_short is set.
+        $amountDue      = round((float) ($booking['price_markup'] ?? 0), 2);
+        $amountRecvRaw  = $_POST['amount_received'] ?? '';
+        $hasAmountRecv  = ($amountRecvRaw !== '' && $amountRecvRaw !== null);
+        $amountReceived = $hasAmountRecv ? round((float) $amountRecvRaw, 2) : $amountDue;
+        $confirmShort   = in_array((string) ($_POST['confirm_short'] ?? ''), ['1', 'true', 'yes', 'on'], true);
+        if ($hasAmountRecv && $amountReceived < 0) {
+            bmAdminJson(['status' => false, 'message' => 'Amount received cannot be negative.'], 422);
+        }
+        if ($hasAmountRecv && $amountReceived < ($amountDue - 0.01) && !$confirmShort) {
+            bmAdminJson(['status' => false, 'short_payment' => true, 'amount_due' => $amountDue, 'amount_received' => $amountReceived,
+                'message' => 'The amount received (' . number_format($amountReceived, 2) . ') is less than the amount due (' . number_format($amountDue, 2) . '). Re-enter the correct amount, or confirm the shortfall.'], 422);
+        }
+        $res = bm_settle_booking_payment($db, $invoiceId, 'manual_verified', [
+            'verified_by'    => $_SESSION['user_id'] ?? '',
+            'transaction_id' => trim((string) ($_POST['transaction_id'] ?? '')),
+            'gateway_name'   => 'manual_payment',
+            'amount'         => $amountReceived,
+            'amount_due'     => $amountDue,
+            'short_paid'     => ($amountReceived < ($amountDue - 0.01)),
+            'currency'       => $booking['currency_markup'] ?? 'NGN',
+        ]);
+        // Honest result: 'issued' (live ticket done), 'pending_issue' (paid but the
+        // supplier hasn't ticketed yet — re-check/retry), or confirmed (manual).
+        bmAdminJson([
+            'status'        => !empty($res['ok']),
+            'issued'        => !empty($res['issued']),
+            'pending_issue' => !empty($res['pending_issue']),
+            'pnr'           => $res['pnr'] ?? '',
+            'settle'        => $res,
+            'message'       => $res['message'] ?? '',
+        ]);
+    }
+
     bmAdminJson(['status' => false, 'message' => 'Choose a payment method.'], 422);
 });
 
