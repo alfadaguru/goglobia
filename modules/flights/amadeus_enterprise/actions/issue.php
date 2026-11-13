@@ -290,6 +290,16 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
                     $phoneCallingCode
                 );
 
+                // SUPPLIER-HIDING: validated a real contact exists; now resolve what we
+                // actually SEND Amadeus so it doesn't email our customer directly
+                // (default company; 'customer' passes the traveller's own).
+                if (function_exists('supplier_resolve_contact')) {
+                    $__aeR = supplier_resolve_contact($db, 'flights', 'amadeus_enterprise',
+                        ['name' => trim($firstName . ' ' . $lastName), 'email' => $contactEmail, 'phone' => $contactPhone]);
+                    $contactEmail = (string)($__aeR['email'] ?? $contactEmail);
+                    [, $contactPhone] = $normalizePhone((string)($__aeR['phone'] ?? $contactPhone), $phoneCallingCode);
+                }
+
                 $nationality = $normalizeCountryCode((string)(
                     $traveller['nationality']
                     ?? $traveller['passport_country']

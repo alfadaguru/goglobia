@@ -216,6 +216,14 @@ $router->post('flights/tbo/issue', function () use ($db) {
         $totalPax    = count($paxSource);
         $contactMail = trim($booking['email'] ?? '');
         $contactTel  = preg_replace('/\D/', '', (string)($booking['phone'] ?? ''));
+        // SUPPLIER-HIDING: send the per-supplier resolved contact to TBO, not the
+        // customer's own (default company; 'customer' passes the traveller's).
+        if (function_exists('supplier_resolve_contact')) {
+            $__tboR = supplier_resolve_contact($db, 'flights', 'tbo',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => $contactMail, 'phone' => (string)($booking['phone'] ?? '')]);
+            $contactMail = (string)($__tboR['email'] ?? $contactMail);
+            $contactTel  = preg_replace('/\D/', '', (string)($__tboR['phone'] ?? $contactTel));
+        }
         $phoneCode   = preg_replace('/\D/', '', (string)($booking['phone_country_code'] ?? ''));
         $address     = trim($booking['address'] ?? '') ?: 'N/A';
 

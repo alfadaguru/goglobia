@@ -305,6 +305,14 @@ $router->post('flights/amadeus/issue', function() use ($db) {
                 $pgEmail = trim((string)($booking['email'] ?? ''));
                 $pgPhone = trim((string)($booking['phone'] ?? ''));
                 $pgMissing = [];
+                // SUPPLIER-HIDING: validate that a real contact EXISTS (below, on the
+                // customer values), but SEND the per-supplier resolved contact to the
+                // airline so Amadeus doesn't email our customer a supplier-branded
+                // notice. Default policy = company; 'customer' passes the traveller's.
+                $__amResolved = function_exists('supplier_resolve_contact')
+                    ? supplier_resolve_contact($db, 'flights', 'amadeus',
+                        ['name' => trim($pgFirst . ' ' . $pgLast), 'email' => $pgEmail, 'phone' => $pgPhone])
+                    : ['email' => $pgEmail, 'phone' => $pgPhone];
                 if ($pgFirst === '') { $pgMissing[] = 'first name'; }
                 if ($pgLast === '')  { $pgMissing[] = 'last name'; }
                 if ($pgDob === '')   { $pgMissing[] = 'date of birth'; }
@@ -325,12 +333,12 @@ $router->post('flights/amadeus/issue', function() use ($db) {
                     ],
                     'gender' => strtoupper($primaryGuest['gender'] ?? 'MALE'),
                     'contact' => [
-                        'emailAddress' => $pgEmail,
+                        'emailAddress' => (string)($__amResolved['email'] ?? $pgEmail),
                         'phones' => [
                             [
                                 'deviceType' => 'MOBILE',
                                 'countryCallingCode' => (string)($primaryGuest['phone_country_code'] ?? '1'),
-                                'number' => $pgPhone
+                                'number' => (string)($__amResolved['phone'] ?? $pgPhone)
                             ]
                         ]
                     ]

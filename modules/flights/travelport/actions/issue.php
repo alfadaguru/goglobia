@@ -288,6 +288,16 @@ $router->post('flights/travelport/issue', function () use ($db) {
                 exit;
             }
 
+            // SUPPLIER-HIDING: resolve the booking contact once (Travelport/the GDS
+            // notifies this email/phone). Default company → our contact; 'customer' →
+            // the traveller's. pax identity (name/DOB) is unaffected.
+            $__tpContact = function_exists('supplier_resolve_contact')
+                ? supplier_resolve_contact($db, 'flights', 'travelport',
+                    ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')])
+                : ['email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')];
+            $__tpEmail = (string)($__tpContact['email'] ?? '') !== '' ? (string)$__tpContact['email'] : ((string)($booking['email'] ?? 'test@example.com'));
+            $__tpPhone = (string)($__tpContact['phone'] ?? '') !== '' ? (string)$__tpContact['phone'] : ((string)($booking['phone'] ?? '3001234567'));
+
             $passengerCounts = [];
             $p = 1;
             foreach ($travellers as $index => $pax) {
@@ -327,11 +337,11 @@ $router->post('flights/travelport/issue', function () use ($db) {
                     "Telephone" => [[
                         "@type" => "Telephone",
                         "countryAccessCode" => preg_replace('/[^0-9]/', '', (string) ($pax['country_code'] ?? $booking['phone_country_code'] ?? '1')) ?: '1',
-                        "phoneNumber" => preg_replace('/[^0-9]/', '', $pax['phone'] ?? $booking['phone'] ?? '3001234567'),
+                        "phoneNumber" => preg_replace('/[^0-9]/', '', (string) ($pax['phone'] ?? $__tpPhone)),
                         "id" => "phone_" . $p,
                         "role" => "Mobile",
                     ]],
-                    "Email" => [["value" => $booking['email'] ?? 'test@example.com']],
+                    "Email" => [["value" => $__tpEmail]],
                 ];
 
                 if ($type === 'INF' && !empty($pax['dob'])) {

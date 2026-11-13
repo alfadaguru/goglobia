@@ -355,15 +355,24 @@ $router->post('flights/seeru/issue', function() use ($db) {
         }
 
         // ─── STEP 4: Save Booking ─────────────────────────────────────────────────
+        // SUPPLIER-HIDING: resolve the booking contact per-supplier so Seeru doesn't
+        // email our customer directly (default company; 'customer' passes traveller's).
+        $__seeruContact = function_exists('supplier_resolve_contact')
+            ? supplier_resolve_contact($db, 'flights', 'seeru', [
+                'name'  => trim((string)(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''))),
+                'email' => (string)($user['email'] ?? ''),
+                'phone' => (string)($user['phone'] ?? ''),
+              ])
+            : ['name' => trim((string)(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''))), 'email' => (string)($user['email'] ?? ''), 'phone' => (string)($user['phone'] ?? '')];
         $save_result = $seeru_post(
             $base_url . 'flights/booking/save',
             [
                 'booking'    => $confirmed_booking,
                 'passengers' => $passengers,
                 'contact'    => [
-                    'full_name' => trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')),
-                    'email'     => $user['email'] ?? '',
-                    'mobile'    => $user['phone'] ?? ''
+                    'full_name' => (string)($__seeruContact['name'] ?? ''),
+                    'email'     => (string)($__seeruContact['email'] ?? ''),
+                    'mobile'    => (string)($__seeruContact['phone'] ?? '')
                 ]
             ],
             $booking_headers,

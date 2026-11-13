@@ -268,6 +268,15 @@ $router->post('flights/sabre/issue', function() use ($db) {
             echo json_encode(['status' => false, 'message' => 'Cannot issue: a valid contact email and phone are required on the booking.', 'response_error' => 'missing_contact']);
             exit;
         }
+        // SUPPLIER-HIDING: validated a real contact exists; now resolve what we SEND
+        // to Sabre so the airline/GDS doesn't notify our customer directly (default
+        // company; 'customer' passes the traveller's own).
+        if (function_exists('supplier_resolve_contact')) {
+            $__sbR = supplier_resolve_contact($db, 'flights', 'sabre',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => $contactEmail, 'phone' => $contactPhone]);
+            $contactEmail = (string)($__sbR['email'] ?? $contactEmail);
+            $contactPhone = (string)($__sbR['phone'] ?? $contactPhone);
+        }
         
         // ========================================
         // STEP 6b: BUILD AIR SEGMENTS (was MISSING — the PNR request previously

@@ -360,6 +360,14 @@ $router->post('flights/mystifly/issue', function () use ($db) {
 
         $contactEmail = trim($booking['email'] ?? '');
         $contactPhone = trim($booking['phone'] ?? $booking['mobile'] ?? '');
+        // SUPPLIER-HIDING: send the per-supplier resolved contact to Mystifly, not the
+        // customer's own (default company; 'customer' passes the traveller's).
+        if (function_exists('supplier_resolve_contact')) {
+            $__myR = supplier_resolve_contact($db, 'flights', 'mystifly',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => $contactEmail, 'phone' => $contactPhone]);
+            $contactEmail = (string)($__myR['email'] ?? $contactEmail);
+            $contactPhone = (string)($__myR['phone'] ?? $contactPhone);
+        }
 
         $travelerInfo = ['AirTravelers' => $paxList];
         if ($contactEmail) {

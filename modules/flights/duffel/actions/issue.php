@@ -274,6 +274,16 @@ $router->post('flights/duffel/issue', function () use ($db) {
         $passengers = [];
         $pax_type_counters = ['adult' => 0, 'child' => 0, 'infant_without_seat' => 0];
 
+        // SUPPLIER-HIDING: resolve the booking contact once (Duffel notifies the
+        // passenger email/phone on the order). Default company → our contact; 'customer'
+        // → the traveller's own. pax identity (name/DOB/passport) is unaffected.
+        $__duffelContact = function_exists('supplier_resolve_contact')
+            ? supplier_resolve_contact($db, 'flights', 'duffel',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')])
+            : ['email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')];
+        $__duffelEmail = (string)($__duffelContact['email'] ?? ($booking['email'] ?? ''));
+        $__duffelPhone = (string)($__duffelContact['phone'] ?? ($booking['phone'] ?? ''));
+
         // Build passengers array from all travellers (iterate root level)
         if (is_array($travellers)) {
             $passenger_counter = 1; // Initialize counter for fallback incremental IDs
@@ -368,11 +378,11 @@ $router->post('flights/duffel/issue', function () use ($db) {
                 $passenger_counter++; // Increment counter for fallback case
                 error_log("DUFFEL ISSUE: Final ID for {$pax_key}: " . ($passenger_data['id'] ?? 'NONE'));
 
-                // Add email and phone for passengers
-                // Duffel often requires contact info for passengers depending on the airline
-                $passenger_data['email'] = !empty($passenger['email']) ? $passenger['email'] : $booking['email'];
-                
-                $orig_phone = !empty($passenger['phone']) ? $passenger['phone'] : $booking['phone'];
+                // Add email and phone for passengers (resolved per supplier policy —
+                // default our contact, so Duffel/the airline doesn't email the customer).
+                $passenger_data['email'] = !empty($passenger['email']) ? $passenger['email'] : $__duffelEmail;
+
+                $orig_phone = !empty($passenger['phone']) ? $passenger['phone'] : $__duffelPhone;
                 $countryIso = resolveCountryIso($booking['phone_country_code'] ?? '', $db) ?: 'US';
                 $e164Phone  = buildE164PhoneNumber($orig_phone, $countryIso, $db);
                 // In test mode use Duffel's test phone to avoid validation errors
@@ -397,10 +407,10 @@ $router->post('flights/duffel/issue', function () use ($db) {
                     'given_name' => $guest['first_name'] ?? $booking['first_name'],
                     'family_name' => $guest['last_name'] ?? $booking['last_name'],
                     'born_on' => isset($guest['dob']) ? date('Y-m-d', strtotime($guest['dob'])) : null,
-                    'email' => $booking['email'],
+                    'email' => $__duffelEmail,
                     'phone_number' => str_starts_with($api_token, 'duffel_test_')
                         ? '+12025550123'
-                        : buildE164PhoneNumber($booking['phone'], resolveCountryIso($booking['phone_country_code'] ?? '', $db) ?: 'US', $db),
+                        : buildE164PhoneNumber($__duffelPhone, resolveCountryIso($booking['phone_country_code'] ?? '', $db) ?: 'US', $db),
                     'gender' => strtolower($guest['gender'] ?? 'm')
                 ];
             }

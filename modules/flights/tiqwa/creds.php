@@ -365,8 +365,17 @@ if (!function_exists('tiqwa_build_pax')) {
         $travellers = json_decode((string) ($booking['travellers'] ?? ''), true);
         if (!is_array($travellers)) { $travellers = []; }
 
+        // SUPPLIER-HIDING: the per-pax contact FALLBACK is the booking contact, which
+        // Tiqwa notifies. Resolve it per supplier policy (default company → our
+        // contact; 'customer' → the traveller's). Per-pax explicit values are kept.
         $contactEmail = trim((string) ($booking['email'] ?? ''));
         $contactPhone = trim((string) ($booking['phone'] ?? ''));
+        if (function_exists('supplier_resolve_contact')) {
+            $__tqR = supplier_resolve_contact($db, 'flights', 'tiqwa',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => $contactEmail, 'phone' => $contactPhone]);
+            $contactEmail = (string) ($__tqR['email'] ?? $contactEmail);
+            $contactPhone = (string) ($__tqR['phone'] ?? $contactPhone);
+        }
 
         $pax = [];
         foreach ($travellers as $paxKey => $p) {

@@ -160,9 +160,18 @@ $router->post('flights/kiwi/issue', function() use ($db) {
             throw new Exception('No traveller data found');
         }
 
+        // SUPPLIER-HIDING: resolve the booking contact once (Kiwi notifies the pax
+        // email/phone). Default company → our contact; 'customer' → the traveller's.
+        $__kiwiContact = function_exists('supplier_resolve_contact')
+            ? supplier_resolve_contact($db, 'flights', 'kiwi',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')])
+            : ['email' => (string)($booking['email'] ?? ''), 'phone' => (string)($booking['phone'] ?? '')];
+        $__kiwiEmail = (string)($__kiwiContact['email'] ?? ($booking['email'] ?? ''));
+        $__kiwiPhone = (string)($__kiwiContact['phone'] ?? ($booking['phone'] ?? ''));
+
         foreach ($travellers as $traveller) {
             $passengerType = strtoupper($traveller['type'] ?? 'adult');
-            
+
             // Kiwi expects specific passenger type codes
             $categoryMap = [
                 'ADULT' => 'adult',
@@ -183,8 +192,8 @@ $router->post('flights/kiwi/issue', function() use ($db) {
                 'name' => $traveller['first_name'] ?? $traveller['firstName'] ?? '',
                 'surname' => $traveller['last_name'] ?? $traveller['lastName'] ?? '',
                 'nationality' => $traveller['nationality'] ?? 'US',
-                'email' => $traveller['email'] ?? $booking['email'] ?? '',
-                'phone' => $traveller['phone'] ?? $booking['phone'] ?? ''
+                'email' => $traveller['email'] ?? $__kiwiEmail,
+                'phone' => $traveller['phone'] ?? $__kiwiPhone
             ];
             
             // Date of birth — REQUIRED. Do NOT fabricate it: a placeholder DOB
