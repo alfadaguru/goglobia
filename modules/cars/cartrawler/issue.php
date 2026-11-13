@@ -174,6 +174,16 @@ try {
         throw new Exception('Cannot issue: driver name, a valid email and phone are required on the booking.');
     }
 
+    // SUPPLIER-HIDING: validated a real contact exists; now resolve what we SEND to
+    // CarTrawler/the vendor so it doesn't email our customer directly (default
+    // company; 'customer' passes the driver's own). Driver NAME is kept.
+    if (function_exists('supplier_resolve_contact')) {
+        $__ctR = supplier_resolve_contact($db, 'cars', 'cartrawler',
+            ['name' => trim($firstName . ' ' . $lastName), 'email' => $email, 'phone' => $phone]);
+        $email = (string) ($__ctR['email'] ?? $email);
+        $phone = preg_replace('/[^\d+]/', '', (string) ($__ctR['phone'] ?? $phone));
+    }
+
     // Country of residence MUST match the availability search (OTA_VehAvailRateRQ driver_country).
     // Prefer search_params first — changing it at issue time fails the quote.
     // Never use phone dial codes (e.g. "01") for CitizenCountryName.

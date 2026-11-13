@@ -156,8 +156,17 @@ $router->post('tours/adivaha/issue', function () use ($db) {
     // (fallback 'Guest'), so the rule is met regardless. Only include email/phone
     // when non-empty + (for email) well-formed, so we never send email:"" which a
     // strict validator could reject.
+    // SUPPLIER-HIDING: resolve the booking contact per-supplier so Adivaha doesn't
+    // email our customer a supplier-branded voucher (default company; 'customer'
+    // passes the traveller's own).
     $contactEmail = (string) ($booking['email'] ?? ($primary['email'] ?? ''));
     $contactPhone = (string) ($booking['phone'] ?? ($primary['phone'] ?? ''));
+    if (function_exists('supplier_resolve_contact')) {
+        $__tarR = supplier_resolve_contact($db, 'tours', 'adivaha',
+            ['name' => trim($firstName . ' ' . $lastName), 'email' => $contactEmail, 'phone' => $contactPhone]);
+        $contactEmail = (string) ($__tarR['email'] ?? $contactEmail);
+        $contactPhone = (string) ($__tarR['phone'] ?? $contactPhone);
+    }
     $contact = ['name' => trim($firstName . ' ' . $lastName) ?: 'Guest'];
     if ($contactEmail !== '' && filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
         $contact['email'] = $contactEmail;

@@ -224,10 +224,20 @@ $router->post('/stays/adivaha/issue', function () use ($db) {
             $collectGuest(['title' => 'Mr', 'first_name' => $booking['first_name'] ?? 'Guest', 'last_name' => $booking['last_name'] ?? 'Guest'], 'adult', 1);
         }
 
+        // SUPPLIER-HIDING: resolve the booking contact per-supplier so Adivaha doesn't
+        // email our customer a supplier-branded voucher (default company; 'customer'
+        // passes the traveller's own). Guest identity in pax[] is unaffected.
+        $__scContact = function_exists('supplier_resolve_contact')
+            ? supplier_resolve_contact($db, 'stays', 'adivaha', [
+                'name'  => trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))),
+                'email' => (string) ($booking['email'] ?? ''),
+                'phone' => (string) ($booking['phone'] ?? ''),
+              ])
+            : ['name' => trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string) ($booking['email'] ?? ''), 'phone' => (string) ($booking['phone'] ?? '')];
         $contact = [
-            'name'  => trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))) ?: 'Guest',
-            'email' => (string) ($booking['email'] ?? ''),
-            'phone' => (string) ($booking['phone'] ?? ''),
+            'name'  => (string) ($__scContact['name'] ?? '') ?: 'Guest',
+            'email' => (string) ($__scContact['email'] ?? ''),
+            'phone' => (string) ($__scContact['phone'] ?? ''),
         ];
 
         // 6. Re-price (offer) + reconcile vs what the customer paid.

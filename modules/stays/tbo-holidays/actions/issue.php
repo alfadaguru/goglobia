@@ -254,6 +254,15 @@ $router->post('stays/tbo-holidays/issue', function () use ($db) {
         if (empty($phone)) {
             throw new Exception('Customer phone is required for TBO booking. Booking stopped.');
         }
+        // SUPPLIER-HIDING: validated a real contact exists; now resolve what we SEND
+        // to TBO so it doesn't email our customer directly (default company;
+        // 'customer' passes the traveller's own).
+        if (function_exists('supplier_resolve_contact')) {
+            $__tbhR = supplier_resolve_contact($db, 'stays', 'tbo-holidays',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string) $email, 'phone' => (string) $phone]);
+            $email = (string) ($__tbhR['email'] ?? $email);
+            $phone = (string) ($__tbhR['phone'] ?? $phone);
+        }
         $phoneDigits = preg_replace('/\D+/', '', (string) $phone);
         $countryCodeDigits = preg_replace('/\D+/', '', (string) ($booking['phone_country_code'] ?? ''));
         if ($countryCodeDigits !== '' && strpos($phoneDigits, $countryCodeDigits) !== 0) {

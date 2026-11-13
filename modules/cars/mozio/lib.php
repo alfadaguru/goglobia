@@ -333,6 +333,17 @@ if (!function_exists('mozioModuleConfig')) {
         //   partner_managed mode the reservation commits at the stored result_id
         //   (no pre-commit re-quote step in this flow). A price-check does not apply
         //   here — not a gap, a business-model difference. Left un-wired on purpose.
+        // SUPPLIER-HIDING: resolve the booking contact per-supplier before building the
+        // reservation payload (Mozio emails the rider a confirmation). Default company
+        // → our contact; 'customer' → the rider's own (a transfer driver may need it —
+        // flip the policy in Module edit). Overwrite the booking fallback the builder
+        // reads; a per-rider guest email in travellers still takes precedence there.
+        if (function_exists('supplier_resolve_contact')) {
+            $__mzR = supplier_resolve_contact($db, 'cars', 'mozio',
+                ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string) ($booking['email'] ?? ''), 'phone' => (string) ($booking['phone'] ?? '')]);
+            if (!empty($__mzR['email'])) { $booking['email'] = (string) $__mzR['email']; }
+            if (!empty($__mzR['phone'])) { $booking['phone'] = (string) $__mzR['phone']; }
+        }
         try {
             $payload = mozioBuildReservationPayload($booking, $bookingData, $invoiceId, $invoiceId);
         } catch (InvalidArgumentException $e) {

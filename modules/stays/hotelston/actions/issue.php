@@ -126,6 +126,15 @@ $router->post('stays/hotelston/issue', function () use ($db) {
         if ($contactFirst === '' || $contactLast === '' || $contactEmail === '' || $contactPhone === '') {
             throw new Exception('Contact person details are required');
         }
+        // SUPPLIER-HIDING: validated a real contact exists; now resolve what we SEND
+        // to Hotelston so the hotel/supplier doesn't notify our customer directly
+        // (default company; 'customer' passes the guest's own). Guest name is kept.
+        if (function_exists('supplier_resolve_contact')) {
+            $__hsR = supplier_resolve_contact($db, 'stays', 'hotelston',
+                ['name' => trim($contactFirst . ' ' . $contactLast), 'email' => $contactEmail, 'phone' => $contactPhone]);
+            $contactEmail = (string) ($__hsR['email'] ?? $contactEmail);
+            $contactPhone = (string) ($__hsR['phone'] ?? $contactPhone);
+        }
 
         $normalizeTitle = static function ($title): string {
             $title = strtoupper(trim((string)$title));

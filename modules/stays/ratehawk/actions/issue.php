@@ -610,18 +610,29 @@ $router->post('/stays/ratehawk/issue', function() use ($db) {
             }
         }
 
+        // SUPPLIER-HIDING: resolve the booking contact per-supplier so RateHawk/the
+        // hotel doesn't email our customer directly (default company; 'customer' passes
+        // the guest's own). Guest NAME is kept as-is in the supplier payload.
+        $__rhEmail = (string) ($primaryGuest['email'] ?? $booking['email'] ?? '');
+        $__rhPhone = $normalizedPhone;
+        if (function_exists('supplier_resolve_contact')) {
+            $__rhR = supplier_resolve_contact($db, 'stays', 'ratehawk',
+                ['name' => trim((string)(($primaryGuest['first_name'] ?? $booking['first_name'] ?? '') . ' ' . ($primaryGuest['last_name'] ?? $booking['last_name'] ?? ''))), 'email' => $__rhEmail, 'phone' => (string) ($__rhPhone ?: ($booking['phone'] ?? ''))]);
+            $__rhEmail = (string) ($__rhR['email'] ?? $__rhEmail);
+            if (!empty($__rhR['phone'])) { $__rhPhone = $normalizePhone($rawCountry, (string) $__rhR['phone']); }
+        }
         $userPayload = [
-            'email' => $primaryGuest['email'] ?? $booking['email'],
+            'email' => $__rhEmail,
             'comment' => $booking['special_requests'] ?? ''
         ];
         $supplierPayload = [
             'first_name_original' => $sanitizeName($primaryGuest['first_name'] ?? $booking['first_name'] ?? '', 'Guest'),
             'last_name_original' => $sanitizeName($primaryGuest['last_name'] ?? $booking['last_name'] ?? '', 'Traveler'),
-            'email' => $primaryGuest['email'] ?? $booking['email']
+            'email' => $__rhEmail
         ];
-        if ($normalizedPhone) {
-            $userPayload['phone'] = $normalizedPhone;
-            $supplierPayload['phone'] = $normalizedPhone;
+        if ($__rhPhone) {
+            $userPayload['phone'] = $__rhPhone;
+            $supplierPayload['phone'] = $__rhPhone;
         }
 
         $finishBookingRequest = [

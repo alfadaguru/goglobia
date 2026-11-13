@@ -229,6 +229,16 @@ $router->post('stays/travelport/issue', function() use ($db) {
             throw new Exception('Cannot issue: guest name and a valid email are required on the booking.');
         }
 
+        // SUPPLIER-HIDING: validated a real contact exists; now resolve what we SEND
+        // to Travelport so the GDS/hotel doesn't notify our customer directly (default
+        // company; 'customer' passes the guest's own). Guest NAME is kept.
+        if (function_exists('supplier_resolve_contact')) {
+            $__stpR = supplier_resolve_contact($db, 'stays', 'travelport',
+                ['name' => trim((string)($primaryGuest['first_name'] . ' ' . $primaryGuest['last_name'])), 'email' => (string) $primaryGuest['email'], 'phone' => (string) ($primaryGuest['phone'] ?? '')]);
+            $primaryGuest['email'] = (string) ($__stpR['email'] ?? $primaryGuest['email']);
+            $primaryGuest['phone'] = (string) ($__stpR['phone'] ?? ($primaryGuest['phone'] ?? ''));
+        }
+
         // REQUIRED: Key attribute for BookingTraveler
         $travelerKey = 'TRAV_' . uniqid();
 
