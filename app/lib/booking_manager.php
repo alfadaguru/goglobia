@@ -466,14 +466,37 @@ if (!function_exists('bm_settle_booking_payment')) {
 
         // 3b. LIVE booking → fire the guarded supplier issue loopback.
         $res = bm_fire_supplier_issue($db, $invoiceId, $moduleType, $module);
-        $issuedOk = !empty($res['status']) || !empty($res['success']);
+        $callOk = !empty($res['status']) || !empty($res['success']);
 
-        if ($issuedOk) {
-            // issue.php already wrote pnr + booking_status; re-read for the result.
-            $after = $db->get('bookings', ['pnr', 'booking_status'], ['invoice_id' => $invoiceId]);
-            bm_notify_paid($db, $invoiceId);
-            return ['ok' => true, 'issued' => true, 'status' => $after['booking_status'] ?? 'confirmed',
-                    'pnr' => $after['pnr'] ?? '', 'message' => 'Paid and issued at the supplier.'];
+        if ($callOk) {
+            // issue.php already wrote pnr + booking_status; re-read the AUTHORITATIVE
+            // state. CRITICAL: a supplier returns status:true even when the ticket is
+            // only ON-HOLD / awaiting airline confirmation (Adivaha does this so the
+            // payment gateway does NOT auto-refund). "status:true" ≠ "ticketed", so we
+            // must NOT claim issued / send a ticket until the booking is really
+            // CONFIRMED with a real PNR. Otherwise the customer gets a "ticket issued"
+            // notice (and a bogus PNR) for a flight that was never ticketed.
+            $after    = $db->get('bookings', ['pnr', 'booking_status'], ['invoice_id' => $invoiceId]);
+            $afterStat = strtolower((string) ($after['booking_status'] ?? ''));
+            $realPnr  = trim((string) ($after['pnr'] ?? ''));
+            $supplierSaysTicketed = !empty($res['is_ticketed'])
+                || strtolower((string) ($res['booking_status'] ?? '')) === 'confirmed';
+            $trulyIssued = ($afterStat === 'confirmed') && ($realPnr !== '') && $supplierSaysTicketed;
+
+            if ($trulyIssued) {
+                bm_notify_paid($db, $invoiceId);  // real ticket → send it
+                return ['ok' => true, 'issued' => true, 'status' => $afterStat,
+                        'pnr' => $realPnr, 'message' => 'Paid and issued at the supplier.'];
+            }
+
+            // Paid + supplier accepted, but NOT yet ticketed (on-hold / pending /
+            // held-for-review). Do NOT notify a ticket. Leave it pending so it shows
+            // in the ops/verify "needs attention" view; the admin can re-check the
+            // supplier (retry-issue re-polls) until the airline confirms the PNR.
+            return ['ok' => true, 'issued' => false, 'pending_issue' => true,
+                    'status' => $afterStat ?: 'pending', 'pnr' => $realPnr,
+                    'message' => trim((string) ($res['message'] ?? ''))
+                        ?: 'Paid. The supplier has the booking on hold — not yet ticketed. Re-check / retry issue to confirm the airline PNR before sending the ticket.'];
         }
 
         // Issue failed AFTER payment → paid-but-not-issued. Whether to auto-refund
