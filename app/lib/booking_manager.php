@@ -456,16 +456,38 @@ if (!function_exists('bm_settle_booking_payment')) {
             } catch (\Throwable $e) { error_log('bm_settle record_transaction: ' . $e->getMessage()); }
         }
 
+        // DEFERRED NOTIFY. bm_notify_paid generates a PDF (mPDF) and sends email +
+        // (optionally) WhatsApp/SMS — all SYNCHRONOUS outbound work that can add many
+        // seconds to the request. An INTERACTIVE caller (the one-click /pay, a browser
+        // waiting on the socket) sets $meta['defer_notify'] so we SKIP the inline send
+        // and instead return notify_due=true; the caller flushes the HTTP response to
+        // the browser FIRST, then runs bm_notify_paid after the socket closes. Every
+        // other caller (crons, callbacks) omits the flag and notifies inline as before.
+        $deferNotify = !empty($meta['defer_notify']);
+
         // 3a. MANUAL / OFFLINE booking (no supplier) → confirm without any issue call.
         if (!$isLive || $method === 'offline') {
             $db->update('bookings', ['booking_status' => 'confirmed'], ['invoice_id' => $invoiceId]);
+            if ($deferNotify) {
+                return ['ok' => true, 'issued' => false, 'notify_due' => true, 'status' => 'confirmed', 'pnr' => $booking['pnr'] ?? '',
+                        'message' => 'Booking confirmed (manual/offline — no supplier issue).'];
+            }
             bm_notify_paid($db, $invoiceId);
             return ['ok' => true, 'issued' => false, 'status' => 'confirmed', 'pnr' => $booking['pnr'] ?? '',
                     'message' => 'Booking confirmed (manual/offline — no supplier issue).'];
         }
 
         // 3b. LIVE booking → fire the guarded supplier issue loopback.
-        $res = bm_fire_supplier_issue($db, $invoiceId, $moduleType, $module);
+        // The INTERACTIVE one-click path (a browser waiting on this request) passes a
+        // tighter issue_timeout so the server gives up roughly when the client does,
+        // instead of holding the socket for the full 300s default. Background callers
+        // (the stranded cron) omit it and keep the generous ceiling — a long wait is
+        // fine there because nobody is watching a spinner. Clamp to a sane range.
+        $issueTimeout = 300;
+        if (isset($meta['issue_timeout']) && (int) $meta['issue_timeout'] > 0) {
+            $issueTimeout = max(15, min(300, (int) $meta['issue_timeout']));
+        }
+        $res = bm_fire_supplier_issue($db, $invoiceId, $moduleType, $module, $issueTimeout);
         $callOk = !empty($res['status']) || !empty($res['success']);
 
         if ($callOk) {
@@ -484,6 +506,10 @@ if (!function_exists('bm_settle_booking_payment')) {
             $trulyIssued = ($afterStat === 'confirmed') && ($realPnr !== '') && $supplierSaysTicketed;
 
             if ($trulyIssued) {
+                if ($deferNotify) {
+                    return ['ok' => true, 'issued' => true, 'notify_due' => true, 'status' => $afterStat,
+                            'pnr' => $realPnr, 'message' => 'Paid and issued at the supplier.'];
+                }
                 bm_notify_paid($db, $invoiceId);  // real ticket → send it
                 return ['ok' => true, 'issued' => true, 'status' => $afterStat,
                         'pnr' => $realPnr, 'message' => 'Paid and issued at the supplier.'];

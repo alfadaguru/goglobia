@@ -27,6 +27,38 @@ if (!function_exists('bmAdminJson')) {
         exit;
     }
 }
+if (!function_exists('bmAdminJsonThenNotify')) {
+    /**
+     * Emit the JSON response, FLUSH it to the browser, THEN run bm_notify_paid for a
+     * settle that returned notify_due=true. The operator sees "Paid & booked"
+     * instantly; the slow PDF + email + WhatsApp happen after the socket closes, so
+     * notifications never add to the page wait. Falls back to inline notify under
+     * plain mod_php (no fastcgi_finish_request) — correctness over latency there.
+     *
+     * @param array $payload  the JSON body to return
+     * @param array $settle   the bm_settle_booking_payment() result (checked for notify_due)
+     * @param mixed $db       Medoo handle for the deferred bm_notify_paid call
+     */
+    function bmAdminJsonThenNotify($payload, array $settle, $db, string $invoiceId): void
+    {
+        $notifyDue = !empty($settle['notify_due']);
+        if (!headers_sent()) { http_response_code(200); header('Content-Type: application/json'); }
+        echo json_encode($payload);
+        // Push the body out and close the client connection BEFORE notifying.
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();
+        } else {
+            // mod_php: best-effort flush, then still notify inline (can't truly detach).
+            @ob_end_flush(); @flush();
+        }
+        if ($notifyDue && function_exists('bm_notify_paid')) {
+            @ignore_user_abort(true);
+            @set_time_limit(120);
+            try { bm_notify_paid($db, $invoiceId); } catch (\Throwable $e) { error_log('bm deferred notify ' . $invoiceId . ': ' . $e->getMessage()); }
+        }
+        exit;
+    }
+}
 if (!function_exists('bmAdminCsrfOk')) {
     function bmAdminCsrfOk(): bool
     {
@@ -955,8 +987,9 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
         $res = bm_settle_booking_payment($db, $invoiceId, 'offline', [
             'verified_by' => $_SESSION['user_id'] ?? '', 'amount' => (float) $booking['price_markup'], 'currency' => $booking['currency_markup'] ?? 'NGN',
             'gateway_name' => 'manual_payment',
+            'defer_notify' => true,   // flush the response first; voucher PDF+email after
         ]);
-        bmAdminJson(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? '']);
+        bmAdminJsonThenNotify(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? ''], $res, $db, $invoiceId);
     }
 
     // ONE-CLICK PAID + CONFIRM (senior admin). The admin has ALREADY received the
@@ -1006,17 +1039,26 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
             'amount_due'     => $amountDue,
             'short_paid'     => ($amountReceived < ($amountDue - 0.01)),
             'currency'       => $booking['currency_markup'] ?? 'NGN',
+            // INTERACTIVE path: a browser is waiting on this request. Cap the supplier
+            // issue so the server gives up ~when the client aborts (75s) instead of
+            // holding the socket for the 300s default. If the issue doesn't finish in
+            // time the booking is left paid-but-pending and the stranded cron / a
+            // re-check completes it — no money lost, no double-issue (idempotent).
+            'issue_timeout'  => 70,
+            // Defer the PDF+email+WhatsApp until AFTER the response flushes so they
+            // never add to the operator's wait (handled by bmAdminJsonThenNotify).
+            'defer_notify'   => true,
         ]);
         // Honest result: 'issued' (live ticket done), 'pending_issue' (paid but the
         // supplier hasn't ticketed yet — re-check/retry), or confirmed (manual).
-        bmAdminJson([
+        bmAdminJsonThenNotify([
             'status'        => !empty($res['ok']),
             'issued'        => !empty($res['issued']),
             'pending_issue' => !empty($res['pending_issue']),
             'pnr'           => $res['pnr'] ?? '',
             'settle'        => $res,
             'message'       => $res['message'] ?? '',
-        ]);
+        ], $res, $db, $invoiceId);
     }
 
     bmAdminJson(['status' => false, 'message' => 'Choose a payment method.'], 422);
@@ -1079,8 +1121,10 @@ $router->post(admin . '/booking-manager/verify', function () use ($SECURE, $db) 
         'amount_due'     => $amountDue,
         'short_paid'     => ($amountReceived < ($amountDue - 0.01)),
         'currency'       => $booking['currency_markup'] ?? 'NGN',
+        'issue_timeout'  => 70,       // interactive — match the client abort
+        'defer_notify'   => true,     // flush first, PDF+email+WhatsApp after
     ]);
-    bmAdminJson(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? '']);
+    bmAdminJsonThenNotify(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? ''], $res, $db, $invoiceId);
 });
 
 // ---------------------------------------------------------------------------

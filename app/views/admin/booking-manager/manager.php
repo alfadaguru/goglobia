@@ -840,6 +840,13 @@ $svcIcons = [
             <span x-text="paying ? 'Confirming — do NOT close or retry…' : 'Payment received — confirm &amp; issue now'"></span>
           </button>
           <p class="text-[11px] text-slate-400 -mt-1 mb-1">Use this when you already have the money (cash/transfer). Marks paid and issues the ticket immediately — no waiting for verification. A live ticket can take up to a minute to issue — please wait.</p>
+          <!-- LIVE "issuing…" progress: a synchronous supplier issue can take a few
+               seconds; show a moving elapsed counter so the wait reads as progress,
+               not a frozen page. Only while paying. -->
+          <div class="rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-xs text-sky-800 flex items-center gap-2" x-show="paying" x-cloak>
+            <span class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+            <span>Contacting the airline and issuing the ticket… <span class="tabular-nums font-medium" x-text="payElapsed+'s'"></span> — please don’t close this tab or press back.</span>
+          </div>
           <?php endif; ?>
           <button class="btn outline w-full justify-start" @click="payDva()" :disabled="paying">
             <span class="material-symbols-outlined">qr_code_2</span><span>Generate virtual account (bank transfer)</span>
@@ -1003,7 +1010,7 @@ function bookingMgr() {
     // in booking_date (falls back to now if blank/invalid).
     bookedDate:'',
     creating:false, created:false, invoiceId:'', clientToken:'',
-    paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false, settled:false, settledPnr:'',
+    paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false, settled:false, settledPnr:'', payElapsed:0, _payTick:null,
     // Inline form validation/result message (replaces the old blocking alert()s;
     // mirrors the pay step's settleMsg). formMsgOk=false renders red, true green.
     formMsg:'', formMsgOk:false,
@@ -1871,11 +1878,15 @@ function bookingMgr() {
     async payNow(){
       if(!confirm('Confirm you have RECEIVED this payment? This marks the booking paid and issues the ticket now.')) return;
       this.paying=true; this.settleMsg=''; this.settleMsgOk=false;
+      // Elapsed-seconds ticker so the synchronous issue reads as progress.
+      this.payElapsed=0; clearInterval(this._payTick);
+      this._payTick=setInterval(()=>{ this.payElapsed++; }, 1000);
       // A live ticket issue is a synchronous supplier call that can take a while.
       // Give it a generous client timeout so a slow issue doesn't look like a dead
       // page — but if it DOES time out, the booking may still have gone through, so
-      // we tell the operator to CHECK (not pay again).
-      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(), 90000);
+      // we tell the operator to CHECK (not pay again). Matched to the server-side
+      // issue ceiling so client and server give up together.
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(), 75000);
       try{
         const res=await fetch(this.base+'admin/booking-manager/pay',{method:'POST',signal:ctrl.signal,body:this.form({invoice_id:this.invoiceId,method:'mark_paid_now'})});
         const data=await res.json();
@@ -1900,7 +1911,7 @@ function bookingMgr() {
         this.settleMsg=(e&&e.name==='AbortError')
           ? 'Still processing at the supplier — this is taking longer than usual. The booking may have gone through: do NOT pay again. Check “Recent office bookings” below or the verification page, and refresh in a moment.'
           : 'Payment step failed — try again.';
-      }finally{ clearTimeout(t); this.paying=false; }
+      }finally{ clearTimeout(t); clearInterval(this._payTick); this._payTick=null; this.paying=false; }
     },
     async pay(method){
       this.paying=true; this.settleMsg=''; this.settleMsgOk=false;
@@ -1920,7 +1931,7 @@ function bookingMgr() {
     // inputs, and mints a new idempotency token so the next create is independent.
     newBooking(){
       this.created=false; this.creating=false; this.invoiceId='';
-      this.dva=null; this.manualPay=false; this.paying=false; this.settleMsg=''; this.settleMsgOk=false; this.settled=false; this.settledPnr='';
+      this.dva=null; this.manualPay=false; this.paying=false; this.settleMsg=''; this.settleMsgOk=false; this.settled=false; this.settledPnr=''; clearInterval(this._payTick); this._payTick=null; this.payElapsed=0;
       this.formMsg=''; this.formMsgOk=false; this.searchMsg='';
       this.results=[]; this.searched=false; this.searchErrors=[];
       this.selectedOffer=null; this.selectedRaw=null; this.selectedSupplier=''; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null; this.selectedRoomName='';
