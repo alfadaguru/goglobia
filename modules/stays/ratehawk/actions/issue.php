@@ -621,13 +621,22 @@ $router->post('/stays/ratehawk/issue', function() use ($db) {
             $__rhEmail = (string) ($__rhR['email'] ?? $__rhEmail);
             if (!empty($__rhR['phone'])) {
                 $__rhCompany = (($__rhR['mode'] ?? 'company') === 'company');
-                // Only re-normalise with the CUSTOMER's country ($rawCountry) for a
-                // CUSTOMER phone. A company number already carries its own code —
-                // normalising it against the customer's country would corrupt it; pass
-                // it through, and if it has no '+' assume it's already supplier-ready.
-                $__rhPhone = $__rhCompany
-                    ? (string) $__rhR['phone']
-                    : $normalizePhone($rawCountry, (string) $__rhR['phone']);
+                // CUSTOMER phone → normalise against the customer's country.
+                // COMPANY phone → do NOT apply the customer's country (would corrupt a
+                // number that already carries its own code). But a bare local company
+                // number (no '+', < ~8 digits of international shape) could be a shape
+                // RateHawk rejects and HARD-FAIL an already-PAID booking — so if the
+                // company phone doesn't look international, fall back to the validated
+                // customer phone ($normalizedPhone) for the supplier field rather than
+                // risk aborting the booking. (Mirrors the tbo-holidays guard.)
+                if (!$__rhCompany) {
+                    $__rhPhone = $normalizePhone($rawCountry, (string) $__rhR['phone']);
+                } else {
+                    $__rhCoPhone = (string) $__rhR['phone'];
+                    $__rhDigits  = preg_replace('/\D+/', '', $__rhCoPhone);
+                    $__rhLooksIntl = (strpos($__rhCoPhone, '+') === 0) || strlen($__rhDigits) >= 11;
+                    $__rhPhone = $__rhLooksIntl ? $__rhCoPhone : ($normalizedPhone ?: $__rhCoPhone);
+                }
             }
         }
         $userPayload = [

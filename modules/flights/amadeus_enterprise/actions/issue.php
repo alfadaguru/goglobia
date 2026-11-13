@@ -217,7 +217,8 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
         $buildTravelers = static function (array $sourceTravellers, array $bookingRow) use (
             $fitAmadeusNamePair,
             $normalizePhone,
-            $normalizeCountryCode
+            $normalizeCountryCode,
+            $db
         ): array {
             if (!empty($sourceTravellers['primary_guest']) || !empty($sourceTravellers['travelers'])) {
                 $flat = [];
