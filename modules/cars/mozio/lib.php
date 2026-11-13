@@ -340,6 +340,15 @@ if (!function_exists('mozioModuleConfig')) {
         // guest_details.primary_guest.email with $booking['email'] only as a FALLBACK,
         // so we must overwrite BOTH the booking AND the guest_details block, or the
         // customer's own email would still leak in the normal web flow.
+        // mozioIssueReservation is called from MAIN-APP routes (cars checkout /
+        // globalRoutes, mozioPaymentRoutes) — NOT only the /modules gateway — so
+        // modules/helpers.php (which defines supplier_resolve_contact) may not be loaded
+        // yet. Require it here (idempotent; same pattern as the log-helper load below),
+        // or the guard would silently no-op and leak the customer.
+        if (!function_exists('supplier_resolve_contact')) {
+            $__mzHelpers = dirname(__DIR__, 2) . '/helpers.php';
+            if (is_file($__mzHelpers)) { require_once $__mzHelpers; }
+        }
         if (function_exists('supplier_resolve_contact')) {
             $__mzR = supplier_resolve_contact($db, 'cars', 'mozio',
                 ['name' => trim((string)(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), 'email' => (string) ($booking['email'] ?? ''), 'phone' => (string) ($booking['phone'] ?? '')]);
