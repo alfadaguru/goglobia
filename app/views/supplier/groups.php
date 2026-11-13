@@ -119,18 +119,43 @@ foreach ($rooms as $r) {
 
       <?php if ($canEdit && !in_array($st, ['completed','cancelled'], true)): ?>
         <div class="border-t border-gray-100 pt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <!-- Add block -->
+          <!-- Add block — now with LABELS + a live cost estimate (report V2 #5) -->
           <?php if (!empty($roomOpts)): ?>
-          <form action="<?= $base ?>/block" method="POST" class="space-y-1.5">
+          <?php
+            // Per-(room:option) default nightly rate, so the estimator can price against the
+            // room's own rate when the operator leaves the group rate blank.
+            $roomOptRate = [];
+            foreach ($rooms as $__r) {
+              foreach (($__r['_options'] ?? []) as $__o) {
+                $roomOptRate[(int) $__r['id'] . ':' . (int) ($__o['option_id'] ?? 0)] = (float) ($__o['price'] ?? 0);
+              }
+            }
+          ?>
+          <form action="<?= $base ?>/block" method="POST" class="space-y-2" data-group-block="1"
+                data-rates='<?= htmlspecialchars(json_encode($roomOptRate), ENT_QUOTES) ?>' data-cur="<?= $cur ?>">
             <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
-            <div class="text-xs font-semibold text-gray-600">Hold a block</div>
-            <select class="input text-xs w-full" onchange="var v=this.value.split(':');this.form.room_id.value=v[0];this.form.option_id.value=v[1];">
-              <?php foreach ($roomOpts as $k => $lbl): ?><option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?>
-            </select>
+            <div class="text-sm font-semibold text-gray-800">Hold a block</div>
+            <div class="form-control">
+              <label class="block text-xs text-gray-600 mb-0.5">Room type &amp; rate</label>
+              <select class="input text-xs w-full gb-roomopt" onchange="var v=this.value.split(':');this.form.room_id.value=v[0];this.form.option_id.value=v[1];gbEstimate(this.form);">
+                <?php foreach ($roomOpts as $k => $lbl): ?><option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?>
+              </select>
+            </div>
             <input type="hidden" name="room_id" value="<?= (int) explode(':', (string) array_key_first($roomOpts))[0] ?>">
             <input type="hidden" name="option_id" value="<?= (int) explode(':', (string) array_key_first($roomOpts))[1] ?>">
-            <div class="flex gap-1.5"><input type="date" name="date_from" class="input text-xs" required><input type="date" name="date_to" class="input text-xs" required><input type="number" name="qty" min="1" value="1" class="input text-xs w-16" required></div>
-            <div class="flex gap-1.5"><input type="date" name="cutoff_date" class="input text-xs" title="Cutoff — unsold rooms auto-release after this date"><input type="number" name="rate" step="0.01" min="0" class="input text-xs w-24" placeholder="group rate /night"></div>
+            <div class="grid grid-cols-3 gap-1.5">
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-in</label><input type="date" name="date_from" class="input text-xs gb-from" required oninput="gbEstimate(this.form)"></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-out</label><input type="date" name="date_to" class="input text-xs gb-to" required oninput="gbEstimate(this.form)"></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Rooms</label><input type="number" name="qty" min="1" value="1" class="input text-xs gb-qty" required oninput="gbEstimate(this.form)"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Cutoff <span class="text-gray-400">(auto-release)</span></label><input type="date" name="cutoff_date" class="input text-xs" title="Unsold rooms auto-release after this date"></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Group rate / night <span class="text-gray-400">(optional)</span></label><input type="number" name="rate" step="0.01" min="0" class="input text-xs gb-rate" placeholder="room rate" oninput="gbEstimate(this.form)"></div>
+            </div>
+            <div class="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5 flex justify-between">
+              <span class="gb-breakdown">— rooms × — nights</span>
+              <span class="font-semibold text-gray-900">Est. total: <span class="gb-total"><?= $cur ?> 0.00</span></span>
+            </div>
             <button type="submit" class="btn secondary text-xs">Hold block</button>
           </form>
           <?php endif; ?>
@@ -199,3 +224,30 @@ foreach ($rooms as $r) {
     </div>
   <?php endforeach; endif; ?>
 </div>
+
+<script>
+// GROUP BLOCK cost estimate (report V2 #5): rooms × nights × rate, live as the operator
+// types. Uses the chosen room/option's own nightly rate unless a group rate is entered.
+function gbEstimate(form) {
+  if (!form) return;
+  var rates = {}; try { rates = JSON.parse(form.getAttribute('data-rates') || '{}'); } catch (e) {}
+  var cur = form.getAttribute('data-cur') || '';
+  var sel = form.querySelector('.gb-roomopt');
+  var key = sel ? sel.value : '';
+  var from = (form.querySelector('.gb-from') || {}).value || '';
+  var to = (form.querySelector('.gb-to') || {}).value || '';
+  var qty = parseInt((form.querySelector('.gb-qty') || {}).value || '1', 10) || 0;
+  var rateInput = parseFloat((form.querySelector('.gb-rate') || {}).value || '');
+  var rate = (!isNaN(rateInput) && rateInput > 0) ? rateInput : (parseFloat(rates[key]) || 0);
+  var nights = 0;
+  if (from && to) { var d = (new Date(to) - new Date(from)) / 86400000; if (d > 0) nights = Math.round(d); }
+  var total = qty * nights * rate;
+  var fmt = function (n) { return cur + ' ' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  var bd = form.querySelector('.gb-breakdown');
+  var tt = form.querySelector('.gb-total');
+  if (bd) bd.textContent = qty + ' room' + (qty === 1 ? '' : 's') + ' × ' + nights + ' night' + (nights === 1 ? '' : 's') + (rate ? ' × ' + fmt(rate) : '');
+  if (tt) tt.textContent = fmt(total);
+}
+// Initialise every group-block estimator on load.
+document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEstimate(f); });
+</script>
