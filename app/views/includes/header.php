@@ -320,6 +320,21 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
     <style>
       /* Hide Alpine-cloaked elements until Alpine initializes (prevents flash). */
       [x-cloak] { display: none !important; }
+      <?php if (empty($isAdminSidebar) && empty($isSupplierSidebar)): ?>
+      /* MOBILE OVERFLOW GUARD (customer frontend only — NOT the admin/supplier
+         sidebar layouts, which manage their own horizontal rail).
+         Root cause of the "everything tiny / search unusable" mobile bug: a wide
+         horizontal strip (e.g. the Popular-destinations marquee .dest-track at
+         ~3780px, or a width:max-content route rail) leaked past the viewport, so
+         mobile Safari ZOOMED THE WHOLE PAGE OUT to fit it (window.innerWidth read
+         587 on a 390px device). Clamp the page so no child can force horizontal
+         scroll; individual strips still scroll inside their own overflow-x:auto
+         containers. */
+      html, body { max-width: 100%; overflow-x: hidden; }
+      /* Belt-and-braces: any width:max-content / fixed-width horizontal strip must
+         live inside a scroller that cannot itself exceed the viewport. */
+      .dest-marquee, .h-scroll, [data-hscroll] { max-width: 100%; }
+      <?php endif; ?>
       /* LOCK SCROLL ONLY WHILE THE LOADER OVERLAY IS VISIBLE (AUTO-RELEASES ON FADE) */
       html:has(.page-loader:not(.hide)) { overflow: hidden; }
       .page-loader { position: fixed; inset: 0; background: #fff; z-index: 999999; display: flex; align-items: center; justify-content: center; opacity: 1; transition: opacity .18s ease-out; will-change: opacity; }

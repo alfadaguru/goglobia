@@ -650,11 +650,13 @@ function flightSearchData() {
     }" x-init="selectType(tripType); window.setFlightTripType = (v) => selectType(v); window.ensureRoundtripReturnDate = () => ensureRoundtripReturnDate()">
         <input type="hidden" name="flight_type" :value="tripType">
 
-        <!-- Trip Type Segmented Pills -->
-        <div class="inline-flex items-center bg-[#f2f4f7] rounded-md p-1">
+        <!-- Trip Type Segmented Pills — full-width on mobile so the three options
+             share the row evenly and never overflow past the viewport; inline on
+             larger screens. -->
+        <div class="flex w-full sm:w-auto sm:inline-flex items-center bg-[#f2f4f7] rounded-md p-1">
             <template x-for="type in flightTypes" :key="type.value">
                 <button type="button" @click="selectType(type.value)"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors"
+                    class="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap min-w-0"
                     :class="tripType === type.value ? 'bg-white text-[#101828] shadow-sm border border-[#d8dce3]' : 'text-[#475467] hover:text-[#101828]'">
                     <span class="material-symbols-outlined text-base hidden sm:flex" x-text="type.icon"></span>
                     <span x-text="type.name"></span>
@@ -1205,9 +1207,12 @@ function flightSearchData() {
 
         <!-- Search Button -->
         <div class="col-span-1 md:col-span-2 lg:col-span-1 ">
-        <button type="submit" class="btn w-full h-[58px] rounded-lg flex items-center justify-center p-0" :disabled="isSearching" title="<?=T::search_flights?>" aria-label="<?=T::search_flights?>">
+        <button type="submit" class="btn w-full h-[58px] rounded-lg flex items-center justify-center gap-2 px-4" :disabled="isSearching" title="<?=T::search_flights?>" aria-label="<?=T::search_flights?>">
                 <svg x-show="!isSearching" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M15.4838 15.5099L18.3073 18.3334M17.4925 10.616C17.4925 14.454 14.3916 17.5654 10.5666 17.5654C6.74147 17.5654 3.64062 14.454 3.64062 10.616C3.64062 6.77801 6.74147 3.66669 10.5666 3.66669C14.3916 3.66669 17.4925 6.77801 17.4925 10.616Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
                 <svg x-show="isSearching" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" stroke-width="1.5"></circle><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>
+                <!-- Visible label on mobile so it reads as the search action (lg hides it where
+                     the button sits as a compact icon at the end of the inline search row). -->
+                <span class="font-semibold lg:hidden"><?=T::search_flights?></span>
             </button>
         </div>
 
