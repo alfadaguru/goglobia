@@ -632,8 +632,12 @@ function flightSearchData() {
                 returnDp.setValue(returnDateStr);
             }
         },
-        selectType(value) {
-            this.tripType = value;
+        // DOM side-effects only (return-date picker / multi-city visibility). Does NOT
+        // touch reactive state, so it is safe to call from x-init. Mutating tripType
+        // inside x-init re-triggers the trip-type x-for effect mid-initialization and
+        // makes Alpine render the pill list TWICE (6 overlapping pills) — so init must
+        // use this, not selectType().
+        syncTripTypeDom(value) {
             const returnPicker = document.getElementById('return_date_picker');
             const returnPromo = document.getElementById('return_date_promo');
             const returnArrow = document.getElementById('return_arrow');
@@ -646,22 +650,37 @@ function flightSearchData() {
             if (isRoundtrip) {
                 setTimeout(() => this.ensureRoundtripReturnDate(), 50);
             }
+        },
+        selectType(value) {
+            this.tripType = value;
+            this.syncTripTypeDom(value);
         }
-    }" x-init="selectType(tripType); window.setFlightTripType = (v) => selectType(v); window.ensureRoundtripReturnDate = () => ensureRoundtripReturnDate()">
+    }" x-init="syncTripTypeDom(tripType); window.setFlightTripType = (v) => selectType(v); window.ensureRoundtripReturnDate = () => ensureRoundtripReturnDate()">
         <input type="hidden" name="flight_type" :value="tripType">
 
-        <!-- Trip Type Segmented Pills — full-width on mobile so the three options
-             share the row evenly and never overflow past the viewport; inline on
-             larger screens. -->
+        <!-- Trip Type Segmented Pills — rendered STATICALLY in PHP (the 3 options come
+             from $flight_types_config, they are not dynamic). This deliberately avoids
+             an Alpine <template x-for>: when this whole form is injected via innerHTML
+             and then Alpine-initialized, the x-for rendered its items TWICE (6
+             overlapping pills). A static list cannot double-render; the click + active
+             styling stay reactive via @click / :class on each button.
+             Full-width on mobile so the options share the row evenly and never overflow;
+             inline on larger screens. -->
+        <?php
+            $__tripTypes = [];
+            if ($flight_types_config['oneway'])    { $__tripTypes[] = ['value' => 'oneway',    'name' => T::one_way,    'icon' => 'trending_flat']; }
+            if ($flight_types_config['roundtrip']) { $__tripTypes[] = ['value' => 'roundtrip', 'name' => T::round_trip, 'icon' => 'sync_alt']; }
+            if ($flight_types_config['multicity']) { $__tripTypes[] = ['value' => 'multicity', 'name' => T::multi_city, 'icon' => 'alt_route']; }
+        ?>
         <div class="flex w-full sm:w-auto sm:inline-flex items-center bg-[#f2f4f7] rounded-md p-1">
-            <template x-for="type in flightTypes" :key="type.value">
-                <button type="button" @click="selectType(type.value)"
+            <?php foreach ($__tripTypes as $__tt): ?>
+                <button type="button" @click="selectType('<?= $__tt['value'] ?>')"
                     class="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap min-w-0"
-                    :class="tripType === type.value ? 'bg-white text-[#101828] shadow-sm border border-[#d8dce3]' : 'text-[#475467] hover:text-[#101828]'">
-                    <span class="material-symbols-outlined text-base hidden sm:flex" x-text="type.icon"></span>
-                    <span x-text="type.name"></span>
+                    :class="tripType === '<?= $__tt['value'] ?>' ? 'bg-white text-[#101828] shadow-sm border border-[#d8dce3]' : 'text-[#475467] hover:text-[#101828]'">
+                    <span class="material-symbols-outlined text-base hidden sm:flex"><?= htmlspecialchars($__tt['icon']) ?></span>
+                    <span><?= htmlspecialchars($__tt['name']) ?></span>
                 </button>
-            </template>
+            <?php endforeach; ?>
         </div>
 
         <!-- CABIN CLASS — FERRIES-STYLE TRIGGER + FLUSH PANEL WITH ICONS -->
