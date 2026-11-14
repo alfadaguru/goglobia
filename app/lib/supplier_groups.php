@@ -115,6 +115,8 @@ if (!function_exists('group_member_add')) {
                 'group_id'  => $groupId, 'block_id' => $blockId,
                 'guest_name'=> substr($guestName, 0, 120),
                 'email'     => trim((string) ($opts['email'] ?? '')) ?: null,
+                'phone'     => trim((string) ($opts['phone'] ?? '')) ?: null,
+                'customer_id' => (int) ($opts['customer_id'] ?? 0) ?: null,
                 'created_at'=> date('Y-m-d H:i:s'),
             ]);
             return true;

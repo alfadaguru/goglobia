@@ -163,9 +163,20 @@ foreach ($rooms as $r) {
           <?php if (!empty($blocks)): ?>
           <form action="<?= $base ?>/member" method="POST" class="space-y-1.5">
             <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
-            <div class="text-xs font-semibold text-gray-600">Rooming list</div>
+            <div class="text-xs font-semibold text-gray-600">Rooming list — add a guest</div>
             <select name="block_id" class="input text-xs w-full"><?php foreach ($blocks as $b): if ($b['state'] !== 'held') continue; ?><option value="<?= (int) $b['id'] ?>">Block #<?= (int) $b['id'] ?> (<?= (int) $b['qty'] ?> rm)</option><?php endforeach; ?></select>
-            <input type="text" name="guest_name" class="input text-xs w-full" placeholder="Guest name" required>
+            <?php // Guest search with create-new: type to find an existing guest; or just fill the
+                  // fields to create a new one. A picked guest fills name/email/phone + customer_id. ?>
+            <div class="relative gm-search-wrap">
+              <input type="text" class="input text-xs w-full gm-search" autocomplete="off" placeholder="Search a guest by name, email or phone…">
+              <div class="gm-results absolute z-20 left-0 right-0 bg-white border border-gray-200 rounded-md shadow hidden max-h-44 overflow-auto"></div>
+            </div>
+            <input type="hidden" name="customer_id" class="gm-customer-id" value="">
+            <input type="text" name="guest_name" class="input text-xs w-full gm-name" placeholder="Guest name *" required>
+            <div class="flex gap-1.5">
+              <input type="email" name="email" class="input text-xs gm-email" placeholder="Email (optional)">
+              <input type="text" name="phone" class="input text-xs gm-phone" placeholder="Phone (optional)">
+            </div>
             <button type="submit" class="btn secondary text-xs">Add guest</button>
           </form>
 
@@ -250,4 +261,58 @@ function gbEstimate(form) {
 }
 // Initialise every group-block estimator on load.
 document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEstimate(f); });
+
+// GUEST SEARCH (with create-new) on the rooming-list "add guest" forms (report 11.13 #3b +
+// owner ask). Type to find an existing stored guest; picking one fills name/email/phone +
+// customer_id. Leaving it blank and filling the fields creates a new guest. Reuses the
+// existing /supplier/guests/search endpoint — no new search backend.
+(function () {
+  var ROOT = <?= json_encode(root) ?>;
+  document.querySelectorAll('.gm-search-wrap').forEach(function (wrap) {
+    var form = wrap.closest('form');
+    var search = wrap.querySelector('.gm-search');
+    var results = wrap.querySelector('.gm-results');
+    if (!form || !search || !results) return;
+    var nameF = form.querySelector('.gm-name'), emailF = form.querySelector('.gm-email'),
+        phoneF = form.querySelector('.gm-phone'), custF = form.querySelector('.gm-customer-id');
+    var timer = null;
+    function hide() { results.classList.add('hidden'); results.innerHTML = ''; }
+    search.addEventListener('input', function () {
+      var q = search.value.trim();
+      // A fresh search means we're no longer locked to a previously-picked guest.
+      if (custF) custF.value = '';
+      if (timer) clearTimeout(timer);
+      if (q.length < 2) { hide(); return; }
+      timer = setTimeout(function () {
+        fetch(ROOT + 'supplier/guests/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            var rows = (d && d.results) || [];
+            if (!rows.length) { results.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No match — fill the fields to add a new guest.</div>'; results.classList.remove('hidden'); return; }
+            results.innerHTML = '';
+            rows.forEach(function (g) {
+              var el = document.createElement('button');
+              el.type = 'button';
+              el.className = 'block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50';
+              el.innerHTML = '<span class="font-medium text-gray-800"></span> <span class="text-gray-400"></span>';
+              el.children[0].textContent = g.name || '(guest)';
+              el.children[1].textContent = [g.phone, g.email].filter(Boolean).join(' · ');
+              el.addEventListener('click', function () {
+                if (nameF) nameF.value = g.name || '';
+                if (emailF) emailF.value = g.email || '';
+                if (phoneF) phoneF.value = g.phone || '';
+                if (custF) custF.value = g.contact_id || '';
+                search.value = g.name || '';
+                hide();
+              });
+              results.appendChild(el);
+            });
+            results.classList.remove('hidden');
+          })
+          .catch(function () { hide(); });
+      }, 220);
+    });
+    document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) hide(); });
+  });
+})();
 </script>

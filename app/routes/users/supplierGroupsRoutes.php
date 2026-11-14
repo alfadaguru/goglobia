@@ -116,7 +116,11 @@ $router->post('/supplier/groups/member', function () use ($SECURE, $db) {
     $back = root . 'supplier/groups?stay_id=' . $stayId;
     if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('group_member_add') && group_member_add($db, (int) ($_POST['group_id'] ?? 0), $stayId, (int) ($_POST['block_id'] ?? 0),
-        (string) ($_POST['guest_name'] ?? ''), ['email' => $_POST['email'] ?? '']);
+        (string) ($_POST['guest_name'] ?? ''), [
+            'email'       => $_POST['email'] ?? '',
+            'phone'       => $_POST['phone'] ?? '',
+            'customer_id' => (int) ($_POST['customer_id'] ?? 0), // when picked from the guest search
+        ]);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Guest added to rooming list.' : 'Could not add guest.'];
     header('Location: ' . $back); exit;
 });
