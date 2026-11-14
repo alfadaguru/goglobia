@@ -382,14 +382,59 @@ class GreenapiProvider {
         }
     }
 
+    /**
+     * Normalise a phone to the digits Green API's chatId needs: FULL international
+     * format, country code included, NO '+' and NO leading zero.
+     *
+     * The previous version only did `ltrim($x,'0')` and NEVER applied a country
+     * code — so a national number like 08031234567 became 8031234567 (no country
+     * code) and Green API rejected it with "400 Invalid phone number format".
+     * Callers pass a mix of shapes (E.164 "+2348031234567", bare international
+     * "2348031234567", or national "08031234567"), so this must handle all three:
+     *   - already international (starts with a known/long country code) → keep.
+     *   - national (leading 0, or too short to be international) → drop the 0 and
+     *     prepend the default country code.
+     * Default country code: the platform base market (Nigeria, 234) — the rest of
+     * the codebase defaults to NG when a country is unknown. An admin-set default
+     * can override it via the provider config ('default_country_code').
+     */
     private function cleanPhoneNumber($phone) {
-        // Remove all non-digit characters
-        $cleaned = preg_replace('/[^\d]/', '', $phone);
-        
-        // Remove leading zeros if any
-        $cleaned = ltrim($cleaned, '0');
+        $raw = trim((string) $phone);
+        $hadPlus = (strpos($raw, '+') === 0);
+        $digits = preg_replace('/[^\d]/', '', $raw);
+        if ($digits === '') { return ''; }
 
-        return $cleaned;
+        // Default country code (digits only). Config override → else NG (234).
+        $defaultCc = preg_replace('/[^\d]/', '', (string) ($this->config['default_country_code'] ?? ''));
+        if ($defaultCc === '') { $defaultCc = '234'; }
+
+        // 1) A '+' prefix means the caller gave E.164 — it already includes the
+        //    country code. Just strip the '+' (and any stray leading zero).
+        if ($hadPlus) {
+            return ltrim($digits, '0') === '' ? $digits : ltrim($digits, '0');
+        }
+
+        // 2) Leading zero = national trunk prefix → strip it and prepend the
+        //    default country code (e.g. 08031234567 → 8031234567 → 2348031234567).
+        if (strpos($digits, '0') === 0) {
+            $national = ltrim($digits, '0');
+            return $national === '' ? $digits : ($defaultCc . $national);
+        }
+
+        // 3) No '+' and no leading zero. Two sub-cases:
+        //    (a) already starts with the default country code and is a plausible
+        //        full international length → treat as already-international, keep.
+        //    (b) otherwise it's a national number typed without the 0 → prepend CC.
+        if ($defaultCc !== '' && strpos($digits, $defaultCc) === 0 && strlen($digits) >= (strlen($defaultCc) + 7)) {
+            return $digits;
+        }
+        // A number already long enough to be international with SOME country code
+        // (>= 11 digits) is kept as-is to avoid double-prefixing a foreign number.
+        if (strlen($digits) >= 11) {
+            return $digits;
+        }
+        // Short, CC-less national number → prepend the default country code.
+        return $defaultCc . $digits;
     }
 
     private function getErrorMessage($httpCode, $responseData) {

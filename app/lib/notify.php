@@ -850,14 +850,26 @@ class NOTIFY {
      * Format phone number with country code
      */
     private static function formatPhoneNumber($phone, $countryCode) {
-        $phone = preg_replace('/[^\d]/', '', $phone);
-        $countryCode = preg_replace('/[^\d]/', '', $countryCode);
+        $hadPlus = (strpos(trim((string) $phone), '+') === 0);
+        $phone = preg_replace('/[^\d]/', '', (string) $phone);
+        $countryCode = preg_replace('/[^\d]/', '', (string) $countryCode);
+        if ($phone === '') { return ''; }
+
+        // A '+' prefix means the number is already E.164 (country code included) —
+        // just return the digits; do NOT prepend another country code.
+        if ($hadPlus) { return ltrim($phone, '0') !== '' ? ltrim($phone, '0') : $phone; }
+
+        // No country code supplied: can't safely build an international number here.
+        // Return the digits untouched and let the provider's cleanPhoneNumber apply
+        // the platform default — NEVER emit a stripped national number that silently
+        // matches `strpos($phone,'') === 0` and drops the country code (the old bug).
+        if ($countryCode === '') { return $phone; }
+
         $phone = ltrim($phone, '0');
-        
-        if (strpos($phone, $countryCode) === 0) {
+        // Already starts with this country code AND is a plausible full length → keep.
+        if (strpos($phone, $countryCode) === 0 && strlen($phone) >= (strlen($countryCode) + 7)) {
             return $phone;
         }
-        
         return $countryCode . $phone;
     }
 
