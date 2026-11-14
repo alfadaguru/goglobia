@@ -5262,10 +5262,15 @@ function SENDWHATSAPP($toPhone, $toName, $message, $mediaUrl = null, $publicUrl 
             $result = $messenger->sendFile($toPhone, $mediaUrl, $fileName ?: basename($mediaUrl), (string) $message);
             error_log("SENDWHATSAPP (file-upload) RESULT: " . ($result ? "SUCCESS" : "FAILURE: " . (method_exists($messenger, 'getLastError') ? $messenger->getLastError() : '')));
             if ($result) { return true; }
-            // If a document send was requested but BOTH ways failed, still send the
-            // text so the customer at least gets the confirmation + email pointer.
-            $messenger->send($toPhone, $toName, (string) $message);
-            return false;
+            // Both document paths failed (e.g. media host 504). Still send the TEXT so
+            // the customer gets the confirmation + the emailed-copy pointer — and TRACK
+            // whether that text actually delivered. A delivered text is a PARTIAL
+            // success (the message landed; only the in-chat PDF didn't), so return its
+            // real result instead of a blanket false that mislabels it as total
+            // failure. (The emailed PDF is always the guaranteed fallback either way.)
+            $textOk = (bool) $messenger->send($toPhone, $toName, (string) $message);
+            error_log("SENDWHATSAPP (text-after-file-fail) RESULT: " . ($textOk ? "SUCCESS (PDF went by email only)" : "FAILURE"));
+            return $textOk;
         }
 
         // If a DOCUMENT was requested but we reach here, the active provider can't

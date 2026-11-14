@@ -73,7 +73,8 @@ class GreenapiProvider {
                 CURLOPT_POST => true,
                 CURLOPT_POSTFIELDS => json_encode($payload),
                 CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
-                CURLOPT_TIMEOUT => 60,
+                CURLOPT_CONNECTTIMEOUT => 10,   // fail fast if the API host is unreachable
+                CURLOPT_TIMEOUT => 40,
                 CURLOPT_SSL_VERIFYPEER => true,
                 CURLOPT_SSL_VERIFYHOST => 2,
             ]);
@@ -204,7 +205,14 @@ class GreenapiProvider {
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST => true,
                 CURLOPT_POSTFIELDS => $postFields,   // array => multipart/form-data
-                CURLOPT_TIMEOUT => 120,              // uploads can be slow
+                // The media upload host (media.green-api.com) is frequently DOWN
+                // (504/500/NXDOMAIN in prod). A 120s total meant a dead host could
+                // block the caller for 2 minutes before we fall back to text — and on
+                // a synchronous notify path that stalls the page. Fail FAST: a 10s
+                // connect timeout drops a dead host almost immediately, and a 45s total
+                // still allows a genuinely-slow-but-alive upload to finish.
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT => 45,
                 CURLOPT_SSL_VERIFYPEER => true,
                 CURLOPT_SSL_VERIFYHOST => 2,
             ]);
@@ -336,6 +344,7 @@ class GreenapiProvider {
                 'Content-Type: application/json',
                 'Accept: application/json'
             ],
+            CURLOPT_CONNECTTIMEOUT => 10,   // fail fast on a dead API host (don't hang the notify path)
             CURLOPT_TIMEOUT => 30,
             // SECURITY: verify TLS certs (was false — exposed token + message to MITM).
             CURLOPT_SSL_VERIFYPEER => true,
