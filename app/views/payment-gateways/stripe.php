@@ -199,20 +199,50 @@ try {
     <script src="https://js.stripe.com/v3/"></script>
     <script>
     (function () {
-        // Guard: Stripe.js must be present. If it failed to load, show a clear error.
+        var errW = document.getElementById('stripe-error');
+        var mountEl = document.getElementById('stripe-payment-element');
+        function fail(txt) {
+            if (errW) { errW.style.display = 'block'; errW.textContent = txt; }
+            console.error('[PAYLOG] stripe: ' + txt);
+        }
+
+        // Guard: Stripe.js must be present. The <script src> above is synchronous, but
+        // if js.stripe.com stalled or was blocked, Stripe is undefined here — show a
+        // clear, actionable error instead of a dead blank form.
         if (typeof Stripe === 'undefined') {
-            var w = document.getElementById('stripe-error');
-            if (w) { w.style.display = 'block'; w.textContent = 'Could not load the secure card form. Please refresh and try again.'; }
+            fail('Could not load the secure card form (payment library blocked or offline). Please refresh and try again.');
             return;
         }
-        var stripe = Stripe(<?= json_encode($publishableKey) ?>);
+
+        var stripe, elements, paymentElement;
         var clientSecret = <?= json_encode($clientSecret) ?>;
         var returnUrl = <?= json_encode($returnBase) ?>;
         var intentId = <?= json_encode((string) $intent->id) ?>;
 
-        var elements = stripe.elements({ clientSecret: clientSecret });
-        var paymentElement = elements.create('payment');
-        paymentElement.mount('#stripe-payment-element');
+        // Wrap construction + mount: a bad key or a Stripe glitch can throw or silently
+        // fail to render the card fields, leaving the customer staring at an empty box.
+        try {
+            stripe = Stripe(<?= json_encode($publishableKey) ?>);
+            elements = stripe.elements({ clientSecret: clientSecret });
+            paymentElement = elements.create('payment');
+            paymentElement.mount('#stripe-payment-element');
+        } catch (e) {
+            fail('The secure card form could not be started. Please refresh and try again.');
+            return;
+        }
+
+        // MOUNT WATCHDOG: if the card fields never actually render within 10s (silent
+        // mount failure / network stall), show a clear error so the customer isn't
+        // stuck on an empty form with no way forward. Cancelled once Stripe reports the
+        // element is ready.
+        var __mounted = false;
+        try { paymentElement.on('ready', function () { __mounted = true; }); } catch (e) {}
+        setTimeout(function () {
+            if (__mounted) { return; }
+            // If Stripe injected its iframe the form is really there; only warn if not.
+            var has = mountEl && mountEl.querySelector('iframe');
+            if (!has) { fail('The card form is taking too long to load. Please refresh and try again.'); }
+        }, 10000);
 
         var form = document.getElementById('stripe-payment-form');
         var btn = document.getElementById('stripe-submit');

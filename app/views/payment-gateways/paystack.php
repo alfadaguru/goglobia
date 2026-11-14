@@ -230,33 +230,68 @@ if (function_exists('paylog')) { paylog('paystack:INIT-OK -> popup resumeTransac
     function showMsg(t){ if(msg){ msg.textContent = t; msg.style.display = 'block'; } }
     function reset(){ if(btn){ btn.disabled = false; btn.textContent = 'Pay <?= htmlspecialchars($currency . ' ' . $amount, ENT_QUOTES) ?>'; } }
 
+    // ---- WATCHDOGS so the customer is NEVER stuck on "processing" -------------
+    // The explicit error paths below (script.onerror / new Paystack() throwing) only
+    // catch HARD failures. Several real hangs slip past them and leave the spinner
+    // forever: inline.js downloads but stalls (no onload/onerror), or resumeTransaction
+    // runs but the popup iframe never appears (API glitch / popup blocked / silent
+    // no-op). These watchdogs give up after a short wait and send the customer to the
+    // Paystack HOSTED checkout page (AUTH_URL), which is a full-page redirect that
+    // always works. Any watchdog is cancelled once the popup genuinely opens.
+    var __pskDone = false;                 // set true once the popup is confirmed open (or we navigated away)
+    function __pskFallback(reason) {
+        if (__pskDone) { return; }
+        __pskDone = true;
+        console.error('[PAYLOG] paystack popup: watchdog fallback (' + reason + ')');
+        if (AUTH_URL) { window.top.location.href = AUTH_URL; }   // hosted page always works
+        else { showMsg('Taking too long to open the payment window. Please try again.'); reset(); }
+    }
+    // True when a Paystack popup/iframe is actually present in the DOM.
+    function __pskPopupOpen() {
+        try {
+            return !!document.querySelector('iframe[src*="paystack"], iframe[name*="paystack"], .paystack-checkout, #paystackEmbedContainer');
+        } catch (e) { return false; }
+    }
+    // After launch, poll briefly for the popup; if it never appears, fall back.
+    function __armPopupWatchdog() {
+        var start = Date.now();
+        (function poll() {
+            if (__pskDone) { return; }
+            if (__pskPopupOpen()) { __pskDone = true; return; }   // opened — stand down
+            if (Date.now() - start > 8000) { __pskFallback('popup did not open within 8s'); return; }
+            setTimeout(poll, 400);
+        })();
+    }
+
     function launch() {
+        if (__pskDone) { return; }
         if (btn) { btn.disabled = true; btn.textContent = 'Opening secure checkout…'; }
         console.log('[PAYLOG] paystack popup: launch resumeTransaction', { hasCode: !!ACCESS_CODE });
+        __armPopupWatchdog();   // arm the no-popup watchdog as we attempt to open
         try {
             var pop = new Paystack();
             pop.resumeTransaction(ACCESS_CODE, {
                 onSuccess: function (txn) {
+                    __pskDone = true;
                     console.log('[PAYLOG] paystack popup: onSuccess', txn && txn.reference);
                     // Hand off to our server callback, which RE-VERIFIES with Paystack.
                     window.top.location.href = CALLBACK;
                 },
                 onCancel: function () {
+                    __pskDone = true;   // user acted → not a hang; let them retry
                     console.log('[PAYLOG] paystack popup: onCancel');
                     showMsg('Payment cancelled. You can try again.');
                     reset();
                 },
                 onError: function (err) {
                     console.error('[PAYLOG] paystack popup: onError', err);
-                    showMsg('Payment error. Please try again.');
-                    reset();
+                    __pskFallback('popup onError');   // to hosted page rather than dead-end
                 }
             });
         } catch (e) {
             // InlineJS failed to load/run → fall back to the hosted page at top level.
             console.error('[PAYLOG] paystack popup: exception, falling back to hosted page', e);
-            if (AUTH_URL) { window.top.location.href = AUTH_URL; }
-            else { showMsg('Could not open the payment window. Please try again.'); reset(); }
+            __pskFallback('resumeTransaction threw');
         }
     }
 
@@ -271,12 +306,18 @@ if (function_exists('paylog')) { paylog('paystack:INIT-OK -> popup resumeTransac
     } else {
         var s = document.createElement('script');
         s.src = 'https://js.paystack.co/v2/inline.js';
-        s.onload = ready;
+        // LOAD watchdog: a CDN that stalls mid-download fires NEITHER onload nor
+        // onerror → without this the page would hang before launch() ever runs.
+        var __libTimer = setTimeout(function () {
+            if (window.Paystack || __pskDone) { return; }
+            __pskFallback('inline.js did not load within 10s');
+        }, 10000);
+        s.onload = function () { clearTimeout(__libTimer); ready(); };
         s.onerror = function () {
+            clearTimeout(__libTimer);
             // CDN blocked/offline → top-level redirect to the hosted checkout (still works).
             console.error('[PAYLOG] paystack popup: inline.js failed to load, falling back');
-            if (AUTH_URL) { window.top.location.href = AUTH_URL; }
-            else { showMsg('Could not load the payment library. Please try again.'); }
+            __pskFallback('inline.js onerror');
         };
         document.head.appendChild(s);
     }
