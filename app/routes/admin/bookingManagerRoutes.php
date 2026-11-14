@@ -27,75 +27,6 @@ if (!function_exists('bmAdminJson')) {
         exit;
     }
 }
-if (!function_exists('bmAdminJsonThenNotify')) {
-    /**
-     * Emit the JSON response, FLUSH it to the browser, THEN run bm_notify_paid for a
-     * settle that returned notify_due=true. The operator sees "Paid & booked"
-     * instantly; the slow PDF + email + WhatsApp happen after the socket closes, so
-     * notifications never add to the page wait. Falls back to inline notify under
-     * plain mod_php (no fastcgi_finish_request) — correctness over latency there.
-     *
-     * @param array $payload  the JSON body to return
-     * @param array $settle   the bm_settle_booking_payment() result (checked for notify_due)
-     * @param mixed $db       Medoo handle for the deferred bm_notify_paid call
-     */
-    function bmAdminJsonThenNotify($payload, array $settle, $db, string $invoiceId): void
-    {
-        $notifyDue        = !empty($settle['notify_due']);
-        $notifyPendingDue = !empty($settle['notify_pending_due']);  // issue-fail notice
-        $body = json_encode($payload);
-        // DISCARD any content already sitting in the output buffers (index.php:2 opens
-        // a top-level ob_start; a view/warning could have left bytes in it) so the
-        // response body is EXACTLY our JSON — prepended stray output would corrupt it.
-        // Only clean when headers aren't sent yet (if they are, we can't fix the body
-        // anyway and must not throw). ob_get_level()-1 keeps the outermost level the
-        // SAPI expects while emptying everything we own.
-        if (!headers_sent()) {
-            while (ob_get_level() > 0) { @ob_end_clean(); }
-            http_response_code(200);
-            header('Content-Type: application/json');
-            // Exact body length so the client knows the response is COMPLETE and closes
-            // the connection promptly (no chunked/keep-alive hang that kills the
-            // "instant" feel). ONLY when the SAPI isn't gzip-compressing the body — a
-            // Content-Length of the UNCOMPRESSED JSON would mismatch a shorter gzipped
-            // body and make a strict client hang waiting for bytes that never come.
-            $__zlib = (string) @ini_get('zlib.output_compression');
-            $__compressing = ($__zlib !== '' && $__zlib !== '0' && strtolower($__zlib) !== 'off');
-            if (!$__compressing) { header('Content-Length: ' . strlen($body)); }
-        }
-        echo $body;
-        // Flush to the SAPI, THEN close the client connection. Draining first is
-        // REQUIRED: fastcgi_finish_request() ships only what reached the SAPI write
-        // buffer, so a still-open PHP ob_* level would be sent as an empty/short body.
-        while (ob_get_level() > 0) { @ob_end_flush(); }
-        @flush();
-        if (function_exists('fastcgi_finish_request')) {
-            @fastcgi_finish_request();   // FPM/LiteSpeed: detach the client; PHP keeps running
-        }
-        if ($notifyDue || $notifyPendingDue) {
-            // Release the SESSION LOCK before the slow notify. fastcgi_finish_request()
-            // detaches the client but does NOT free the PHP session flock — so without
-            // this, a second request from the SAME admin (another tab) would block on
-            // session_start() for the whole PDF+email+WhatsApp duration. Mirrors the
-            // codebase's own post-response pattern (giaRoutes.php session_write_close).
-            if (session_status() === PHP_SESSION_ACTIVE) { @session_write_close(); }
-            // Under mod_php (no detach) this still runs, just inline — correctness over
-            // latency, so a booking is never left un-notified. ignore_user_abort keeps
-            // it running even if the client already disconnected.
-            @ignore_user_abort(true);
-            @set_time_limit(120);
-            // notify_due = the paid ticket/voucher; notify_pending_due = the issue-fail
-            // "payment received, finalising" notice. At most one is set per settle.
-            if ($notifyDue && function_exists('bm_notify_paid')) {
-                try { bm_notify_paid($db, $invoiceId); } catch (\Throwable $e) { error_log('bm deferred notify ' . $invoiceId . ': ' . $e->getMessage()); }
-            }
-            if ($notifyPendingDue && function_exists('bm_notify_pending_verification')) {
-                try { bm_notify_pending_verification($db, $invoiceId); } catch (\Throwable $e) { error_log('bm deferred pending-notify ' . $invoiceId . ': ' . $e->getMessage()); }
-            }
-        }
-        exit;
-    }
-}
 if (!function_exists('bmAdminCsrfOk')) {
     function bmAdminCsrfOk(): bool
     {
@@ -608,29 +539,6 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         $moduleName  = $supplier;
         $bookingChannel = 'admin_live';
         $bookingData = ['flight_data' => $offerBd, 'booking_data' => $offerBd, 'admin_created' => true];
-        // TICKET DISPLAY ITINERARY (flights). The supplier BOOK response echoes only
-        // the handle (trace_id/offer_id) and frequently legs:null, so the e-ticket
-        // PDF would render blank (no route/times/airline). The console forwards the
-        // search offer's segment groups (flight_segments = segments[leg][seg], the
-        // SAME 2-D shape ft_normalize_legs reads as flight_data.segments). Merge them
-        // into flight_data so GENERATE_BOOKING_PDF has a full itinerary to render.
-        // Does NOT affect booking_data (the issue handle) — purely for display.
-        if ($serviceType === 'flights') {
-            $fltSegs = $_POST['flight_segments'] ?? '';
-            // Cap the display-itinerary payload so a malformed/oversized POST can't
-            // bloat the booking_data row. A real itinerary is a few KB; 256KB is a
-            // generous ceiling. Oversized → skip (ticket falls back gracefully).
-            if (is_string($fltSegs) && $fltSegs !== '' && strlen($fltSegs) <= 262144) {
-                $fltSegs = json_decode($fltSegs, true);
-            } else {
-                $fltSegs = null;
-            }
-            if (is_array($fltSegs) && !empty($fltSegs)) {
-                $bookingData['flight_data'] = is_array($offerBd)
-                    ? array_merge($offerBd, ['segments' => $fltSegs])
-                    : ['segments' => $fltSegs];
-            }
-        }
         if ($serviceType === 'stays') {
             // Hotels: the console sends the CHOSEN rate as selected_rooms=
             //   [{room_name, quantity, option:{<handle>, total_price, board_name,...}}]
@@ -1031,78 +939,8 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
         $res = bm_settle_booking_payment($db, $invoiceId, 'offline', [
             'verified_by' => $_SESSION['user_id'] ?? '', 'amount' => (float) $booking['price_markup'], 'currency' => $booking['currency_markup'] ?? 'NGN',
             'gateway_name' => 'manual_payment',
-            'defer_notify' => true,   // flush the response first; voucher PDF+email after
         ]);
-        bmAdminJsonThenNotify(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? ''], $res, $db, $invoiceId);
-    }
-
-    // ONE-CLICK PAID + CONFIRM (senior admin). The admin has ALREADY received the
-    // money (cash/transfer in hand) — so there's no reason to park it in
-    // awaiting_verification and wait for a second person. This settles NOW: marks
-    // paid AND (for a live booking) fires the supplier issue immediately, which is
-    // also what makes a LIVE flight actually ticketable — issue fires inside the
-    // supplier's short fare window instead of hours later. Works on live OR manual.
-    if ($method === 'mark_paid_now') {
-        if (!bm_is_senior_admin($db)) {
-            bmAdminJson(['status' => false, 'message' => 'Only an admin or super-admin can confirm a payment received.'], 403);
-        }
-        // DOUBLE-CHARGE GUARD. If a virtual account (DVA) is already live for this
-        // booking, settling here would mark it paid + issue the ticket WITHOUT
-        // deactivating the DVA — so a customer who later transfers into that NUBAN
-        // is charged a SECOND time (gia_bp_confirm keys idempotency on its own
-        // ledger row, not on bookings.payment_status, so it records the duplicate
-        // and never refunds it). Refuse until the DVA is expired/cancelled, mirroring
-        // the manual_transfer mutual-exclusion guard above. (A DVA only exists in
-        // NGN flows; non-DVA bookings pass straight through.)
-        require_once dirname(__DIR__, 3) . '/app/lib/ai/gia_booking_payment.php';
-        if (function_exists('gia_bp_get')) {
-            $existingDva = gia_bp_get($db, $invoiceId);
-            if (is_array($existingDva) && in_array(strtolower((string) ($existingDva['status'] ?? '')), ['pending', 'paid'], true)) {
-                bmAdminJson(['status' => false, 'message' => 'A virtual account (bank-transfer) is still open for this booking — the customer could pay it and be charged twice. Wait for it to expire/confirm (or cancel it) before confirming a cash/transfer payment here.'], 409);
-            }
-        }
-        // Optional amount-received check (same money-safety as /verify): if given
-        // and short of the amount due, refuse unless confirm_short is set.
-        $amountDue      = round((float) ($booking['price_markup'] ?? 0), 2);
-        $amountRecvRaw  = $_POST['amount_received'] ?? '';
-        $hasAmountRecv  = ($amountRecvRaw !== '' && $amountRecvRaw !== null);
-        $amountReceived = $hasAmountRecv ? round((float) $amountRecvRaw, 2) : $amountDue;
-        $confirmShort   = in_array((string) ($_POST['confirm_short'] ?? ''), ['1', 'true', 'yes', 'on'], true);
-        if ($hasAmountRecv && $amountReceived < 0) {
-            bmAdminJson(['status' => false, 'message' => 'Amount received cannot be negative.'], 422);
-        }
-        if ($hasAmountRecv && $amountReceived < ($amountDue - 0.01) && !$confirmShort) {
-            bmAdminJson(['status' => false, 'short_payment' => true, 'amount_due' => $amountDue, 'amount_received' => $amountReceived,
-                'message' => 'The amount received (' . number_format($amountReceived, 2) . ') is less than the amount due (' . number_format($amountDue, 2) . '). Re-enter the correct amount, or confirm the shortfall.'], 422);
-        }
-        $res = bm_settle_booking_payment($db, $invoiceId, 'manual_verified', [
-            'verified_by'    => $_SESSION['user_id'] ?? '',
-            'transaction_id' => trim((string) ($_POST['transaction_id'] ?? '')),
-            'gateway_name'   => 'manual_payment',
-            'amount'         => $amountReceived,
-            'amount_due'     => $amountDue,
-            'short_paid'     => ($amountReceived < ($amountDue - 0.01)),
-            'currency'       => $booking['currency_markup'] ?? 'NGN',
-            // INTERACTIVE path: a browser is waiting on this request. Cap the supplier
-            // issue so the server gives up ~when the client aborts (75s) instead of
-            // holding the socket for the 300s default. If the issue doesn't finish in
-            // time the booking is left paid-but-pending and the stranded cron / a
-            // re-check completes it — no money lost, no double-issue (idempotent).
-            'issue_timeout'  => 70,
-            // Defer the PDF+email+WhatsApp until AFTER the response flushes so they
-            // never add to the operator's wait (handled by bmAdminJsonThenNotify).
-            'defer_notify'   => true,
-        ]);
-        // Honest result: 'issued' (live ticket done), 'pending_issue' (paid but the
-        // supplier hasn't ticketed yet — re-check/retry), or confirmed (manual).
-        bmAdminJsonThenNotify([
-            'status'        => !empty($res['ok']),
-            'issued'        => !empty($res['issued']),
-            'pending_issue' => !empty($res['pending_issue']),
-            'pnr'           => $res['pnr'] ?? '',
-            'settle'        => $res,
-            'message'       => $res['message'] ?? '',
-        ], $res, $db, $invoiceId);
+        bmAdminJson(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? '']);
     }
 
     bmAdminJson(['status' => false, 'message' => 'Choose a payment method.'], 422);
@@ -1165,10 +1003,8 @@ $router->post(admin . '/booking-manager/verify', function () use ($SECURE, $db) 
         'amount_due'     => $amountDue,
         'short_paid'     => ($amountReceived < ($amountDue - 0.01)),
         'currency'       => $booking['currency_markup'] ?? 'NGN',
-        'issue_timeout'  => 70,       // interactive — match the client abort
-        'defer_notify'   => true,     // flush first, PDF+email+WhatsApp after
     ]);
-    bmAdminJsonThenNotify(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? ''], $res, $db, $invoiceId);
+    bmAdminJson(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? '']);
 });
 
 // ---------------------------------------------------------------------------
