@@ -259,6 +259,23 @@ $router->post('/api/tours/booking/draft', function () use ($db) {
             throw new Exception('Invalid supplier');
         }
 
+        // AG-TOURS (agent-API price-trust, early reject): external tour suppliers
+        // carry a client-supplied actual_price_per_person that we cannot re-derive
+        // server-side; on the agent-API path that is a direct wallet debit at
+        // submit. Fail closed here too so the agent never builds a draft they can't
+        // settle. The submit handler repeats this guard before the wallet charge.
+        if (function_exists('agent_api_active') && agent_api_active()
+            && strtolower((string) $supplier) !== 'tours') {
+            error_log('TOURS AGENT-API PRICE-TRUST BLOCK (external supplier not server-anchored) | supplier=' . $supplier);
+            if (!headers_sent()) { http_response_code(409); header('Content-Type: application/json'); }
+            echo json_encode([
+                'success' => false,
+                'status'  => false,
+                'message' => 'This tour cannot be booked via the API yet — its live price could not be verified server-side. Please book it from the web Booking Centre.',
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
         $startDateObj = DateTime::createFromFormat('Y-m-d', $startDateRaw);
         if (!$startDateObj) {
             $startDateObj = DateTime::createFromFormat('d-m-Y', $startDateRaw);
@@ -895,6 +912,28 @@ $router->post('/api/tours/booking/submit', function () use ($db) {
 
         if (!$bookingResult) {
             throw new Exception('Failed to save tour booking');
+        }
+
+        // AG-TOURS (agent-API price-trust gate): a LOCAL "tours" product is priced
+        // from the DB (adult_price etc.), but an EXTERNAL tour supplier's
+        // actual_price_per_person comes from the client draft with no server
+        // revalidation. On the web/gateway path the customer pays it through a real
+        // gateway; on the AGENT-API path it is debited DIRECTLY from the agency
+        // wallet below — an agent could POST actual_price_per_person=1 and underpay
+        // for a real tour. Fail CLOSED for the agent-API path on external suppliers
+        // we cannot anchor (mirrors ferries/cars). Delete the just-created booking
+        // and 409, like the wallet-decline path. Local "tours" is allowed.
+        if (function_exists('agent_api_active') && agent_api_active()
+            && strtolower((string) $supplier) !== 'tours') {
+            error_log('TOURS AGENT-API PRICE-TRUST BLOCK (external supplier not server-anchored) | supplier=' . $supplier . ' | invoice=' . $invoiceId);
+            try { $db->delete('bookings', ['id' => $bookingResult]); } catch (\Throwable $e) {}
+            if (!headers_sent()) { http_response_code(409); header('Content-Type: application/json'); }
+            echo json_encode([
+                'success' => false,
+                'status'  => false,
+                'message' => 'This tour cannot be booked via the API yet — its live price could not be verified server-side. Please book it from the web Booking Centre.',
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
         }
 
         // AGENT API — wallet settlement (no-op unless agent-API request).

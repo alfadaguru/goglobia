@@ -1621,6 +1621,8 @@
   "duration": "Duration",
   "no_flights_found": "No flights found",
   "try_adjusting_filters": "Try adjusting your filters",
+  "live_fares_unavailable": "We couldn't load live fares right now",
+  "live_fares_unavailable_hint": "This is usually temporary. Please try your search again in a moment.",
   "book_now": "Book Now",
   "reserve_flight": "Book Now",
   "book": "Book",

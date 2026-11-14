@@ -202,8 +202,10 @@ $router->post('/agent/staff/accept', function () use ($SECURE, $db) {
     if ($password !== $confirm) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Passwords do not match.']; header('Location: ' . $back); exit;
     }
-    if (strlen($password) < 6) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Password must be at least 6 characters.']; header('Location: ' . $back); exit;
+    if (strlen($password) < 8) {
+        // AG-L2: staff accounts can hold money-capable perms (bookings:refund,
+        // wallet:fund) — require a stronger minimum than the old 6.
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Password must be at least 8 characters.']; header('Location: ' . $back); exit;
     }
 
     $email = (string) $invite['invited_email'];
@@ -229,10 +231,21 @@ $router->post('/agent/staff/accept', function () use ($SECURE, $db) {
                 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
             ]);
         }
-        $db->update('agent_staff', [
+        // accept-TOCTOU: consume the invite ATOMICALLY — scope the flip to a row
+        // that is STILL 'invited', and act only if exactly that row changed. Two
+        // concurrent accepts of the same token both pass the earlier read; this
+        // makes the SECOND update match zero rows (status is no longer 'invited'),
+        // so only one consume wins. (Belt: users.email should be UNIQUE so the
+        // new-user branch can't double-insert either.)
+        $consumed = $db->update('agent_staff', [
             'staff_user_id' => $staffUserId, 'status' => 'active', 'accepted_at' => date('Y-m-d H:i:s'),
             'invite_token' => null, 'invite_expires' => null,
-        ], ['id' => (int) $invite['id']]);
+        ], ['id' => (int) $invite['id'], 'status' => 'invited']);
+        if ($consumed && method_exists($consumed, 'rowCount') && $consumed->rowCount() === 0) {
+            // Another request already consumed this invite — don't double-process.
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'This invitation was already accepted. Please sign in.'];
+            header('Location: ' . root . 'login'); exit;
+        }
         $_SESSION['message'] = ['type' => 'success', 'text' => 'Invitation accepted. You can now sign in.'];
     } catch (\Throwable $e) {
         error_log('agent staff accept: ' . $e->getMessage());

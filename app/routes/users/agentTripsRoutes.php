@@ -180,9 +180,14 @@ $router->post('/agent/trips/(TRP[A-Z0-9]+)/send', function ($ref) use ($SECURE, 
     $token = (string)($trip['client_token'] ?? '');
     if ($token === '') { $token = bin2hex(random_bytes(20)); }
     $msg = trim((string)($_POST['client_message'] ?? ''));
+    // trip-expiry: set a real expires_at on send so the PUBLIC /trip gate (which
+    // already enforces expires_at) actually bites — a shared/forwarded proposal
+    // link should not live forever. Each send refreshes the 30-day window.
+    $expiresAt = date('Y-m-d H:i:s', time() + 30 * 24 * 3600);
     try {
         $db->update('agent_trip_plans',
             ['client_token'=>$token, 'client_message'=>$msg, 'status'=>'sent',
+             'expires_at'=>$expiresAt,
              'sent_at'=>date('Y-m-d H:i:s'), 'updated_at'=>date('Y-m-d H:i:s')],
             ['ref'=>$ref, 'owner_user_id'=>$owner]);
     } catch (\Throwable $e) { error_log('agent trips send: ' . $e->getMessage()); _agent_trips_deny('Could not prepare the proposal.'); }

@@ -64,9 +64,6 @@ if (isset($_SESSION['user_role'])) {
     }
 }
 
-// Supplier debug panel — admin only (not public listing UX)
-$showSupplierDebug = ($userRole === 'admin');
-
 // Get markup settings from modules table for flights
 $moduleSettings = $db->get('modules', ['markup_b2b', 'markup_b2c', 'markup_type_b2b', 'markup_type_b2c'], [
     'type' => 'flights',
@@ -901,44 +898,45 @@ try {
                         <!-- Pagination -->
                         <?php include views . "modules/flights/listing/flights-pagination.php"; ?>
 
-                        <!-- Supplier/API Error Debug (admin only) -->
-                        <div x-show="<?= $showSupplierDebug ? 'true' : 'false' ?> && searchComplete && !loading && apiErrors.length > 0" x-cloak
-                            class="mb-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-                            <div class="flex items-start gap-2 mb-3">
-                                <span class="material-symbols-outlined text-red-600 dark:text-red-400">error</span>
-                                <div>
-                                    <h3 class="text-sm font-semibold text-red-800 dark:text-red-300">Supplier Debug Information</h3>
-                                    <p class="text-xs text-red-700 dark:text-red-400">Some suppliers returned errors. Details are shown below.</p>
-                                </div>
-                            </div>
+                        <!--
+                            NOTE: the raw "Supplier Debug" panel was removed. It must
+                            NEVER render on the customer/agent-facing search — it leaked
+                            the supplier identity (e.g. "ADIVAHA"), HTTP codes, timeouts
+                            and raw JSON, which breaks the supplier-hiding mandate and
+                            looks broken to travellers. It showed even for an admin,
+                            because an admin using the public search is still a
+                            customer-facing context. Admins who need the raw exchange have
+                            the "Supplier log (raw)" panel in the Booking Manager
+                            (supplier_api_log). Customer-appropriate, honest messaging for
+                            a live-fare outage is handled by the No-Results block below.
+                        -->
 
-                            <div class="space-y-2">
-                                <template x-for="(err, errIndex) in apiErrors" :key="`api-err-${errIndex}`">
-                                    <details class="bg-white dark:bg-gray-900 rounded border border-red-100 dark:border-red-900 p-2">
-                                        <summary class="cursor-pointer text-sm font-medium text-gray-800 dark:text-gray-200">
-                                            <span x-text="(err.supplier || 'unknown').toUpperCase()"></span>
-                                            <span class="text-red-700 dark:text-red-400"> - <span x-text="err.message"></span></span>
-                                        </summary>
-                                        <div class="mt-2 text-xs text-gray-600 dark:text-gray-300 space-y-1">
-                                            <p><strong>Stage:</strong> <span x-text="err.stage || 'search'"></span></p>
-                                            <p x-show="err.httpStatus"><strong>HTTP:</strong> <span x-text="err.httpStatus"></span></p>
-                                            <p x-show="err.timestamp"><strong>Time:</strong> <span x-text="err.timestamp"></span></p>
-                                            <pre x-show="err.details" x-text="err.details" class="mt-2 p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-auto whitespace-pre-wrap"></pre>
-                                        </div>
-                                    </details>
-                                </template>
-                            </div>
-                        </div>
-
-                        <!-- No Results (only after search finishes — never on first paint) -->
+                        <!-- No Results (only after search finishes — never on first paint).
+                             Two honest, supplier-agnostic cases:
+                               (a) live suppliers errored & nothing came back  → outage copy
+                                   ("couldn't load live fares, please try again") — NOT a lie,
+                                   and NOT the misleading "adjust your filters".
+                               (b) suppliers responded but nothing matched       → no-match copy. -->
                         <div x-show="searchComplete && !loading && filteredFlights.length === 0" x-cloak
                             class="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                            <span class="material-symbols-outlined text-blue-400 dark:text-gray-500 mb-3"
-                                style="font-size: 50px;">flight_takeoff</span>
-                            <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                                <?= T::no_flights_found ?>
-                            </h3>
-                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1"><?= T::try_adjusting_filters ?></p>
+                            <template x-if="apiErrors.length > 0">
+                                <div class="flex flex-col items-center text-center">
+                                    <span class="material-symbols-outlined text-amber-400 dark:text-amber-500 mb-3" style="font-size: 50px;">cloud_off</span>
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-200"><?= T::live_fares_unavailable ?></h3>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-md"><?= T::live_fares_unavailable_hint ?></p>
+                                    <button type="button" @click="apiErrors = []; searchFlights();"
+                                        class="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+                                        <span class="material-symbols-outlined text-base">refresh</span><?= T::try_again ?>
+                                    </button>
+                                </div>
+                            </template>
+                            <template x-if="apiErrors.length === 0">
+                                <div class="flex flex-col items-center text-center">
+                                    <span class="material-symbols-outlined text-blue-400 dark:text-gray-500 mb-3" style="font-size: 50px;">flight_takeoff</span>
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-200"><?= T::no_flights_found ?></h3>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1"><?= T::try_adjusting_filters ?></p>
+                                </div>
+                            </template>
                         </div>
                     </main>
                 </div>

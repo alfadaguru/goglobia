@@ -225,6 +225,29 @@ $router->post('/api/cars/booking/draft', function () use ($SECURE, $db) {
             }
         }
 
+        // AG-CARS (agent-API price-trust, early reject): an EXTERNAL car supplier
+        // (mozio/cartrawler) price cannot be re-derived server-side (results aren't
+        // persisted; a re-quote invalidates the quote), so car_data.actual_price is
+        // client-supplied. On the normal web/gateway path the customer pays that
+        // amount through a real gateway, but on the AGENT-API path this number is
+        // debited DIRECTLY from the agency wallet at submit (agent_api_settle_booking)
+        // — an agent could POST actual_price=1 and be charged ~1 for a real car.
+        // Fail CLOSED for the agent-API path on external suppliers we cannot anchor,
+        // mirroring the ferries $serverPriced gate. (Local "cars" inventory IS
+        // anchored above, so it is allowed.) Belt-and-braces: the submit handler
+        // repeats this guard right before the wallet charge.
+        if (function_exists('agent_api_active') && agent_api_active()
+            && !in_array(strtolower((string) $supplier), ['cars', ''], true)) {
+            error_log('CARS AGENT-API PRICE-TRUST BLOCK (external supplier not server-anchored) | supplier=' . $supplier);
+            if (!headers_sent()) { http_response_code(409); header('Content-Type: application/json'); }
+            echo json_encode([
+                'success' => false,
+                'status'  => false,
+                'message' => 'This car cannot be booked via the API yet — its live price could not be verified server-side. Please book it from the web Booking Centre.',
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
         // ========================================
         // BUILD COMPLETE BOOKING DATA
         // ========================================
@@ -812,6 +835,24 @@ $router->post('/api/cars/booking/submit', function () use ($SECURE, $db) {
         $bookingId = $db->id();
 
         if ($bookingId) {
+            // AG-CARS (authoritative agent-API price-trust gate): block the WALLET
+            // charge for an external car supplier whose price we cannot anchor
+            // server-side (client-supplied actual_price). Delete the just-created
+            // booking + any holds and fail closed, exactly like the wallet-decline
+            // path. Local "cars" inventory is floor-checked at draft and allowed.
+            if (function_exists('agent_api_active') && agent_api_active()
+                && !in_array(strtolower((string) $supplierName), ['cars', ''], true)) {
+                error_log('CARS AGENT-API PRICE-TRUST BLOCK at submit (external supplier) | supplier=' . $supplierName . ' | invoice=' . $invoiceId);
+                try { $db->delete('bookings', ['id' => $bookingId]); } catch (\Throwable $e) {}
+                if (!headers_sent()) { http_response_code(409); header('Content-Type: application/json'); }
+                echo json_encode([
+                    'success' => false,
+                    'status'  => false,
+                    'message' => 'This car cannot be booked via the API yet — its live price could not be verified server-side. Please book it from the web Booking Centre.',
+                ], JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+
             // AGENT API — wallet settlement (no-op unless agent-API request).
             agent_api_settle_booking($db, 'cars', $bookingId, $invoiceId, (float) $finalTotalBase);
 

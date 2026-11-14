@@ -254,6 +254,14 @@ $router->get('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($SE
     if (!agent_can($db, 'bookings', 'add')) { header('Location: ' . root . 'agent/dashboard'); exit; }
     [$booking, $ctx] = _agent_booking_for_settle($db, (string)$invoiceId);
 
+    // TERMINAL STATE GUARD (AG-M2): don't render a pay screen for a booking that is
+    // cancelled/voided/refunded — it must not be chargeable (see the POST handler).
+    if (in_array(strtolower((string)($booking['booking_status'] ?? '')), ['cancelled','voided','refunded'], true)) {
+        $_SESSION['message'] = ['type'=>'error','text'=>'This booking was '
+            . strtolower((string)$booking['booking_status']) . ' and can no longer be paid.'];
+        header('Location: ' . root . 'agent/bookings'); exit;
+    }
+
     $owner = (string) $ctx['owner'];
     $defaultCurrency = function_exists('wallet_default_currency') ? wallet_default_currency($db) : 'NGN';
     $balance = function_exists('wallet_balance') ? (float) wallet_balance($db, $owner, $defaultCurrency) : 0.0;
@@ -283,6 +291,17 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($S
     // Idempotent: if already paid, just go to the booking.
     if (($booking['payment_status'] ?? '') === 'paid') {
         $_SESSION['message'] = ['type'=>'success','text'=>'This booking is already paid.'];
+        header('Location: ' . root . 'agent/bookings'); exit;
+    }
+    // TERMINAL STATE GUARD (AG-M2): a booking that is already cancelled/voided/
+    // refunded must NOT be chargeable. Without this, the pay handler only checked
+    // payment_status, so a cancelled-but-unpaid booking could be paid from the
+    // wallet — and for an own-inventory/no-issue-endpoint service it would then be
+    // silently resurrected to 'confirmed' + 'paid' by _agent_issue_with_recovery
+    // (no supplier call, no recovery/refund). Reject before charging a dead booking.
+    if (in_array(strtolower((string)($booking['booking_status'] ?? '')), ['cancelled','voided','refunded'], true)) {
+        $_SESSION['message'] = ['type'=>'error','text'=>'This booking was '
+            . strtolower((string)$booking['booking_status']) . ' and can no longer be paid. Please create a new booking.'];
         header('Location: ' . root . 'agent/bookings'); exit;
     }
     // Pending agency cannot transact.
@@ -479,11 +498,17 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
         $cancelFile = $basePath . '/modules/' . $moduleType . '/' . $module . '/actions/cancel.php';
         $supplierCancelled = null; // null = not attempted
         if ($moduleType !== '' && $module !== '' && is_file($cancelFile)) {
-            $_POST['invoice_id'] = (string)$invoiceId;
-            $_POST['module_type'] = $moduleType;
+            // AG-M3: give the included module cancel.php ONLY the inputs it expects
+            // (invoice_id + module_type), not the agent's whole POST body (csrf_token,
+            // action, …). Swap $_POST to a minimal, server-controlled array and
+            // RESTORE the original afterwards, so a module file that reads arbitrary
+            // $_POST keys cannot inherit attacker-influenced values from this request.
+            $__savedPost = $_POST;
+            $_POST = ['invoice_id' => (string)$invoiceId, 'module_type' => $moduleType];
             ob_start();
             try { include $cancelFile; ob_end_clean(); $supplierCancelled = true; }
             catch (\Throwable $e) { ob_end_clean(); $supplierCancelled = false; error_log('agent cancel supplier '.$invoiceId.': '.$e->getMessage()); }
+            $_POST = $__savedPost; // restore the handler's original request body
         }
 
         // 2) Mark the booking cancelled (the supplier handler may already have).

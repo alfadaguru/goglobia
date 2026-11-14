@@ -424,6 +424,19 @@ if (!function_exists('agent_can')) {
         if (!empty($ctx['is_owner']) && empty($ctx['owner_active']) && $action !== 'view') {
             return false;
         }
+        // AG-L1: mirror that guard for STAFF — a staff member must not out-permission
+        // their own agency's account state. If the parent OWNER is not active
+        // (pending/suspended), staff get 'view' only. Today agent_staff_context
+        // already fail-closes on a non-active owner, so this is defence-in-depth that
+        // stays correct if a "suspend agent" admin action is ever added.
+        if (empty($ctx['is_owner']) && $action !== 'view') {
+            $ownerActive = false;
+            try {
+                $o = $db->get('users', ['status'], ['user_id' => (string) ($ctx['owner'] ?? '')]);
+                $ownerActive = $o && ($o['status'] ?? '') === 'active';
+            } catch (\Throwable $e) { $ownerActive = false; }
+            if (!$ownerActive) { return false; }
+        }
         return agent_role_allows($db, $ctx, $module, $action);
     }
 }

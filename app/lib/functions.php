@@ -8807,7 +8807,13 @@ if (!function_exists('agent_api_verify_key')) {
         }
 
         // Optional IP allow-list (comma/space/newline separated exact IPs).
-        if (!empty($row['ip_allowlist']) && $remoteIp !== null && $remoteIp !== '') {
+        // AG-L6: fail CLOSED. If the key is IP-restricted, an empty/unknown source
+        // IP (e.g. a proxy that stripped REMOTE_ADDR) must be a DENY, not a skip —
+        // otherwise the restriction silently no-ops and the key works from anywhere.
+        if (!empty($row['ip_allowlist'])) {
+            if ($remoteIp === null || $remoteIp === '') {
+                return null; // IP-restricted key but no verifiable source IP → deny
+            }
             $allowed = preg_split('/[\s,]+/', (string) $row['ip_allowlist'], -1, PREG_SPLIT_NO_EMPTY);
             if (!in_array($remoteIp, $allowed, true)) {
                 return null;
@@ -9000,6 +9006,12 @@ if (!function_exists('agent_api_authenticate')) {
 
         // Rate limit: max N requests per key per rolling 60s window (from the
         // usage log). Default 120/min; override via settings.agent_api_rate_limit.
+        // AG-L9: this is a COURTESY throttle, not a security boundary (auth, the
+        // per-service gate, and the wallet-balance check are the real controls). It
+        // is deliberately fail-OPEN on a count-query error — a transient DB/log blip
+        // must not take a legitimate integration offline — but the failure is now
+        // LOGGED (was silently swallowed) so the hole is observable. The window is
+        // per-key by design (each key gets its own budget).
         $limit = (int) ($GLOBALS['app']['agent_api_rate_limit'] ?? 0);
         if ($limit <= 0) { $limit = 120; }
         try {
@@ -9011,13 +9023,48 @@ if (!function_exists('agent_api_authenticate')) {
                 agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 429);
                 agent_api_json_fail(429, 'Rate limit exceeded. Please slow down and retry shortly.');
             }
-        } catch (\Throwable $e) { /* if the log query fails, do not block the request */ }
+        } catch (\Throwable $e) {
+            // Fail-open (see above) but make it observable rather than silent.
+            error_log('agent_api rate-limit check failed (allowing request): ' . $e->getMessage());
+        }
 
         // Per-service gate (only for service endpoints; utility/account endpoints pass).
         $service = agent_api_route_service($path);
-        if ($service !== '' && !agent_api_service_enabled($db, $agentUserId, $service)) {
-            agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 403);
-            agent_api_json_fail(403, "Your API access does not include the '{$service}' service. Contact your account manager to enable it.");
+        if ($service !== '') {
+            // AG-M1 (env-aware gate): the service must be enabled AND the key's env
+            // must be allowed for it. agent_api_service_enabled only checks enabled==1,
+            // which agent_api_service_set_lifecycle sets for BOTH sandbox and live —
+            // so a LIVE key could drive a service that is only sandbox-certified. Use
+            // agent_api_service_can_call (the env-aware helper the docs already use):
+            // it returns the MAX env this service may be called in ('live'|'sandbox'|'').
+            //   '' certified for nothing            → 403
+            //   live key, service only 'sandbox'    → 403 (the AG-M1 hole)
+            //   sandbox key on a live service        → allowed (runs as sandbox)
+            $keyEnv = strtolower((string) ($keyRow['env'] ?? 'sandbox')) === 'live' ? 'live' : 'sandbox';
+            if (function_exists('agent_api_service_can_call')) {
+                $callableEnv = agent_api_service_can_call($db, $agentUserId, $service); // ''|'sandbox'|'live'
+                if ($callableEnv === '') {
+                    agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 403);
+                    agent_api_json_fail(403, "Your API access does not include the '{$service}' service. Contact your account manager to enable it.");
+                }
+                if ($keyEnv === 'live' && $callableEnv !== 'live') {
+                    agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 403);
+                    agent_api_json_fail(403, "'{$service}' is only certified for sandbox. Use a sandbox key, or request live certification for this service.");
+                }
+                // Record the effective env the call runs in (sandbox key on a live
+                // service is capped to sandbox) for the billing/settlement hook.
+                $service_env = ($keyEnv === 'live' && $callableEnv === 'live') ? 'live' : 'sandbox';
+            } else {
+                // Fallback (helper somehow unavailable): keep the old enabled check so
+                // the gate never silently fails open.
+                if (!agent_api_service_enabled($db, $agentUserId, $service)) {
+                    agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 403);
+                    agent_api_json_fail(403, "Your API access does not include the '{$service}' service. Contact your account manager to enable it.");
+                }
+                $service_env = $keyEnv;
+            }
+        } else {
+            $service_env = strtolower((string) ($keyRow['env'] ?? 'sandbox')) === 'live' ? 'live' : 'sandbox';
         }
 
         agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 200);
@@ -9027,6 +9074,7 @@ if (!function_exists('agent_api_authenticate')) {
             'user_id' => $agentUserId,
             'key_id'  => (int) $keyRow['id'],
             'service' => $service,
+            'env'     => $service_env ?? (strtolower((string) ($keyRow['env'] ?? 'sandbox')) === 'live' ? 'live' : 'sandbox'),
         ];
         return true;
     }
@@ -9087,7 +9135,21 @@ if (!function_exists('agent_api_settle_booking')) {
             return; // normal web/gateway booking — leave untouched
         }
         $agentUserId = (string) ($GLOBALS['__agent_api']['user_id'] ?? ($_SESSION['user_id'] ?? ''));
-        $charge = agent_api_charge_wallet($db, $agentUserId, $service, $baseTotal, $invoiceId);
+
+        // CURRENCY (AG-5): pass the booking's ACTUAL currency to the charge. The
+        // agent wallet is keyed per-currency (wallets[user_id,currency]), so if we
+        // let agent_api_charge_wallet fall back to the site-default currency (its
+        // behaviour when $currency is omitted), a non-base-currency booking would
+        // debit the WRONG per-currency wallet row and mislabel the money moving.
+        // $baseTotal is in the booking's base currency; read it from the row we just
+        // created (currency_markup is the field every service + the web pay path use).
+        $bookingCurrency = '';
+        try {
+            $brow = $db->get('bookings', ['currency_markup', 'currency'], ['id' => $bookingId]);
+            $bookingCurrency = strtoupper(trim((string) ($brow['currency_markup'] ?? ($brow['currency'] ?? ''))));
+        } catch (\Throwable $e) { /* fall back to charge_wallet's default resolution */ }
+
+        $charge = agent_api_charge_wallet($db, $agentUserId, $service, $baseTotal, $invoiceId, $bookingCurrency);
         if (empty($charge['ok'])) {
             if ($bookingId) { $db->delete('bookings', ['id' => $bookingId]); }
             // RELEASE any inventory holds placed for this invoice before we exit (audit N1).
@@ -9166,14 +9228,31 @@ if (!function_exists('agent_api_charge_wallet')) {
         // check on the fee accounts for the just-applied booking debit.
         //
         // Backward-compat idempotency: if the OLD description-based debit already
-        // exists (a charge applied before this change), treat as already done.
+        // exists (a charge applied before the spine change), treat as already done.
+        // AG-6: ONLY short-circuit when the FEE leg is also satisfied (fee is zero,
+        // or its own legacy debit row exists). Otherwise a prior run that posted the
+        // booking debit but crashed before the fee would, on retry, hit this early
+        // return and silently SKIP the fee — undercharging the agent forever. When
+        // the fee is still outstanding we fall through to the spine, which is
+        // per-leg idempotent (AGT-BOOK-… already applied → no-op; AGT-FEE-… still
+        // charges the missing fee).
         try {
             $already = $db->get('credits', 'id', [
                 'user_id' => $userId, 'type' => 'debit', 'description' => $bookingDesc,
             ]);
             if ($already) {
-                $bal = agent_api_wallet_balance($db, $userId);
-                return ['ok' => true, 'charged' => $total, 'fee' => $fee, 'new_balance' => $bal, 'idempotent' => true];
+                $feeSatisfied = $fee <= 0;
+                if (!$feeSatisfied) {
+                    $feeRow = $db->get('credits', 'id', [
+                        'user_id' => $userId, 'type' => 'debit', 'description' => $feeDesc,
+                    ]);
+                    $feeSatisfied = !empty($feeRow);
+                }
+                if ($feeSatisfied) {
+                    $bal = agent_api_wallet_balance($db, $userId);
+                    return ['ok' => true, 'charged' => $total, 'fee' => $fee, 'new_balance' => $bal, 'idempotent' => true];
+                }
+                // else: booking leg done but fee missing → fall through to the spine.
             }
         } catch (\Throwable $e) { /* fall through to charge */ }
 
