@@ -80,7 +80,7 @@ $blkColor = ['held'=>'bg-emerald-50 text-emerald-700','released'=>'bg-gray-100 t
               <?php if ($canEdit): ?><th class="px-3 py-2 font-medium text-right">Assign</th><?php endif; ?>
             </tr></thead>
             <tbody class="divide-y divide-gray-50">
-              <?php foreach ($members as $m): $mid = (int) $m['id']; $cur_prid = (int) ($m['physical_room_id'] ?? 0); ?>
+              <?php foreach ($members as $m): $mid = (int) $m['id']; $cur_prid = (int) ($m['physical_room_id'] ?? 0); $invoice = trim((string) ($m['invoice_id'] ?? '')); $isBooked = $invoice !== ''; ?>
                 <tr>
                   <td class="px-3 py-2 text-gray-900">
                     <?= htmlspecialchars((string) ($m['guest_name'] ?? '')) ?>
@@ -95,41 +95,57 @@ $blkColor = ['held'=>'bg-emerald-50 text-emerald-700','released'=>'bg-gray-100 t
                     <?php else: ?>
                       <span class="text-xs text-gray-400">Unassigned</span>
                     <?php endif; ?>
+                    <?php if ($isBooked): ?>
+                      <a href="<?= root ?>supplier/reservations/<?= rawurlencode($invoice) ?>" class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-medium ml-1" title="Opens the reservation">
+                        <span class="material-symbols-outlined text-sm">check_circle</span> Booked
+                      </a>
+                    <?php endif; ?>
                   </td>
                   <?php if ($canEdit): ?>
                   <td class="px-3 py-2 text-right">
-                    <?php if (($blk['state'] ?? '') !== 'held'): ?>
+                    <?php if ($isBooked): ?>
+                      <span class="text-xs text-gray-400">Reservation <?= htmlspecialchars($invoice) ?></span>
+                    <?php elseif (($blk['state'] ?? '') !== 'held'): ?>
                       <span class="text-xs text-gray-300">—</span>
                     <?php else: ?>
-                      <form method="POST" action="<?= $groupsBase ?>/member/assign-room" class="inline-flex items-center gap-1">
-                        <?= CSRF::tokenField() ?>
-                        <input type="hidden" name="stay_id" value="<?= $sid ?>">
-                        <input type="hidden" name="group_id" value="<?= $gid ?>">
-                        <input type="hidden" name="member_id" value="<?= $mid ?>">
-                        <select name="physical_room_id" required class="input text-xs py-1">
-                          <option value="">Pick a room…</option>
-                          <?php
-                            // Show this member's own current room (so it reads as selected) plus the free rooms.
-                            $opts = $freeRooms;
-                            if ($cur_prid > 0) {
-                              $has = false; foreach ($opts as $o) { if ((int) $o['id'] === $cur_prid) { $has = true; break; } }
-                              if (!$has) { array_unshift($opts, ['id' => $cur_prid, 'label' => 'Room ' . (string) ($roomNoById[$cur_prid] ?? $cur_prid) . ' (current)']); }
-                            }
-                            foreach ($opts as $o): ?>
-                            <option value="<?= (int) $o['id'] ?>" <?= ((int) $o['id'] === $cur_prid) ? 'selected' : '' ?>><?= htmlspecialchars((string) $o['label']) ?></option>
-                          <?php endforeach; ?>
-                        </select>
-                        <button type="submit" class="btn secondary text-xs">Assign</button>
-                      </form>
-                      <?php if ($cur_prid > 0): ?>
-                        <form method="POST" action="<?= $groupsBase ?>/member/unassign-room" class="inline" onsubmit="return confirm('Clear this room assignment?');">
+                      <div class="inline-flex items-center gap-1 flex-wrap justify-end">
+                        <form method="POST" action="<?= $groupsBase ?>/member/assign-room" class="inline-flex items-center gap-1">
                           <?= CSRF::tokenField() ?>
                           <input type="hidden" name="stay_id" value="<?= $sid ?>">
                           <input type="hidden" name="group_id" value="<?= $gid ?>">
                           <input type="hidden" name="member_id" value="<?= $mid ?>">
-                          <button type="submit" class="text-xs text-rose-600 hover:underline ml-1">Clear</button>
+                          <select name="physical_room_id" required class="input text-xs py-1">
+                            <option value="">Pick a room…</option>
+                            <?php
+                              $opts = $freeRooms;
+                              if ($cur_prid > 0) {
+                                $has = false; foreach ($opts as $o) { if ((int) $o['id'] === $cur_prid) { $has = true; break; } }
+                                if (!$has) { array_unshift($opts, ['id' => $cur_prid, 'label' => 'Room ' . (string) ($roomNoById[$cur_prid] ?? $cur_prid) . ' (current)']); }
+                              }
+                              foreach ($opts as $o): ?>
+                              <option value="<?= (int) $o['id'] ?>" <?= ((int) $o['id'] === $cur_prid) ? 'selected' : '' ?>><?= htmlspecialchars((string) $o['label']) ?></option>
+                            <?php endforeach; ?>
+                          </select>
+                          <button type="submit" class="btn secondary text-xs">Assign</button>
                         </form>
-                      <?php endif; ?>
+                        <?php // BOOK: materialise this member as a real reservation (shows on the board + reservations). ?>
+                        <?php if ($cur_prid > 0): ?>
+                          <form method="POST" action="<?= $groupsBase ?>/member/book" class="inline" onsubmit="return confirm('Create a reservation for this guest from the group block? It will appear on the front desk and reservations.');">
+                            <?= CSRF::tokenField() ?>
+                            <input type="hidden" name="stay_id" value="<?= $sid ?>">
+                            <input type="hidden" name="group_id" value="<?= $gid ?>">
+                            <input type="hidden" name="member_id" value="<?= $mid ?>">
+                            <button type="submit" class="btn emerald text-xs">Book</button>
+                          </form>
+                          <form method="POST" action="<?= $groupsBase ?>/member/unassign-room" class="inline" onsubmit="return confirm('Clear this room assignment?');">
+                            <?= CSRF::tokenField() ?>
+                            <input type="hidden" name="stay_id" value="<?= $sid ?>">
+                            <input type="hidden" name="group_id" value="<?= $gid ?>">
+                            <input type="hidden" name="member_id" value="<?= $mid ?>">
+                            <button type="submit" class="text-xs text-rose-600 hover:underline">Clear</button>
+                          </form>
+                        <?php endif; ?>
+                      </div>
                     <?php endif; ?>
                   </td>
                   <?php endif; ?>

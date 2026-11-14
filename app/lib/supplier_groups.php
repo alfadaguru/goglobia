@@ -209,6 +209,174 @@ if (!function_exists('group_member_unassign_room')) {
     }
 }
 
+if (!function_exists('group_member_book')) {
+    /**
+     * MATERIALISE a group member into a REAL confirmed reservation (report 11.13 #3c:
+     * "group booking doesn't save as a reservation — not in room status / reservations").
+     *
+     * A group block HOLDS N rooms as a single stays_holds row (state='held', qty=N). This
+     * converts ONE of those held rooms into an individual booking so the guest shows on the
+     * front-desk room board + the reservations page — WITHOUT re-holding (no oversell window).
+     * Inventory invariant (agent-verified option B): in ONE $db->action(), decrement the
+     * block's held qty by 1, decrement stays_group_blocks.qty by 1, insert a 'consumed'
+     * stays_holds row (qty=1, ref=invoice) for the new booking, and insert the bookings row
+     * (confirmed), mirroring resv_create_walkin's insert. Committed total stays constant at
+     * every instant, so no night ever looks free mid-operation.
+     *
+     * The member must already have a guest_name; a physical room is assigned onto the
+     * booking's booking_data so it lands on the board. Idempotent: a member already booked
+     * (invoice_id set + live) is a no-op success. Returns ['ok','invoice_id','message'].
+     */
+    function group_member_book($db, int $memberId, int $stayId): array
+    {
+        if ($memberId <= 0 || $stayId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        try {
+            $m = $db->get('stays_group_members',
+                ['id', 'group_id', 'block_id', 'guest_name', 'email', 'phone', 'customer_id', 'physical_room_id', 'invoice_id'],
+                ['id' => $memberId]);
+            if (!$m) { return ['ok' => false, 'message' => 'Member not found']; }
+
+            // Idempotency: already materialised into a LIVE booking → no-op.
+            $existingInv = trim((string) ($m['invoice_id'] ?? ''));
+            if ($existingInv !== '') {
+                $b = $db->get('bookings', ['invoice_id', 'booking_status'], ['invoice_id' => $existingInv]);
+                if ($b && strtolower((string) ($b['booking_status'] ?? '')) !== 'cancelled') {
+                    return ['ok' => true, 'invoice_id' => $existingInv, 'already' => true, 'message' => 'Already booked.'];
+                }
+            }
+
+            $guestName = trim((string) ($m['guest_name'] ?? ''));
+            if ($guestName === '') { return ['ok' => false, 'message' => 'Add the guest name first.']; }
+
+            $blk = $db->get('stays_group_blocks',
+                ['id', 'stay_id', 'group_id', 'room_id', 'option_id', 'date_from', 'date_to', 'qty', 'hold_id', 'rate', 'state'],
+                ['id' => (int) $m['block_id'], 'group_id' => (int) $m['group_id'], 'stay_id' => $stayId]);
+            if (!$blk) { return ['ok' => false, 'message' => 'This member is not part of a block for your property.']; }
+            if (($blk['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'That block is no longer held.']; }
+
+            $roomId   = (int) $blk['room_id'];
+            $optionId = (int) $blk['option_id'];
+            $checkin  = (string) $blk['date_from'];
+            $checkout = (string) $blk['date_to'];
+            $holdId   = (int) ($blk['hold_id'] ?? 0);
+
+            // Price the single room (server-authoritative; same helper the walk-in uses).
+            $stay = $db->get('stays', ['currency'], ['id' => $stayId]);
+            $currency = strtoupper(trim((string) ($stay['currency'] ?? 'USD'))) ?: 'USD';
+            $net = null;
+            if (function_exists('stays_recompute_net')) {
+                $r = stays_recompute_net($db, $stayId,
+                    [['room_id' => $roomId, 'quantity' => 1, 'option' => ['option_id' => $optionId]]],
+                    $checkin, $checkout, $currency);
+                if (!empty($r['ok'])) { $net = (float) $r['net']; }
+            }
+            // A negotiated group rate (per night) overrides the computed net when set.
+            $nights = max(1, (int) round((strtotime($checkout) - strtotime($checkin)) / 86400));
+            if ($blk['rate'] !== null && (float) $blk['rate'] > 0) { $net = round((float) $blk['rate'] * $nights, 2); }
+            if ($net === null) { return ['ok' => false, 'message' => 'Could not price the room for those dates.']; }
+
+            $markup = $net;
+            if (function_exists('MARKUP')) {
+                $moduleRow = $db->get('modules', '*', ['name' => 'hotels', 'type' => 'stays', 'status' => '1'])
+                    ?: $db->get('modules', '*', ['type' => 'stays', 'status' => '1']);
+                $mk = MARKUP($net, $moduleRow ?: null, $db, $currency, $currency);
+                if (!empty($mk['price']) && (float) $mk['price'] > 0) { $markup = round((float) $mk['price'], 2); }
+            }
+            $taxAmount = function_exists('calculateTax') ? round((float) (calculateTax($markup, 'hotels', $db)['tax_amount'] ?? 0), 2) : 0.0;
+            $finalTotal = round($markup + $taxAmount, 2);
+
+            $invoiceId = function_exists('resv_generate_invoice_id') ? resv_generate_invoice_id() : ('GRPB-' . bin2hex(random_bytes(6)));
+            $now = date('Y-m-d H:i:s');
+            [$firstName, $lastName] = array_pad(explode(' ', $guestName, 2), 2, '');
+
+            // Resolve the payer (customer) + stayer (guest) from the MEMBER's own details —
+            // NOT auto-attached (report 11.13 #3a). customer_id on the member wins if set.
+            $orgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+            $custId = (int) ($m['customer_id'] ?? 0);
+            $guestId = 0;
+            if ($orgId > 0 && function_exists('contacts_resolve_for_booking')) {
+                $custId = (int) contacts_resolve_for_booking($db, $orgId, [
+                    'customer_id' => $custId, 'first_name' => $firstName, 'last_name' => $lastName,
+                    'email' => (string) ($m['email'] ?? ''), 'phone' => (string) ($m['phone'] ?? ''),
+                ]);
+            }
+            if ($orgId > 0 && function_exists('guests_resolve_for_booking')) {
+                $guestId = (int) guests_resolve_for_booking($db, $orgId, [
+                    'first_name' => $firstName, 'last_name' => $lastName,
+                    'email' => (string) ($m['email'] ?? ''), 'phone' => (string) ($m['phone'] ?? ''),
+                    'customer_id' => $custId,
+                ]);
+            }
+
+            $bookingData = [
+                'hotel_id'        => $stayId,
+                'supplier'        => 'hotels',
+                'checkin'         => $checkin,
+                'checkout'        => $checkout,
+                'currency'        => $currency,
+                'booking_source'  => 'group',
+                'created_by_desk' => (string) ($_SESSION['user_id'] ?? ''),
+                'group_id'        => (int) $m['group_id'],
+                'group_member_id' => $memberId,
+                'rooms_data'      => [['adults' => 1, 'children' => 0]],
+                'selected_rooms'  => [['room_id' => $roomId, 'quantity' => 1, 'option' => ['option_id' => $optionId]]],
+            ];
+            if ((int) ($m['physical_room_id'] ?? 0) > 0) {
+                $bookingData['pms_physical_room_id'] = (int) $m['physical_room_id']; // so it shows on the board
+            }
+
+            $result = ['ok' => false, 'message' => 'Could not create the reservation.'];
+            $db->action(function ($db) use (
+                $blk, $holdId, $memberId, $stayId, $roomId, $optionId, $checkin, $checkout,
+                $invoiceId, $net, $finalTotal, $taxAmount, $currency, $firstName, $lastName,
+                $m, $bookingData, $custId, $guestId, $now, &$result
+            ) {
+                // 1) Lock the block's held hold row, verify it still has a room to give.
+                $hold = null;
+                if ($holdId > 0) {
+                    $st = $db->query('SELECT id, qty, state FROM stays_holds WHERE id = :id FOR UPDATE', [':id' => $holdId]);
+                    $hold = $st ? $st->fetch(\PDO::FETCH_ASSOC) : null;
+                }
+                if (!$hold || (string) $hold['state'] !== 'held' || (int) $hold['qty'] < 1) {
+                    $result = ['ok' => false, 'message' => 'The block hold has no room left to book.']; return false;
+                }
+                // 2) Move 1 unit from the block's HELD row to a new CONSUMED row keyed to this
+                //    invoice. Committed total (held+consumed) is unchanged → no oversell window.
+                $db->query('UPDATE stays_holds SET qty = qty - 1 WHERE id = :id AND qty >= 1', [':id' => (int) $hold['id']]);
+                $db->insert('stays_holds', [
+                    'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId,
+                    'date_from' => $checkin, 'date_to' => $checkout, 'qty' => 1,
+                    'state' => 'consumed', 'ref' => $invoiceId, 'created_at' => $now,
+                ]);
+                // 3) Decrement the block's advertised qty (0 = fully picked up).
+                $db->update('stays_group_blocks', ['qty' => max(0, (int) $blk['qty'] - 1), 'updated_at' => $now], ['id' => (int) $blk['id']]);
+                // 4) Insert the real reservation (confirmed), mirroring resv_create_walkin.
+                $db->insert('bookings', [
+                    'invoice_id' => $invoiceId, 'module_type' => 'stays', 'module' => 'hotels',
+                    'booking_date' => $now, 'booking_status' => 'confirmed', 'payment_status' => 'unpaid',
+                    'paid_at' => null, 'price_original' => round($net, 2), 'price_markup' => $finalTotal,
+                    'currency_markup' => $currency, 'tax' => $taxAmount,
+                    'first_name' => $firstName, 'last_name' => $lastName,
+                    'email' => trim((string) ($m['email'] ?? '')), 'phone' => trim((string) ($m['phone'] ?? '')),
+                    'phone_country_code' => '', 'country' => '', 'address' => '', 'child_ages' => '', 'travellers' => '',
+                    'adults' => 1, 'childs' => 0, 'booking_data' => json_encode($bookingData),
+                    'customer_id' => $custId > 0 ? $custId : null, 'guest_id' => $guestId > 0 ? $guestId : null,
+                    'payment_gateway' => null, 'created_at' => $now, 'updated_at' => $now,
+                ]);
+                if ((int) $db->id() <= 0) { $result = ['ok' => false, 'message' => 'Could not save the reservation.']; return false; }
+                // 5) Link the member → its booking.
+                $db->update('stays_group_members', ['invoice_id' => $invoiceId, 'customer_id' => $custId > 0 ? $custId : null], ['id' => $memberId]);
+                $result = ['ok' => true, 'invoice_id' => $invoiceId, 'message' => 'Reservation ' . $invoiceId . ' created from the group block.'];
+                return true;
+            });
+            return $result;
+        } catch (\Throwable $e) {
+            error_log('group_member_book (' . $memberId . '): ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not create the reservation.'];
+        }
+    }
+}
+
 if (!function_exists('group_rooming_import')) {
     /**
      * BULK ROOMING LIST IMPORT (PMS completion #08). Add many guests to a block at once

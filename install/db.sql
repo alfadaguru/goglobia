@@ -30761,11 +30761,15 @@ CREATE TABLE `stays_group_members` (
   `block_id` int(11) NOT NULL,
   `guest_name` varchar(120) NOT NULL,
   `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `customer_id` int(11) DEFAULT NULL,
   `physical_room_id` int(11) DEFAULT NULL,
+  `invoice_id` varchar(191) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_group` (`group_id`),
-  KEY `idx_block` (`block_id`)
+  KEY `idx_block` (`block_id`),
+  KEY `idx_invoice` (`invoice_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
