@@ -239,6 +239,16 @@ $router->get('/supplier/front-desk', function () use ($SECURE, $db) {
     if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayFilter = (int) ($_GET['stay_id'] ?? 0);
+    // DEFAULT the property context when none is given and the user manages exactly ONE
+    // property (the common case — incl. a front-desk STAFF member of a single hotel).
+    // Without this, reaching /supplier/front-desk with no ?stay_id left $stayFilter=0, so
+    // $canEdit was computed stay-less AND the "Walk-in"/room-tile create actions (which
+    // require $stayFilter>0) were HIDDEN — the front-desk staff were stuck VIEW-ONLY and
+    // couldn't create a walk-in/guest (report 11.13-followup #1). A multi-property user
+    // keeps the all-properties view unless they pick one.
+    if ($stayFilter <= 0 && count($stayIds) === 1) { $stayFilter = (int) $stayIds[0]; }
+    // Validate an explicitly-passed stay_id is actually one the user manages.
+    if ($stayFilter > 0 && !in_array($stayFilter, array_map('intval', $stayIds), true)) { $stayFilter = 0; }
     $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['date'] ?? '')) ? (string) $_GET['date'] : date('Y-m-d');
     $reservations = supplier_fetch_reservations($db, $stayIds, ['stay_id' => $stayFilter], 1000);
     $buckets = function_exists('resv_dashboard_buckets') ? resv_dashboard_buckets($reservations, $date) : [];
