@@ -554,7 +554,14 @@ try {
         //      new roles, their customised/renamed ones untouched. ALSO adds
         //      supplier_staff.updated_at (the re-invite + new role-reassign paths write it;
         //      older installs lacked the column, so those writes failed).
-        define('APP_SCHEMA_ENSURE_VERSION', 18);
+        // v19: REPAIR of a corrupted ensureSupplierStaysSchema() block (bad paste in commit
+        //      0061844): truncated ALTERs (`received_qty decimal(14`, several ENUM adds) +
+        //      leaked prose threw 1064 every request and aborted the whole try, so columns
+        //      received_qty / stays_owners KYC / stays_leases escalation / stays_incidents
+        //      escalation / stays_documents lifecycle NEVER got created, and later ensures
+        //      (incl. ensureSupplierCommsTemplates) never ran. Block rebuilt as complete
+        //      idempotent per-column guards; re-run once to apply the missing columns.
+        define('APP_SCHEMA_ENSURE_VERSION', 19);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

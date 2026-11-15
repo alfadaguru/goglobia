@@ -14655,18 +14655,45 @@ CREATE TABLE IF NOT EXISTS `supplier_webhook_endpoints` (
         if (!$db->query("SHOW COLUMNS FROM `journal_entries` LIKE 'cost_center_id'")->fetch()) { $db->query("ALTER TABLE `journal_entries` ADD COLUMN `cost_center_id` int(11) DEFAULT NULL"); }
         if (!$db->query("SHOW COLUMNS FROM `journal_entries` LIKE 'reversed_by'")->fetch()) { $db->query("ALTER TABLE `journal_entries` ADD COLUMN `reversed_by` bigint(20) DEFAULT NULL"); }
         if (!$db->query("SHOW COLUMNS FROM `users` LIKE 'payout_account_verified'")->fetch()) { $db->query("ALTER TABLE `users` ADD COLUMN `payout_account_verified` varchar(1) NOT NULL DEFAULT '0'"); }
-        if (!$db->query("SHOW COLUMNS FROM `stays_po_lines` LIKE 'received_qty'")->fetch()) { $db->query("ALTER TABLE `stays_po_lines` ADD COLUMN `received_qty` decimal(14"); }
+        // RBAC audit 2026-11-15 — REPAIR: a bad paste (commit 0061844) corrupted this block.
+        // Several statements were truncated mid-type (`received_qty decimal(14`, the ENUM
+        // adds) and prose/comment text leaked into a PHP string, so the FIRST truncated
+        // query threw 1064 on every request and aborted the whole try — every ensure below
+        // it (incl. supplier_staff.department_id and ensureSupplierCommsTemplates) silently
+        // never ran. Rebuilt as complete, idempotent per-column guards whose types match
+        // install/db.sql verbatim. Each column is guarded by SHOW COLUMNS so re-running is safe.
+        if (!$db->query("SHOW COLUMNS FROM `stays_po_lines` LIKE 'received_qty'")->fetch()) { $db->query("ALTER TABLE `stays_po_lines` ADD COLUMN `received_qty` decimal(14,3) NOT NULL DEFAULT 0.000"); }
         if (!$db->query("SHOW COLUMNS FROM `stays_stock_items` LIKE 'category_id'")->fetch()) { $db->query("ALTER TABLE `stays_stock_items` ADD COLUMN `category_id` int(11) DEFAULT NULL"); }
         if (!$db->query("SHOW COLUMNS FROM `stays_stock_items` LIKE 'barcode'")->fetch()) { $db->query("ALTER TABLE `stays_stock_items` ADD COLUMN `barcode` varchar(64) DEFAULT NULL"); }
         if (!$db->query("SHOW COLUMNS FROM `stays_vendors` LIKE 'category'")->fetch()) { $db->query("ALTER TABLE `stays_vendors` ADD COLUMN `category` varchar(40) DEFAULT NULL AFTER `payment_terms`"); }
         if (!$db->query("SHOW COLUMNS FROM `supplier_staff` LIKE 'department_id'")->fetch()) { $db->query("ALTER TABLE `supplier_staff` ADD COLUMN `department_id` INT(11) DEFAULT NULL AFTER `role_id`"); }
-        if (!$db->query("SHOW COLUMNS FROM `workflow_rules` LIKE 'action_config'")->fetch()) { $db->query("ALTER TABLE `workflow_rules` ADD COLUMN `action_config` LONGTEXT DEFAULT NULL would be the additive fix.
-
--- All ADDITIVE. For each"); }
-        if (!$db->query("SHOW COLUMNS FROM `stays_owners` LIKE 'kyc_status'")->fetch()) { $db->query("ALTER TABLE `stays_owners` ADD COLUMN `kyc_status` ENUM('unverified'"); }
-        if (!$db->query("SHOW COLUMNS FROM `stays_leases` LIKE 'escalation_type'")->fetch()) { $db->query("ALTER TABLE `stays_leases` ADD COLUMN `escalation_type` enum('none'"); }
+        if (!$db->query("SHOW COLUMNS FROM `workflow_rules` LIKE 'action_config'")->fetch()) { $db->query("ALTER TABLE `workflow_rules` ADD COLUMN `action_config` LONGTEXT DEFAULT NULL"); }
+        // stays_owners KYC (matches install/db.sql ALTER)
+        if (!$db->query("SHOW COLUMNS FROM `stays_owners` LIKE 'kyc_status'")->fetch()) { $db->query("ALTER TABLE `stays_owners` ADD COLUMN `kyc_status` ENUM('unverified','pending','verified','rejected') NOT NULL DEFAULT 'unverified' AFTER `status`"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_owners` LIKE 'national_id'")->fetch()) { $db->query("ALTER TABLE `stays_owners` ADD COLUMN `national_id` VARCHAR(120) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_owners` LIKE 'verified_at'")->fetch()) { $db->query("ALTER TABLE `stays_owners` ADD COLUMN `verified_at` DATETIME DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_owners` LIKE 'verified_by'")->fetch()) { $db->query("ALTER TABLE `stays_owners` ADD COLUMN `verified_by` VARCHAR(64) DEFAULT NULL"); }
+        // stays_leases rent escalation / late fees
+        if (!$db->query("SHOW COLUMNS FROM `stays_leases` LIKE 'escalation_type'")->fetch()) { $db->query("ALTER TABLE `stays_leases` ADD COLUMN `escalation_type` enum('none','percent','fixed') NOT NULL DEFAULT 'none'"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_leases` LIKE 'escalation_amount'")->fetch()) { $db->query("ALTER TABLE `stays_leases` ADD COLUMN `escalation_amount` decimal(14,4) NOT NULL DEFAULT 0.0000"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_leases` LIKE 'escalation_every'")->fetch()) { $db->query("ALTER TABLE `stays_leases` ADD COLUMN `escalation_every` int(11) NOT NULL DEFAULT 0"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_leases` LIKE 'late_fee_mode'")->fetch()) { $db->query("ALTER TABLE `stays_leases` ADD COLUMN `late_fee_mode` enum('none','percent','fixed') NOT NULL DEFAULT 'none'"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_leases` LIKE 'late_fee_value'")->fetch()) { $db->query("ALTER TABLE `stays_leases` ADD COLUMN `late_fee_value` decimal(14,4) NOT NULL DEFAULT 0.0000"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_leases` LIKE 'grace_days'")->fetch()) { $db->query("ALTER TABLE `stays_leases` ADD COLUMN `grace_days` int(11) NOT NULL DEFAULT 0"); }
+        // stays_incidents escalation / resolution
         if (!$db->query("SHOW COLUMNS FROM `stays_incidents` LIKE 'escalated'")->fetch()) { $db->query("ALTER TABLE `stays_incidents` ADD COLUMN `escalated` tinyint(1) NOT NULL DEFAULT 0"); }
-        if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'owner_scope'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `owner_scope` ENUM('property'"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_incidents` LIKE 'escalated_to'")->fetch()) { $db->query("ALTER TABLE `stays_incidents` ADD COLUMN `escalated_to` varchar(120) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_incidents` LIKE 'escalated_at'")->fetch()) { $db->query("ALTER TABLE `stays_incidents` ADD COLUMN `escalated_at` datetime DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_incidents` LIKE 'escalation_note'")->fetch()) { $db->query("ALTER TABLE `stays_incidents` ADD COLUMN `escalation_note` varchar(500) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_incidents` LIKE 'resolution'")->fetch()) { $db->query("ALTER TABLE `stays_incidents` ADD COLUMN `resolution` varchar(1000) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_incidents` LIKE 'closed_at'")->fetch()) { $db->query("ALTER TABLE `stays_incidents` ADD COLUMN `closed_at` datetime DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_incidents` LIKE 'closed_by'")->fetch()) { $db->query("ALTER TABLE `stays_incidents` ADD COLUMN `closed_by` varchar(155) DEFAULT NULL"); }
+        // stays_documents lifecycle
+        if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'owner_scope'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `owner_scope` ENUM('property','employee','guest','vendor') NOT NULL DEFAULT 'property'"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'status'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `status` ENUM('active','superseded','expired','archived') NOT NULL DEFAULT 'active'"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'file_ref'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `file_ref` VARCHAR(255) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'retain_until'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `retain_until` DATE DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'reviewed_at'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `reviewed_at` DATETIME DEFAULT NULL"); }
 
 
         // Supplier lifecycle email templates (idempotent, insert-if-absent) so the
