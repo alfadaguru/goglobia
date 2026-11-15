@@ -217,11 +217,22 @@ $router->post('/supplier/roles/save', function () use ($SECURE, $db) {
         // the canonical catalogue are accepted; a blank value = not configured
         // (row removed → supplier_can_approve denies/escalates); 'unlimited' = no cap;
         // a number = the max. Non-breaking: absent when the form doesn't post limits.
+        //
+        // IMPORTANT (RBAC audit 2026-11-15): only touch keys the form actually RENDERED an
+        // input for — i.e. the 'enforced' keys. The form no longer renders inputs for the
+        // escalation-only keys (refund_amount/payment_amount/rate_override), so they never
+        // appear in $_POST['limits']. Deleting them here on every save would SILENTLY WIPE a
+        // cap an owner configured before the form changed. So we rebuild ONLY the enforced
+        // (rendered) keys and leave any other stored rows untouched.
         if ($roleId > 0 && function_exists('supplier_approval_limit_keys')) {
             try {
                 $limitKeys = supplier_approval_limit_keys();
                 $posted = is_array($_POST['limits'] ?? null) ? $_POST['limits'] : [];
                 foreach ($limitKeys as $k => $meta) {
+                    // Skip keys the form did not render (escalation-only) UNLESS the request
+                    // explicitly posted one (e.g. a future form/API that re-enables it). This
+                    // preserves previously-saved caps for keys no longer shown.
+                    if (empty($meta['enforced']) && !array_key_exists($k, $posted)) { continue; }
                     $raw = isset($posted[$k]) ? trim((string) $posted[$k]) : '';
                     // Always clear the existing row first, then set the new state.
                     $db->delete('supplier_role_limits', ['role_id' => $roleId, 'limit_key' => $k]);

@@ -5,13 +5,15 @@
 @$SECURE or die('Access Denied!');
 
 if (!function_exists('_corp_org')) {
-    function _corp_org($db): int
+    /** Resolve the org for a corporate/trust action. Delegatable to a 'finance' staffer
+     *  (org-wide; owner always passes). $action 'view' for reads, 'edit' for writes — a
+     *  view-only finance role (e.g. a read-only auditor) must NOT be able to add corporate
+     *  accounts or record client-money trust entries. Returns org id (>0) or 0 if denied. */
+    function _corp_org($db, string $action = 'view'): int
     {
         $ctx = supplier_acting_context($db);
         if ($ctx === null || !empty($ctx['is_admin'])) { return 0; }
-        // Corporate/agent accounts + client-money trust are FINANCIAL → delegatable to a
-        // 'finance' staffer (org-wide); owner always passes.
-        if (!supplier_can_orgwide($db, 'finance', 'view')) { return 0; }
+        if (!supplier_can_orgwide($db, 'finance', $action === 'edit' ? 'edit' : 'view')) { return 0; }
         return function_exists('supplier_org_for_owner') ? (int) supplier_org_for_owner($db, (string) $ctx['owner']) : 0;
     }
 }
@@ -29,7 +31,7 @@ $router->get('/supplier/corporate', function () use ($SECURE, $db) {
 });
 $router->post('/supplier/corporate/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    $orgId = _corp_org($db); $back = root . 'supplier/corporate';
+    $orgId = _corp_org($db, 'edit'); $back = root . 'supplier/corporate';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $id = function_exists('corp_add') ? corp_add($db, $orgId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Account added.' : 'Could not add (name required).'];
@@ -37,7 +39,7 @@ $router->post('/supplier/corporate/add', function () use ($SECURE, $db) {
 });
 $router->post('/supplier/corporate/status', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    $orgId = _corp_org($db); $back = root . 'supplier/corporate';
+    $orgId = _corp_org($db, 'edit'); $back = root . 'supplier/corporate';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $ok = function_exists('corp_set_status') && corp_set_status($db, $orgId, (int) ($_POST['id'] ?? 0), strtolower(trim((string) ($_POST['status'] ?? ''))));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Updated.' : 'Could not update.'];
@@ -58,7 +60,7 @@ $router->get('/supplier/trust', function () use ($SECURE, $db) {
 });
 $router->post('/supplier/trust/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    $orgId = _corp_org($db); $back = root . 'supplier/trust';
+    $orgId = _corp_org($db, 'edit'); $back = root . 'supplier/trust';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $id = function_exists('trust_add') ? trust_add($db, $orgId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Entry recorded.' : 'Could not record (party + non-zero amount required).'];
@@ -68,7 +70,7 @@ $router->post('/supplier/trust/add', function () use ($SECURE, $db) {
 // MODULE 15: sales pipeline stage + activity log (owner-scoped).
 $router->post('/supplier/corporate/pipeline', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    $orgId = _corp_org($db); $back = root . 'supplier/corporate';
+    $orgId = _corp_org($db, 'edit'); $back = root . 'supplier/corporate';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $ok = function_exists('corp_set_pipeline') && corp_set_pipeline($db, $orgId, (int) ($_POST['account_id'] ?? 0), strtolower((string) ($_POST['stage'] ?? '')));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Pipeline stage updated.' : 'Could not update.'];
@@ -76,7 +78,7 @@ $router->post('/supplier/corporate/pipeline', function () use ($SECURE, $db) {
 });
 $router->post('/supplier/corporate/activity', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    $orgId = _corp_org($db); $back = root . 'supplier/corporate';
+    $orgId = _corp_org($db, 'edit'); $back = root . 'supplier/corporate';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $id = function_exists('corp_activity_add') ? corp_activity_add($db, $orgId, (int) ($_POST['account_id'] ?? 0), (string) ($_POST['kind'] ?? 'note'), (string) ($_POST['detail'] ?? '')) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Activity logged.' : 'Could not log.'];
