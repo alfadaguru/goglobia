@@ -54,6 +54,11 @@ $router->get('/supplier/groups', function () use ($SECURE, $db) {
     foreach ($rooms as &$__r) { $__r['_options'] = function_exists('stays_room_option_ids') ? stays_room_option_ids($db, (int) $__r['id'], $stayId) : []; }
     unset($__r);
     $canEdit = supplier_can($db, 'reservations', 'edit', $stayId);
+    // Setting a negotiated group RATE changes the booking price, so it is gated on the
+    // stronger 'rates:edit' permission (report 11.13-followup #2d). The owner always has
+    // it; a front-desk staffer only if their role grants it — otherwise the group-rate
+    // field is hidden in the view AND ignored on the server (the block route re-checks).
+    $canSetRate = supplier_can($db, 'rates', 'edit', $stayId);
 
     $title = 'Groups — ' . ($stay['name'] ?? ''); $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -86,10 +91,18 @@ $router->post('/supplier/groups/block', function () use ($SECURE, $db) {
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
     if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    // A negotiated group RATE changes the booking price → require the stronger 'rates:edit'
+    // permission (report 11.13-followup #2d). SERVER-authoritative: a posted rate from a
+    // user without the permission is IGNORED (forced null), so hiding the field in the view
+    // can't be bypassed by a hand-crafted POST — the price falls back to the computed rate.
+    $rate = null;
+    if (isset($_POST['rate']) && $_POST['rate'] !== '' && supplier_can($db, 'rates', 'edit', $stayId)) {
+        $rate = (float) $_POST['rate'];
+    }
     $res = function_exists('group_block_add') ? group_block_add($db, (int) ($_POST['group_id'] ?? 0), $stayId,
         (int) ($_POST['room_id'] ?? 0), (int) ($_POST['option_id'] ?? 0),
         (string) ($_POST['date_from'] ?? ''), (string) ($_POST['date_to'] ?? ''), (int) ($_POST['qty'] ?? 1),
-        (string) ($_POST['cutoff_date'] ?? ''), $_POST['rate'] !== '' && isset($_POST['rate']) ? (float) $_POST['rate'] : null) : ['ok' => false, 'message' => 'Unavailable'];
+        (string) ($_POST['cutoff_date'] ?? ''), $rate) : ['ok' => false, 'message' => 'Unavailable'];
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
     header('Location: ' . $back); exit;
 });

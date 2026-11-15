@@ -13,6 +13,7 @@ $gMembers  = (isset($gMembers) && is_array($gMembers)) ? $gMembers : [];
 $rooms     = (isset($rooms) && is_array($rooms)) ? $rooms : [];
 $roomTypes = (isset($roomTypes) && is_array($roomTypes)) ? $roomTypes : [];
 $canEdit   = !empty($canEdit);
+$canSetRate = !empty($canSetRate); // permission to set a negotiated group rate (#2d)
 $sid = (int) ($stay['id'] ?? 0);
 $cur = htmlspecialchars((string) ($stay['currency'] ?? 'USD'));
 $base = root . 'supplier/groups';
@@ -148,9 +149,12 @@ foreach ($rooms as $r) {
               <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-out</label><input type="date" name="date_to" class="input text-xs gb-to" required oninput="gbEstimate(this.form)"></div>
               <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Rooms</label><input type="number" name="qty" min="1" value="1" class="input text-xs gb-qty" required oninput="gbEstimate(this.form)"></div>
             </div>
-            <div class="grid grid-cols-2 gap-1.5">
+            <div class="grid <?= $canSetRate ? 'grid-cols-2' : 'grid-cols-1' ?> gap-1.5">
               <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Cutoff <span class="text-gray-400">(auto-release)</span></label><input type="date" name="cutoff_date" class="input text-xs" title="Unsold rooms auto-release after this date"></div>
+              <?php // Group rate changes the booking price — only shown to users with rates:edit (#2d). ?>
+              <?php if ($canSetRate): ?>
               <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Group rate / night <span class="text-gray-400">(optional)</span></label><input type="number" name="rate" step="0.01" min="0" class="input text-xs gb-rate" placeholder="room rate" oninput="gbEstimate(this.form)"></div>
+              <?php endif; ?>
             </div>
             <div class="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5 flex justify-between">
               <span class="gb-breakdown">— rooms × — nights</span>
