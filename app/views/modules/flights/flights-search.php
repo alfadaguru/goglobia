@@ -195,22 +195,9 @@ function flightSearchData() {
         this.toOpen = false;
         this.fromOpen = !this.fromOpen;
         if (this.fromOpen) {
-            // iOS SAFARI KEYBOARD FIX: the mobile keyboard only appears when .focus()
-            // runs SYNCHRONOUSLY inside the tap gesture. Focusing inside $nextTick (an
-            // async microtask) loses the user-gesture context, so iOS focuses the input
-            // but refuses to open the keyboard — the user taps the airport field and
-            // cannot type. So we reveal + focus the input synchronously NOW (the panel's
-            // input already exists in the DOM via x-show), and only do the non-focus
-            // panel positioning in $nextTick.
-            const q = document.getElementById('fl_from_q');
-            const panel = document.getElementById('fl_from_panel');
-            if (panel) { panel.style.display = 'flex'; } // make it focusable this tick
-            if (q) { q.focus({ preventScroll: true }); }
             this.$nextTick(() => {
                 window.flAnchorPanel('fl_from_trigger', 'fl_from_panel');
-                // Re-focus in case the x-show transition re-hid/re-shew it; harmless if
-                // already focused.
-                if (q && document.activeElement !== q) { q.focus({ preventScroll: true }); }
+                document.getElementById('fl_from_q')?.focus({ preventScroll: true });
             });
         }
     },
@@ -239,16 +226,9 @@ function flightSearchData() {
         this.fromOpen = false;
         this.toOpen = !this.toOpen;
         if (this.toOpen) {
-            // iOS keyboard fix — focus the arrival search input SYNCHRONOUSLY within the
-            // tap gesture (see openFrom for the full explanation). $nextTick focus loses
-            // the gesture context and iOS won't open the keyboard.
-            const q = document.getElementById('fl_to_q');
-            const panel = document.getElementById('fl_to_panel');
-            if (panel) { panel.style.display = 'flex'; }
-            if (q) { q.focus({ preventScroll: true }); }
             this.$nextTick(() => {
                 window.flAnchorPanel('fl_to_trigger', 'fl_to_panel');
-                if (q && document.activeElement !== q) { q.focus({ preventScroll: true }); }
+                document.getElementById('fl_to_q')?.focus({ preventScroll: true });
             });
         }
     },

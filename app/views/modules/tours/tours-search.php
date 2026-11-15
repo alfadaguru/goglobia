@@ -109,14 +109,7 @@ function tourSearchData() {
             const willOpen = !this.destOpen;
             this.closeAllPanels();
             this.destOpen = willOpen;
-            if (willOpen) {
-                // iOS keyboard fix: focus synchronously in the tap gesture (not $nextTick).
-                const q = document.getElementById('tr_dest_q');
-                const pnl = document.getElementById('tr_dest_panel');
-                if (pnl) { pnl.style.display = 'flex'; }
-                if (q) { q.focus({ preventScroll: true }); }
-                this.$nextTick(() => { window.flAnchorPanel('tr_dest_trigger', 'tr_dest_panel'); if (q && document.activeElement !== q) q.focus({ preventScroll: true }); });
-            }
+            if (willOpen) this.$nextTick(() => { window.flAnchorPanel('tr_dest_trigger', 'tr_dest_panel'); document.getElementById('tr_dest_q')?.focus(); });
         },
         toggleDuration() {
             const willOpen = !this.durationOpen;

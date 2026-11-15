@@ -745,14 +745,9 @@ function railSearchData() {
             this.closeOtherPanels('dep');
             this.depOpen = !this.depOpen;
             if (this.depOpen) {
-                // iOS keyboard fix: focus synchronously in the tap gesture (not $nextTick).
-                const q = document.getElementById('rail_dep_q');
-                const pnl = document.getElementById('rail_dep_panel');
-                if (pnl) { pnl.style.display = 'flex'; }
-                if (q) { q.focus({ preventScroll: true }); }
                 this.$nextTick(() => {
                     window.railAnchorPanel('rail_dep_trigger', 'rail_dep_panel');
-                    if (q && document.activeElement !== q) { q.focus({ preventScroll: true }); }
+                    document.getElementById('rail_dep_q')?.focus({ preventScroll: true });
                 });
             }
         },
@@ -761,14 +756,9 @@ function railSearchData() {
             this.closeOtherPanels('dest');
             this.destOpen = !this.destOpen;
             if (this.destOpen) {
-                // iOS keyboard fix: focus synchronously in the tap gesture (not $nextTick).
-                const q = document.getElementById('rail_dest_q');
-                const pnl = document.getElementById('rail_dest_panel');
-                if (pnl) { pnl.style.display = 'flex'; }
-                if (q) { q.focus({ preventScroll: true }); }
                 this.$nextTick(() => {
                     window.railAnchorPanel('rail_dest_trigger', 'rail_dest_panel');
-                    if (q && document.activeElement !== q) { q.focus({ preventScroll: true }); }
+                    document.getElementById('rail_dest_q')?.focus({ preventScroll: true });
                 });
             }
         },
