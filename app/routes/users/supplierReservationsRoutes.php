@@ -1168,6 +1168,24 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         header('Location: ' . $back); exit;
     }
 
+    // DOUBLE-SUBMIT GUARD (walk-in idempotency): the form carries a PER-RENDER nonce
+    // (walkin_nonce). A double-click / back-then-resubmit replays the SAME nonce, which we
+    // remember per-session and refuse the second time — so one physical click can never
+    // create two bookings + two room-holds. PHP file sessions serialise same-session
+    // requests, so two rapid clicks run sequentially and the second sees the consumed
+    // nonce. Intentional second bookings come from a fresh page render → a new nonce.
+    // Bounded to the last 20 nonces so the session never grows unbounded.
+    $walkinNonce = preg_replace('/[^a-f0-9]/i', '', (string) ($_POST['walkin_nonce'] ?? ''));
+    if ($walkinNonce !== '') {
+        $seen = isset($_SESSION['walkin_nonces']) && is_array($_SESSION['walkin_nonces']) ? $_SESSION['walkin_nonces'] : [];
+        if (in_array($walkinNonce, $seen, true)) {
+            $_SESSION['message'] = ['type' => 'info', 'text' => 'That reservation was already submitted — ignored the duplicate.'];
+            header('Location: ' . root . 'supplier/reservations'); exit;
+        }
+        $seen[] = $walkinNonce;
+        $_SESSION['walkin_nonces'] = array_slice($seen, -20);
+    }
+
     // SINGLE BOOKING = ONE ROOM (owner rule). This page/endpoint books exactly one room;
     // the Rooms/quantity field was removed from the form. Multiple rooms are a GROUP
     // booking (the "Group booking" tab → /supplier/groups), which owns block holds, the

@@ -193,6 +193,40 @@ $router->post('/supplier/groups/checkin-all', function () use ($SECURE, $db) {
     header('Location: ' . $back); exit;
 });
 
+// BULK group ops (front-desk audit) — one click to assign/book/mark-paid every member,
+// each delegating to the guarded per-member fn. Same auth/gate as checkin-all. Redirect
+// back to the group DETAIL page (where the bulk buttons live).
+$router->post('/supplier/groups/bulk-assign', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $gid = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups/' . $gid;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('group_bulk_assign') ? group_bulk_assign($db, $gid, $stayId) : ['ok' => 0, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => ($res['ok'] ?? 0) > 0 ? 'success' : 'info', 'text' => 'Auto-assign — ' . ($res['message'] ?? 'done.')];
+    header('Location: ' . $back); exit;
+});
+$router->post('/supplier/groups/bulk-book', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $gid = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups/' . $gid;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('group_bulk_book') ? group_bulk_book($db, $gid, $stayId) : ['ok' => 0, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => ($res['ok'] ?? 0) > 0 ? 'success' : 'info', 'text' => 'Book all — ' . ($res['message'] ?? 'done.')];
+    header('Location: ' . $back); exit;
+});
+$router->post('/supplier/groups/bulk-mark-paid', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $gid = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups/' . $gid;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('group_bulk_mark_paid') ? group_bulk_mark_paid($db, $gid, $stayId) : ['ok' => 0, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => ($res['ok'] ?? 0) > 0 ? 'success' : 'info', 'text' => 'Mark all paid — ' . ($res['message'] ?? 'done.')];
+    header('Location: ' . $back); exit;
+});
+
 if (!function_exists('_group_free_rooms_for_block')) {
     /**
      * Physical rooms of a block's room TYPE that are assignable for the block's dates —

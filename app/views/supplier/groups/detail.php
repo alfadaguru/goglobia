@@ -46,6 +46,36 @@ $blkColor = ['held'=>'bg-emerald-50 text-emerald-700','released'=>'bg-gray-100 t
     </span>
   </div>
 
+  <?php // BULK ACTIONS — one click to run every guest through assign → book → mark-paid,
+        // instead of clicking each member individually below. Each posts to a bulk route
+        // that loops the same guarded per-member action, so nothing here can over-assign,
+        // double-book or double-pay. Shown only when the group has at least one member. ?>
+  <?php if ($canEdit && !empty($blocks)): $__hasMembers = false; foreach (($blockMembers ?? []) as $__mm) { if (!empty($__mm)) { $__hasMembers = true; break; } } ?>
+    <?php if ($__hasMembers): ?>
+    <div class="card p-4">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-sm font-semibold text-gray-700 mr-1">Do all at once:</span>
+        <form action="<?= $groupsBase ?>/bulk-assign" method="POST" class="inline"
+              onsubmit="return confirm('Auto-assign a free room to every unassigned guest in this group?');">
+          <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
+          <button type="submit" class="btn secondary text-xs inline-flex items-center gap-1"><span class="material-symbols-outlined text-sm">auto_awesome</span> Auto-assign rooms</button>
+        </form>
+        <form action="<?= $groupsBase ?>/bulk-book" method="POST" class="inline"
+              onsubmit="return confirm('Book every assigned guest in this group? This reserves the rooms.');">
+          <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
+          <button type="submit" class="btn secondary text-xs inline-flex items-center gap-1"><span class="material-symbols-outlined text-sm">event_available</span> Book all</button>
+        </form>
+        <form action="<?= $groupsBase ?>/bulk-mark-paid" method="POST" class="inline"
+              onsubmit="return confirm('Mark every booked guest in this group as paid?');">
+          <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
+          <button type="submit" class="btn secondary text-xs inline-flex items-center gap-1"><span class="material-symbols-outlined text-sm">payments</span> Mark all paid</button>
+        </form>
+      </div>
+      <p class="text-[11px] text-gray-400 mt-1.5">Runs each guest through the same checks as the per-row buttons — already-done guests are skipped, and a guest with no free room is reported, never double-booked.</p>
+    </div>
+    <?php endif; ?>
+  <?php endif; ?>
+
   <!-- Blocks + rooming list -->
   <?php if (empty($blocks)): ?>
     <div class="card p-6 text-center text-gray-400 text-sm">No room blocks on this group yet. Add a block from the <a href="<?= $groupsBase ?>?stay_id=<?= $sid ?>" class="text-violet-600 hover:underline">groups page</a>.</div>

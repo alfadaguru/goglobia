@@ -88,6 +88,7 @@
       <a href="<?= root ?>supplier/customers" class="btn secondary text-sm inline-flex items-center gap-1.5"><span class="material-symbols-outlined text-base">groups</span> Customers</a>
       <?php if ($canEdit && $stayFilter > 0): ?>
         <a href="<?= root ?>supplier/stays/<?= $stayFilter ?>/reservations/new" class="btn primary text-sm inline-flex items-center gap-1.5"><span class="material-symbols-outlined text-base">add</span> Walk-in</a>
+        <a href="<?= root ?>supplier/groups?stay_id=<?= $stayFilter ?>" class="btn secondary text-sm inline-flex items-center gap-1.5"><span class="material-symbols-outlined text-base">groups_3</span> Group</a>
       <?php endif; ?>
       <form method="GET" action="<?= root ?>supplier/front-desk" class="flex items-end gap-2">
         <?php if ($stayFilter > 0): ?><input type="hidden" name="stay_id" value="<?= $stayFilter ?>"><?php endif; ?>

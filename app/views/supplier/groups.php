@@ -52,6 +52,20 @@ foreach ($rooms as $r) {
     <p class="text-sm text-gray-600">Hold a block of rooms for a group against your real availability, manage the rooming list, and route charges to a master folio.</p>
   </div>
 
+  <!-- Reciprocal single ⇄ group toggle (mirrors the one on the walk-in form) so the two
+       booking types read as one front desk: "Single booking" links back to the walk-in form,
+       "Group booking" is the active tab here. -->
+  <div class="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50" role="tablist" aria-label="Booking type">
+    <a href="<?= root ?>supplier/stays/<?= $sid ?>/reservations/new" id="tabSingle" role="tab"
+       class="px-4 py-1.5 text-sm font-medium rounded-md text-gray-500 hover:text-gray-800">
+      Single booking
+    </a>
+    <button type="button" id="tabGroup" role="tab" aria-selected="true"
+            class="px-4 py-1.5 text-sm font-medium rounded-md bg-white shadow-sm text-gray-900">
+      Group booking
+    </button>
+  </div>
+
   <!-- New group -->
   <?php if ($canEdit): ?>
   <div class="card p-5">

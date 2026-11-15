@@ -753,3 +753,127 @@ if (!function_exists('group_invoice_data')) {
         } catch (\Throwable $e) { error_log('group_invoice_data: ' . $e->getMessage()); return null; }
     }
 }
+
+// ============================================================================
+// BULK group operations (front-desk audit 2026-11-15) — collapse the per-guest
+// click-fest. EACH of these is a thin loop over the EXISTING, individually-guarded
+// per-member function (group_member_assign_room / group_member_book /
+// group_member_mark_paid). They add NO new assign/book/pay logic, so every oversell,
+// double-book, double-pay and ownership guard proven on the single-member path applies
+// unchanged — a bulk run can never do something a sequence of single clicks couldn't.
+// Ownership is enforced inside the per-member fns via $stayId. Each returns a tally
+// ['ok'=>int, 'skipped'=>int, 'failed'=>int, 'message'=>string] for a single flash line.
+// ============================================================================
+
+if (!function_exists('group_bulk_assign')) {
+    /**
+     * Auto-assign a physical room to every UNASSIGNED, UNBOOKED member of a group whose
+     * block is still 'held'. For each such member it picks the next free room of the block's
+     * type (reusing the SAME canonical guards hk_rooms_blocking + hk_assignable_statuses the
+     * per-member assign and the detail picker use) and calls group_member_assign_room, which
+     * does the authoritative FOR UPDATE re-check. A room chosen here but grabbed concurrently
+     * simply fails that member (counted) — never an oversell.
+     */
+    function group_bulk_assign($db, int $groupId, int $stayId): array
+    {
+        $ok = 0; $skipped = 0; $failed = 0;
+        try {
+            $g = $db->get('stays_groups', ['id'], ['id' => $groupId, 'stay_id' => $stayId]);
+            if (!$g) { return ['ok' => 0, 'skipped' => 0, 'failed' => 0, 'message' => 'Not your group.']; }
+            $assignable = function_exists('hk_assignable_statuses') ? hk_assignable_statuses() : ['clean', 'inspected'];
+            $blocks = $db->select('stays_group_blocks', ['id', 'room_id', 'date_from', 'date_to', 'state'],
+                ['group_id' => $groupId, 'stay_id' => $stayId, 'state' => 'held', 'ORDER' => ['id' => 'ASC']]) ?: [];
+            foreach ($blocks as $blk) {
+                $bid = (int) $blk['id'];
+                $members = $db->select('stays_group_members', ['id', 'physical_room_id', 'invoice_id'],
+                    ['block_id' => $bid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+                $roomTypeId = (int) ($blk['room_id'] ?? 0);
+                $from = (string) ($blk['date_from'] ?? ''); $to = (string) ($blk['date_to'] ?? '');
+                $blocking = function_exists('hk_rooms_blocking') ? hk_rooms_blocking($db, $stayId, $from, $to, '') : [];
+                $pool = [];
+                foreach (($db->select('stays_physical_rooms', ['id', 'hk_status'],
+                        ['stay_id' => $stayId, 'active' => 1, 'room_id' => $roomTypeId, 'ORDER' => ['room_number' => 'ASC']]) ?: []) as $pr) {
+                    $prid = (int) $pr['id'];
+                    if (!in_array((string) ($pr['hk_status'] ?? ''), $assignable, true)) { continue; }
+                    if (isset($blocking[$prid])) { continue; }
+                    $pool[] = $prid;
+                }
+                $pi = 0;
+                foreach ($members as $m) {
+                    if ((int) ($m['physical_room_id'] ?? 0) > 0 || trim((string) ($m['invoice_id'] ?? '')) !== '') { $skipped++; continue; }
+                    if ($pi >= count($pool)) { $failed++; continue; }
+                    $prid = $pool[$pi++];
+                    $r = group_member_assign_room($db, (int) $m['id'], $stayId, $prid);
+                    if (!empty($r['ok'])) { $ok++; }
+                    else { $failed++; $pi--; /* that room didn't take; let the next member retry it */ }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('group_bulk_assign(' . $groupId . '): ' . $e->getMessage());
+        }
+        $msg = $ok . ' assigned'
+            . ($skipped > 0 ? ', ' . $skipped . ' already assigned/booked' : '')
+            . ($failed > 0 ? ', ' . $failed . ' had no free room' : '') . '.';
+        return ['ok' => $ok, 'skipped' => $skipped, 'failed' => $failed, 'message' => $msg];
+    }
+}
+
+if (!function_exists('group_bulk_book')) {
+    /**
+     * Book every bookable member of a group. Delegates each to group_member_book (holds the
+     * block hold FOR UPDATE, decrements atomically, idempotent for already-booked, refuses
+     * when the hold is exhausted) — the held-qty ceiling and no-double-book guarantee are
+     * inherited exactly. An already-booked member counts as 'skipped'.
+     */
+    function group_bulk_book($db, int $groupId, int $stayId): array
+    {
+        $ok = 0; $skipped = 0; $failed = 0;
+        try {
+            $g = $db->get('stays_groups', ['id'], ['id' => $groupId, 'stay_id' => $stayId]);
+            if (!$g) { return ['ok' => 0, 'skipped' => 0, 'failed' => 0, 'message' => 'Not your group.']; }
+            $members = $db->select('stays_group_members', ['id'], ['group_id' => $groupId, 'ORDER' => ['id' => 'ASC']]) ?: [];
+            foreach ($members as $m) {
+                $r = group_member_book($db, (int) $m['id'], $stayId);
+                if (!empty($r['already'])) { $skipped++; }
+                elseif (!empty($r['ok'])) { $ok++; }
+                else { $failed++; }
+            }
+        } catch (\Throwable $e) {
+            error_log('group_bulk_book(' . $groupId . '): ' . $e->getMessage());
+        }
+        $msg = $ok . ' booked'
+            . ($skipped > 0 ? ', ' . $skipped . ' already booked' : '')
+            . ($failed > 0 ? ', ' . $failed . ' could not book (assign a room / block full?)' : '') . '.';
+        return ['ok' => $ok, 'skipped' => $skipped, 'failed' => $failed, 'message' => $msg];
+    }
+}
+
+if (!function_exists('group_bulk_mark_paid')) {
+    /**
+     * Mark every BOOKED member of a group paid. Delegates each to group_member_mark_paid
+     * (server-derived, idempotent, ownership-checked — takes no client amount). A member not
+     * yet booked, or already paid, counts as 'skipped'.
+     */
+    function group_bulk_mark_paid($db, int $groupId, int $stayId): array
+    {
+        $ok = 0; $skipped = 0; $failed = 0;
+        try {
+            $g = $db->get('stays_groups', ['id'], ['id' => $groupId, 'stay_id' => $stayId]);
+            if (!$g) { return ['ok' => 0, 'skipped' => 0, 'failed' => 0, 'message' => 'Not your group.']; }
+            $members = $db->select('stays_group_members', ['id', 'invoice_id'], ['group_id' => $groupId, 'ORDER' => ['id' => 'ASC']]) ?: [];
+            foreach ($members as $m) {
+                if (trim((string) ($m['invoice_id'] ?? '')) === '') { $skipped++; continue; }
+                $r = group_member_mark_paid($db, (int) $m['id'], $stayId);
+                if (!empty($r['already'])) { $skipped++; }
+                elseif (!empty($r['ok'])) { $ok++; }
+                else { $failed++; }
+            }
+        } catch (\Throwable $e) {
+            error_log('group_bulk_mark_paid(' . $groupId . '): ' . $e->getMessage());
+        }
+        $msg = $ok . ' marked paid'
+            . ($skipped > 0 ? ', ' . $skipped . ' not booked / already paid' : '')
+            . ($failed > 0 ? ', ' . $failed . ' failed' : '') . '.';
+        return ['ok' => $ok, 'skipped' => $skipped, 'failed' => $failed, 'message' => $msg];
+    }
+}

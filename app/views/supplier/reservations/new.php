@@ -13,6 +13,10 @@
       $wantRt = (int) $presetRoom['room_id'];
       foreach ($picker as $__p) { if ((int) $__p['room_id'] === $wantRt) { $presetRoomTypeId = $wantRt; break; } }
   }
+  // Walk-in defaults: check-in today, check-out tomorrow (the overwhelming common case),
+  // so the clerk doesn't open two date pickers on every booking. They remain editable.
+  $defCheckin  = date('Y-m-d');
+  $defCheckout = date('Y-m-d', strtotime('+1 day'));
 ?>
 <div class="max-w-2xl mx-auto px-4 py-8 space-y-6">
 
@@ -44,7 +48,9 @@
   <?php else: ?>
 
   <!-- C3: single ⇄ group toggle. One room is a single booking (this form); many rooms /
-       a room block + rooming list is a GROUP booking (the existing group flow). -->
+       a room block + rooming list is a GROUP booking (the existing group flow). The Group
+       tab navigates to the group desk — it carries stay_id and (via JS below) warns before
+       discarding anything typed here, so the switch never loses work silently. -->
   <div class="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50" role="tablist" aria-label="Booking type">
     <button type="button" id="tabSingle" role="tab" aria-selected="true"
             class="px-4 py-1.5 text-sm font-medium rounded-md bg-white shadow-sm text-gray-900">
@@ -55,10 +61,13 @@
       Group booking
     </a>
   </div>
-  <p id="groupHint" class="hidden text-sm text-gray-500">A group holds a block of rooms against one account with a rooming list and a master folio. You'll be taken to the group desk.</p>
+  <p id="groupHint" class="text-sm text-gray-500">A <strong>group</strong> holds a block of rooms against one account with a rooming list and a master folio. Switching to <strong>Group booking</strong> takes you to the group desk.</p>
 
   <form id="walkinForm" action="<?= root ?>supplier/stays/<?= $sid ?>/reservations/new" method="POST" class="card p-6 space-y-5">
     <?= CSRF::tokenField() ?>
+    <?php // Per-render double-submit nonce: fresh every page load, consumed once server-side,
+          // so a double-click/retry can't create a second booking. ?>
+    <input type="hidden" name="walkin_nonce" value="<?= bin2hex(random_bytes(16)) ?>">
     <?php if ($presetRoom): ?><input type="hidden" name="physical_room_id" value="<?= (int) $presetRoom['id'] ?>"><?php endif; ?>
 
     <!-- C3: WHO IS THE CUSTOMER. Search an existing payer or create one on the spot.
@@ -138,11 +147,11 @@
     <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Check-in *</label>
-        <input type="date" name="checkin" required class="input">
+        <input type="date" name="checkin" value="<?= $defCheckin ?>" required class="input">
       </div>
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Check-out *</label>
-        <input type="date" name="checkout" required class="input">
+        <input type="date" name="checkout" value="<?= $defCheckout ?>" required class="input">
       </div>
       <?php // A single booking is ONE room (owner rule): no Rooms/quantity field here — the
             // physical room is picked above, and the server books exactly one. Multiple rooms
@@ -344,6 +353,20 @@
     }
   });
   phone.addEventListener('input', function () { phone.setCustomValidity(''); });
+
+  // Warn-before-leave when switching to the Group tab with unsaved input, so a clerk who
+  // started a single booking and realises it's a group doesn't lose what they typed without
+  // a prompt. "Dirty" = any field the clerk touched (date defaults don't count as dirty).
+  var dirty = false;
+  form.addEventListener('input', function () { dirty = true; }, true);
+  var groupTab = document.getElementById('tabGroup');
+  if (groupTab) {
+    groupTab.addEventListener('click', function (ev) {
+      if (dirty && !window.confirm('Switch to Group booking? Anything you entered on this single booking will be discarded.')) {
+        ev.preventDefault();
+      }
+    });
+  }
 })();
 
 // C3: customer search + pick + inline create.
