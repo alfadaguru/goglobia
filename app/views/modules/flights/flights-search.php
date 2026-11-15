@@ -287,11 +287,19 @@ function flightSearchData() {
         // NEW FEATURE: remember this airport in the recent-searches cache
         this.rememberRecent('to', a);
 
-        // AUTO-OPEN DEPARTURE DATE CALENDAR AFTER SELECTION
+        // SEAMLESS HAND-OFF: after choosing the arrival airport, open the departure-DATE
+        // calendar so the chain flows airport -> airport -> date. The date input is a
+        // readonly field whose calendar opens on CLICK (datepicker.js binds 'click', not
+        // 'focus') -- the old code called .focus(), which did NOT open the calendar
+        // (verified: focus=closed, click=open). It also used this.$root inside this
+        // setTimeout, where $root is undefined (threw "Cannot read querySelector"); use
+        // a plain document lookup (one flights form in the DOM). Only auto-open when no
+        // date is set yet, so re-selecting an airport later doesn't re-pop the calendar.
+        // 300ms lets the arrival overlay finish closing first.
         setTimeout(() => {
-            const departureInput = this.$root.querySelector('.FlightsDeparture');
-            if (departureInput) {
-                departureInput.focus();
+            const departureInput = document.querySelector('.FlightsDeparture');
+            if (departureInput && !String(departureInput.value || '').trim()) {
+                departureInput.click();
             }
         }, 300);
     },
