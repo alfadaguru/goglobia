@@ -106,3 +106,33 @@ Driven end-to-end in a real headless-iPhone browser (390x844), zero JS/HTTP erro
 
 Stopped at the gateway boundary (did not enter card details). Test booking (unpaid)
 deleted afterward. The mobile flights funnel is sound end-to-end.
+
+## Full mobile flow test — STAYS and TOURS
+
+### STAYS — PASSED (with one real finding)
+Driven end-to-end (iPhone viewport), zero JS/HTTP errors:
+- Tab loads; destination type-to-search works; picked city "Lagos" (is_hotel=false).
+- Search submitted -> /stays/lagos/{in}/{out}/NG/1/2-0 -> results page.
+- Results: "Search Complete! 100%", "36 stays found", sort, date strip, star/board
+  filters, Cheapest/Top-rated/Available tabs, real hotel cards (Marriot Airport NGN
+  37,639/night). No overflow.
+- Hotel detail: /stay/{slug}/{supplier}/... -> HTTP 200, "Marriot Airport Hotels",
+  Modify-search panel (nationality "Nigeria" carried correctly), rooms + Book. Clean.
+
+  REAL FINDING (not yet fixed): the stays search REQUIRES a nationality, but on a FRESH
+  visit the nationality hidden field is EMPTY (default session value is the literal
+  'NULL'). handleHotelSearch() blocks with showError('select_nationality') and returns.
+  In my run the block produced NO visible alert (showAlert stayed false), so a first-time
+  mobile user can pick destination + dates, tap Search, and see NOTHING happen — a silent
+  dead-end. Needs: either default the nationality (e.g. to the site/user country) OR make
+  the showError actually surface. Flagged for a follow-up fix; verify on a real device.
+
+### TOURS — flow works; NO inventory to book (data condition, not a bug)
+- Tab loads; destination type-to-search works; picked "Dubai".
+- Search submitted -> /tours/dubai/{date}/any/1/any -> results page, HTTP 200, no overflow,
+  no errors. Start date is pre-filled by default (good).
+- Results show "0 Tours · Found From 0 Supplier(s)" with a graceful empty state.
+- Verified: tours table has 0 active rows LOCALLY, and PRODUCTION also returns 0 tours
+  for Dubai and has no tour links on /tours. So the booking step cannot be runtime-tested
+  anywhere right now -- there is simply no tour inventory. The search->results funnel
+  itself is sound; booking is untestable until inventory exists.
