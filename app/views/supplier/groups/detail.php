@@ -104,7 +104,22 @@ $blkColor = ['held'=>'bg-emerald-50 text-emerald-700','released'=>'bg-gray-100 t
                   <?php if ($canEdit): ?>
                   <td class="px-3 py-2 text-right">
                     <?php if ($isBooked): ?>
-                      <span class="text-xs text-gray-400">Reservation <?= htmlspecialchars($invoice) ?></span>
+                      <?php $paid = (string) ($m['_payment_status'] ?? '') === 'paid'; ?>
+                      <div class="inline-flex items-center gap-2 justify-end flex-wrap">
+                        <?php if ($paid): ?>
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-xs font-medium"><span class="material-symbols-outlined text-sm">paid</span> Paid</span>
+                        <?php else: ?>
+                          <span class="text-xs text-amber-600">Unpaid</span>
+                          <form method="POST" action="<?= $groupsBase ?>/member/mark-paid" class="inline" onsubmit="return confirm('Mark this guest\'s reservation as paid (payment taken at the desk)?');">
+                            <?= CSRF::tokenField() ?>
+                            <input type="hidden" name="stay_id" value="<?= $sid ?>">
+                            <input type="hidden" name="group_id" value="<?= $gid ?>">
+                            <input type="hidden" name="member_id" value="<?= $mid ?>">
+                            <button type="submit" class="btn secondary text-xs">Mark paid</button>
+                          </form>
+                        <?php endif; ?>
+                        <a href="<?= root ?>supplier/reservations/<?= rawurlencode($invoice) ?>" class="text-xs text-violet-600 hover:underline" title="Open the reservation to check in / manage">Open →</a>
+                      </div>
                     <?php elseif (($blk['state'] ?? '') !== 'held'): ?>
                       <span class="text-xs text-gray-300">—</span>
                     <?php else: ?>

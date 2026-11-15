@@ -211,6 +211,44 @@ if (!function_exists('group_member_unassign_room')) {
     }
 }
 
+if (!function_exists('group_member_mark_paid')) {
+    /**
+     * Mark a BOOKED group member's reservation as PAID (report 11.13-followup #2b: "no way
+     * to mark a group booking as paid"). Only acts on a member that was materialised into a
+     * reservation (invoice_id set) whose booking belongs to $stayId and is not cancelled.
+     * Idempotent. Returns ['ok'=>bool,'message'=>string].
+     */
+    function group_member_mark_paid($db, int $memberId, int $stayId): array
+    {
+        if ($memberId <= 0 || $stayId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        try {
+            $m = $db->get('stays_group_members', ['id', 'group_id', 'block_id', 'invoice_id'], ['id' => $memberId]);
+            if (!$m) { return ['ok' => false, 'message' => 'Member not found']; }
+            // Ownership: the member's block must belong to a group for this property.
+            $blk = $db->get('stays_group_blocks', ['id'],
+                ['id' => (int) $m['block_id'], 'group_id' => (int) $m['group_id'], 'stay_id' => $stayId]);
+            if (!$blk) { return ['ok' => false, 'message' => 'Not your property.']; }
+            $inv = trim((string) ($m['invoice_id'] ?? ''));
+            if ($inv === '') { return ['ok' => false, 'message' => 'Book this guest first, then mark it paid.']; }
+            $b = $db->get('bookings', ['invoice_id', 'booking_status', 'payment_status', 'booking_data'], ['invoice_id' => $inv]);
+            if (!$b || strtolower((string) ($b['booking_status'] ?? '')) === 'cancelled') { return ['ok' => false, 'message' => 'That reservation is not active.']; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd) || (int) ($bd['hotel_id'] ?? 0) !== $stayId) { return ['ok' => false, 'message' => 'Not your property.']; }
+            if (strtolower((string) ($b['payment_status'] ?? '')) === 'paid') {
+                return ['ok' => true, 'already' => true, 'message' => 'Already paid.'];
+            }
+            $db->update('bookings',
+                ['payment_status' => 'paid', 'paid_at' => date('Y-m-d H:i:s'),
+                 'payment_gateway' => 'Front desk', 'updated_at' => date('Y-m-d H:i:s')],
+                ['invoice_id' => $inv]);
+            return ['ok' => true, 'message' => 'Marked paid.'];
+        } catch (\Throwable $e) {
+            error_log('group_member_mark_paid (' . $memberId . '): ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not mark paid.'];
+        }
+    }
+}
+
 if (!function_exists('group_member_book')) {
     /**
      * MATERIALISE a group member into a REAL confirmed reservation (report 11.13 #3c:
@@ -632,16 +670,25 @@ if (!function_exists('group_checkin_all')) {
             if (!$db->has('stays_groups', ['id' => $groupId, 'stay_id' => $stayId])) {
                 return $out; // not this property's group → do nothing
             }
-            $members = $db->select('stays_group_members', ['id', 'email', 'guest_name'],
+            $members = $db->select('stays_group_members', ['id', 'email', 'guest_name', 'invoice_id'],
                 ['group_id' => $groupId]) ?: [];
             foreach ($members as $m) {
-                // Link a member to a booking by email match — SCOPED to THIS property
-                // (audit #15: an unscoped email+module_type match across the whole bookings
-                // table could resolve to, and then check in, a foreign property's/org's
-                // booking). Filter booking_data.hotel_id to this stay; verify after decode.
                 $inv = null;
+                // PREFERRED: the member was materialised into a real reservation (the 'Book'
+                // action stamps member.invoice_id). Use that direct link — it is reliable and
+                // works for guests with no email. Verify the booking is this property's + live.
+                $linked = trim((string) ($m['invoice_id'] ?? ''));
+                if ($linked !== '') {
+                    $lb = $db->get('bookings', ['invoice_id', 'booking_status', 'booking_data'], ['invoice_id' => $linked]);
+                    if ($lb && strtolower((string) ($lb['booking_status'] ?? '')) !== 'cancelled') {
+                        $bd = json_decode((string) ($lb['booking_data'] ?? ''), true);
+                        if (is_array($bd) && (int) ($bd['hotel_id'] ?? 0) === $stayId) { $inv = $linked; }
+                    }
+                }
+                // FALLBACK: older members (no direct link) — match by email, scoped to this
+                // property (audit #15: an unscoped email match could check in a foreign booking).
                 $email = trim((string) ($m['email'] ?? ''));
-                if ($email !== '') {
+                if ($inv === null && $email !== '') {
                     $cands = $db->select('bookings', ['invoice_id', 'booking_data'],
                         ['email' => $email, 'module_type' => ['stays', 'hotels'],
                          'booking_data[~]' => '%"hotel_id":' . (int) $stayId . '%', // % wrapped (underscore defeats Medoo auto-wrap)

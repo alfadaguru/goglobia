@@ -260,9 +260,28 @@ $router->get('/supplier/groups/([0-9]+)', function ($gid) use ($SECURE, $db) {
     $blockMembers = []; $blockFreeRooms = [];
     foreach ($blocks as $blk) {
         $bid = (int) $blk['id'];
-        $blockMembers[$bid] = $db->select('stays_group_members',
+        $rows = $db->select('stays_group_members',
             ['id', 'guest_name', 'email', 'phone', 'physical_room_id', 'invoice_id'],
             ['block_id' => $bid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+        // For a booked member, carry its reservation's payment + stay state so the view can
+        // show paid/unpaid + Mark-paid + Check-in (report 11.13-followup #2b).
+        foreach ($rows as &$__m) {
+            $__m['_payment_status'] = ''; $__m['_stay_state'] = '';
+            $inv = trim((string) ($__m['invoice_id'] ?? ''));
+            if ($inv !== '') {
+                try {
+                    $bk = $db->get('bookings', ['payment_status', 'booking_status', 'booking_data'], ['invoice_id' => $inv]);
+                    if ($bk) {
+                        $__m['_payment_status'] = strtolower((string) ($bk['payment_status'] ?? ''));
+                        $__m['_booking_status'] = strtolower((string) ($bk['booking_status'] ?? ''));
+                        $__bd = json_decode((string) ($bk['booking_data'] ?? ''), true);
+                        $__m['_stay_state'] = is_array($__bd) ? (string) ($__bd['pms_stay_state'] ?? '') : '';
+                    }
+                } catch (\Throwable $e) {}
+            }
+        }
+        unset($__m);
+        $blockMembers[$bid] = $rows;
         $blockFreeRooms[$bid] = ($blk['state'] === 'held') ? _group_free_rooms_for_block($db, $stayId, $blk) : [];
     }
 
@@ -305,6 +324,22 @@ $router->post('/supplier/groups/member/book', function () use ($SECURE, $db) {
         ? group_member_book($db, (int) ($_POST['member_id'] ?? 0), $stayId)
         : ['ok' => false, 'message' => 'Booking engine unavailable.'];
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not create the reservation.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/groups/member/mark-paid — mark a booked group member's reservation PAID
+$router->post('/supplier/groups/member/mark-paid', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $groupId = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups/' . $groupId;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('group_member_mark_paid')
+        ? group_member_mark_paid($db, (int) ($_POST['member_id'] ?? 0), $stayId)
+        : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not mark paid.'];
     header('Location: ' . $back); exit;
 });
 
