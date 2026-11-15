@@ -13,10 +13,29 @@ $countries = countriesList($db); // per-request cached (avoids duplicate countri
 
 // ============================================================================
 // GET DEFAULT NATIONALITY FROM SESSION - Same logic as featured.php
-// ============================================================================
-$defaultNationality = $_SESSION['stay_detail']['nationality'] ?? $_SESSION['hotel_nationality'] ?? 'NULL';
-if ($defaultNationality === 'NULL' || empty($defaultNationality)) {
-    $defaultNationality = 'NULL';
+// ----------------------------------------------------------------------------
+// BUGFIX (stays "search does nothing" on first visit): the stays search REQUIRES a
+// nationality, but on a fresh visit the session has none, so this used to resolve to
+// 'NULL' / empty -> handleHotelSearch() blocked with showError('select_nationality')
+// and returned, often with no visible alert (silent dead-end). We now fall back to the
+// site's own country (settings.company_country, e.g. NG) so the field is pre-filled and
+// search works out of the box; the user can still change it. We only accept a company
+// country that is a real 2-letter ISO present in the catalogue (else stay empty, and the
+// surfaced-error fix below covers it).
+$defaultNationality = $_SESSION['stay_detail']['nationality'] ?? $_SESSION['hotel_nationality'] ?? '';
+if ($defaultNationality === 'NULL' || empty(trim((string) $defaultNationality))) {
+    $defaultNationality = '';
+}
+if ($defaultNationality === '') {
+    $__companyIso = strtoupper(trim((string) ($GLOBALS['app']['company_country'] ?? '')));
+    if (preg_match('/^[A-Z]{2}$/', $__companyIso)) {
+        foreach ($countries as $__c) {
+            if (strtoupper((string) ($__c['iso'] ?? '')) === $__companyIso) {
+                $defaultNationality = $__companyIso;
+                break;
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1041,7 +1060,10 @@ function hotelSearchData() {
                 function nationalityDropdown() {
                     return {
                         open: false,
-                        selected: '<?php echo isset($_SESSION['hotel_nationality']) ? $_SESSION['hotel_nationality'] : ''; ?>',
+                        // Init from $defaultNationality (session value, else the site's
+                        // company country) so the hidden nationality field is pre-filled
+                        // and stays search does not silently block on a first visit.
+                        selected: '<?php echo htmlspecialchars($defaultNationality, ENT_QUOTES); ?>',
                         searchQuery: '',
                         countries: <?php echo json_encode($countries); ?>,
                         filteredCountries: <?php echo json_encode($countries); ?>,
