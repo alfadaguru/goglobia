@@ -564,7 +564,11 @@ try {
         // v20: users.payout_verified_name ensure-guard (it was in install/db.sql + written by
         //      supplier_settlement_ext on bank-account verify, but had no guard → existing
         //      installs 1054-failed the write). Re-run once to add the column.
-        define('APP_SCHEMA_ENSURE_VERSION', 20);
+        // v21: stays_group_members was missing ensure-guards for phone/customer_id/invoice_id
+        //      (only physical_room_id was guarded) + the runtime CREATE omitted them, so
+        //      "Add guest" to a group failed with 1054 Unknown column 'phone'. CREATE fixed +
+        //      all four columns now guarded. Re-run once to add the missing columns.
+        define('APP_SCHEMA_ENSURE_VERSION', 21);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

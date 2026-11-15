@@ -12767,20 +12767,36 @@ function ensureSupplierStaysSchema($db): void
             `block_id` INT(11) NOT NULL,
             `guest_name` VARCHAR(120) NOT NULL,
             `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `customer_id` INT(11) DEFAULT NULL,
             `physical_room_id` INT(11) DEFAULT NULL,
+            `invoice_id` VARCHAR(191) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
             KEY `idx_group` (`group_id`),
-            KEY `idx_block` (`block_id`)
+            KEY `idx_block` (`block_id`),
+            KEY `idx_invoice` (`invoice_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        // Existing installs: add the per-member physical-room assignment (a group member
-        // can be given a real room number, same as a walk-in). Idempotent.
+        // Existing installs: add the per-member columns that group_member_add_r / _book write
+        // but that the ORIGINAL CREATE omitted (phone, customer_id, physical_room_id,
+        // invoice_id). Without these, "Add guest"/"Book" fail with 1054 Unknown column
+        // (front-desk group bug 2026-11-15). Each guarded by SHOW COLUMNS → idempotent.
         try {
-            $__gmCols = $db->query("SHOW COLUMNS FROM `stays_group_members` LIKE 'physical_room_id'")->fetchAll();
-            if (!$__gmCols) {
-                $db->query("ALTER TABLE `stays_group_members` ADD COLUMN `physical_room_id` INT(11) DEFAULT NULL AFTER `email`");
+            if (!$db->query("SHOW COLUMNS FROM `stays_group_members` LIKE 'phone'")->fetch()) {
+                $db->query("ALTER TABLE `stays_group_members` ADD COLUMN `phone` VARCHAR(40) DEFAULT NULL AFTER `email`");
             }
-        } catch (\Throwable $e) { error_log('stays_group_members.physical_room_id ensure: ' . $e->getMessage()); }
+            if (!$db->query("SHOW COLUMNS FROM `stays_group_members` LIKE 'customer_id'")->fetch()) {
+                $db->query("ALTER TABLE `stays_group_members` ADD COLUMN `customer_id` INT(11) DEFAULT NULL AFTER `phone`");
+            }
+            if (!$db->query("SHOW COLUMNS FROM `stays_group_members` LIKE 'physical_room_id'")->fetch()) {
+                $db->query("ALTER TABLE `stays_group_members` ADD COLUMN `physical_room_id` INT(11) DEFAULT NULL AFTER `customer_id`");
+            }
+            if (!$db->query("SHOW COLUMNS FROM `stays_group_members` LIKE 'invoice_id'")->fetch()) {
+                $db->query("ALTER TABLE `stays_group_members` ADD COLUMN `invoice_id` VARCHAR(191) DEFAULT NULL AFTER `physical_room_id`");
+                // index the new invoice_id (idempotent — ignore if it already exists).
+                try { $db->query("ALTER TABLE `stays_group_members` ADD KEY `idx_invoice` (`invoice_id`)"); } catch (\Throwable $e) {}
+            }
+        } catch (\Throwable $e) { error_log('stays_group_members column ensure: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_group_items` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
