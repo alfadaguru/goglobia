@@ -8,11 +8,15 @@
 @$SECURE or die('Access Denied!');
 
 if (!function_exists('_cashier_ctx')) {
-    /** ['owner'=>string,'org'=>int] for the acting supplier, or null. */
-    function _cashier_ctx($db): ?array
+    /** ['owner'=>string,'org'=>int] for the acting supplier, or null.
+     *  Cashiering is a front-desk duty gated on 'reservations' (matches the sidebar link):
+     *  $action 'view' to see the shift, 'edit' to open/move/close the till. A staffer with
+     *  no front-desk role can no longer open a cash drawer. Owner always passes. */
+    function _cashier_ctx($db, string $action = 'view'): ?array
     {
         $ctx = supplier_acting_context($db);
         if ($ctx === null || !empty($ctx['is_admin'])) { return null; }
+        if (!supplier_can($db, 'reservations', $action === 'edit' ? 'edit' : 'view')) { return null; }
         $owner = (string) $ctx['owner'];
         $org = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
         return ['owner' => $owner, 'org' => (int) $org];
@@ -47,7 +51,7 @@ $router->get('/supplier/cashier', function () use ($SECURE, $db) {
 // POST /supplier/cashier/open — open a shift
 $router->post('/supplier/cashier/open', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    $c = _cashier_ctx($db);
+    $c = _cashier_ctx($db, 'edit'); // money action — needs reservations:edit
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
     $back = root . 'supplier/cashier';
     if ($c['org'] <= 0) { _supplier_stays_deny('Cashier not configured.'); }
@@ -62,7 +66,7 @@ $router->post('/supplier/cashier/open', function () use ($SECURE, $db) {
 // POST /supplier/cashier/movement — record a cash movement on the open shift
 $router->post('/supplier/cashier/movement', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    $c = _cashier_ctx($db);
+    $c = _cashier_ctx($db, 'edit'); // money action — needs reservations:edit
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
     $back = root . 'supplier/cashier';
     if ($c['org'] <= 0) { _supplier_stays_deny('Cashier not configured.'); }
@@ -80,7 +84,7 @@ $router->post('/supplier/cashier/movement', function () use ($SECURE, $db) {
 // POST /supplier/cashier/close — close the open shift with a counted amount
 $router->post('/supplier/cashier/close', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    $c = _cashier_ctx($db);
+    $c = _cashier_ctx($db, 'edit'); // money action — needs reservations:edit
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
     $back = root . 'supplier/cashier';
     if ($c['org'] <= 0) { _supplier_stays_deny('Cashier not configured.'); }

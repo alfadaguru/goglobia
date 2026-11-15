@@ -217,6 +217,12 @@ $router->get('/supplier/integrations', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = supplier_acting_context($db);
     if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
+    // OWNER-ONLY (matches the sidebar): branded-site / API integration config is account-level
+    // setup, not a delegatable staff duty (RBAC/front-desk audit 2026-11-15).
+    if (empty($ctx['is_owner'])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the account owner can manage integrations.'];
+        header('Location: ' . root . 'supplier/dashboard'); exit;
+    }
     $owner = (string) $ctx['owner'];
     // The owner's properties + their public branded slugs (live only).
     $sites = [];

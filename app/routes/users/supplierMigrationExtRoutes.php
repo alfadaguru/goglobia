@@ -31,6 +31,13 @@ if (!function_exists('_mig_ext_ctx')) {
     {
         $ctx = supplier_acting_context($db);
         if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
+        // OWNER-ONLY (matches the sidebar): data migration — importing guests/bookings, go-live
+        // reports, connector config — is account-setup, not a delegatable staff duty. A staffer
+        // (even a permission-holding one) is bounced. Added RBAC/front-desk audit 2026-11-15.
+        if (empty($ctx['is_owner'])) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the account owner can use data migration.'];
+            header('Location: ' . root . 'supplier/dashboard'); exit;
+        }
         $owner = (string) $ctx['owner'];
         $org = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
         return ['owner' => $owner, 'actor' => (string) ($ctx['actor'] ?? $owner), 'org' => (int) $org, 'is_owner' => !empty($ctx['is_owner'])];

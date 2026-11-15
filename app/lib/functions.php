@@ -14660,6 +14660,11 @@ CREATE TABLE IF NOT EXISTS `supplier_webhook_endpoints` (
         if (!$db->query("SHOW COLUMNS FROM `journal_entries` LIKE 'cost_center_id'")->fetch()) { $db->query("ALTER TABLE `journal_entries` ADD COLUMN `cost_center_id` int(11) DEFAULT NULL"); }
         if (!$db->query("SHOW COLUMNS FROM `journal_entries` LIKE 'reversed_by'")->fetch()) { $db->query("ALTER TABLE `journal_entries` ADD COLUMN `reversed_by` bigint(20) DEFAULT NULL"); }
         if (!$db->query("SHOW COLUMNS FROM `users` LIKE 'payout_account_verified'")->fetch()) { $db->query("ALTER TABLE `users` ADD COLUMN `payout_account_verified` varchar(1) NOT NULL DEFAULT '0'"); }
+        // Paired with payout_account_verified above: the gateway-returned account-holder name,
+        // written by supplier_settlement_ext.php on bank-account verification. It is in
+        // install/db.sql but had no ensure-guard, so existing installs lacked the column and
+        // the verify-destination write 1054-failed (front-desk audit follow-up 2026-11-15).
+        if (!$db->query("SHOW COLUMNS FROM `users` LIKE 'payout_verified_name'")->fetch()) { $db->query("ALTER TABLE `users` ADD COLUMN `payout_verified_name` varchar(191) DEFAULT NULL"); }
         // RBAC audit 2026-11-15 — REPAIR: a bad paste (commit 0061844) corrupted this block.
         // Several statements were truncated mid-type (`received_qty decimal(14`, the ENUM
         // adds) and prose/comment text leaked into a PHP string, so the FIRST truncated

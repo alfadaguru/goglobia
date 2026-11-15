@@ -561,7 +561,10 @@ try {
         //      escalation / stays_documents lifecycle NEVER got created, and later ensures
         //      (incl. ensureSupplierCommsTemplates) never ran. Block rebuilt as complete
         //      idempotent per-column guards; re-run once to apply the missing columns.
-        define('APP_SCHEMA_ENSURE_VERSION', 19);
+        // v20: users.payout_verified_name ensure-guard (it was in install/db.sql + written by
+        //      supplier_settlement_ext on bank-account verify, but had no guard → existing
+        //      installs 1054-failed the write). Re-run once to add the column.
+        define('APP_SCHEMA_ENSURE_VERSION', 20);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
