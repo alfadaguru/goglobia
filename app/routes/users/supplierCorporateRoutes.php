@@ -8,7 +8,10 @@ if (!function_exists('_corp_org')) {
     function _corp_org($db): int
     {
         $ctx = supplier_acting_context($db);
-        if ($ctx === null || !empty($ctx['is_admin']) || empty($ctx['is_owner'])) { return 0; }
+        if ($ctx === null || !empty($ctx['is_admin'])) { return 0; }
+        // Corporate/agent accounts + client-money trust are FINANCIAL → delegatable to a
+        // 'finance' staffer (org-wide); owner always passes.
+        if (!supplier_can_orgwide($db, 'finance', 'view')) { return 0; }
         return function_exists('supplier_org_for_owner') ? (int) supplier_org_for_owner($db, (string) $ctx['owner']) : 0;
     }
 }

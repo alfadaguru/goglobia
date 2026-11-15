@@ -10517,6 +10517,14 @@ function supplier_role_modules(): array
         // supplier building a "Front Desk" role actually ticks it (audit #3).
         'reservations' => ['label' => 'Front desk & reservations',  'actions' => ['view', 'edit']],
         'staff'        => ['label' => 'Staff & roles', 'actions' => ['view', 'add', 'edit', 'delete']],
+        // Delegatable back-office modules (RBAC audit 2026-11-15): these are gated by real
+        // routes but used to be absent from the grantable set, so a supplier could never
+        // give staff finance/procurement/HR access — now they can (e.g. hire an accountant
+        // or procurement officer). Actions listed match exactly what the routes check.
+        'finance'      => ['label' => 'Finance & accounting', 'actions' => ['view', 'edit']],
+        'procurement'  => ['label' => 'Procurement & stores', 'actions' => ['view', 'add', 'edit', 'approve']],
+        'hr'           => ['label' => 'HR & workforce',        'actions' => ['view', 'edit']],
+        'platformops'  => ['label' => 'Platform & compliance', 'actions' => ['view', 'edit']],
     ];
 }
 

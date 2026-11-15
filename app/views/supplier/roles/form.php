@@ -48,6 +48,7 @@
               <th class="px-3 py-2 font-medium text-center">Add</th>
               <th class="px-3 py-2 font-medium text-center">Edit / create</th>
               <th class="px-3 py-2 font-medium text-center">Delete</th>
+              <th class="px-3 py-2 font-medium text-center">Approve</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -55,7 +56,7 @@
               <?php $modPerm = $perms[$modKey] ?? []; ?>
               <tr>
                 <td class="px-3 py-2 text-gray-800"><?= htmlspecialchars($modMeta['label']) ?></td>
-                <?php foreach (['view', 'add', 'edit', 'delete'] as $act): ?>
+                <?php foreach (['view', 'add', 'edit', 'delete', 'approve'] as $act): ?>
                   <td class="px-3 py-2 text-center">
                     <?php if (in_array($act, $modMeta['actions'], true)): ?>
                       <input type="checkbox"

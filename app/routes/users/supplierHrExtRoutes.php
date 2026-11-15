@@ -7,7 +7,7 @@
 //
 // Gate model MATCHES the base HR routes: _hr_ext_org() resolves the org and
 // requires is_owner (returns 0 otherwise). Every POST additionally runs
-// SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can($db,'stays','edit') — the
+// SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can($db,'hr','edit') — the
 // owner is unrestricted on 'stays' so this is a correct belt-and-braces check, not
 // a widening. HR has no dedicated capability key (dormant), so we do NOT invent one.
 
@@ -24,14 +24,14 @@ if (!function_exists('_hr_ext_org')) {
 }
 
 if (!function_exists('_hr_ext_post_ctx')) {
-    /** Shared POST guard: auth + CSRF + owner-org + supplier_can('stays','edit'). Returns org id (>0). */
+    /** Shared POST guard: auth + CSRF + owner-org + supplier_can('hr','edit'). Returns org id (>0). */
     function _hr_ext_post_ctx($db): int
     {
         SUPPLIER_OR_STAFF_AUTH($db);
         CSRF::guard();
         $orgId = _hr_ext_org($db);
-        if ($orgId <= 0 || !supplier_can($db, 'stays', 'edit')) {
-            _supplier_stays_deny('Only the account owner can manage HR.');
+        if ($orgId <= 0 || !supplier_can($db, 'hr', 'edit')) {
+            _supplier_stays_deny('You are not authorised to manage HR.');
         }
         return $orgId;
     }
@@ -43,7 +43,7 @@ if (!function_exists('_hr_ext_post_ctx')) {
 $router->get('/supplier/hr/workforce', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $orgId = _hr_ext_org($db);
-    if ($orgId <= 0 || !supplier_can($db, 'stays', 'view')) { _supplier_stays_deny('Only the account owner can manage HR.'); }
+    if ($orgId <= 0 || !supplier_can($db, 'hr', 'view')) { _supplier_stays_deny('You are not authorised to manage HR.'); }
     $owner = _supplier_stays_owner($db);
 
     $employees   = function_exists('hr_employee_list') ? hr_employee_list($db, $orgId) : [];

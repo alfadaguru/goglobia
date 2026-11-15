@@ -54,8 +54,9 @@ $router->get('/supplier/settlement', function () use ($SECURE, $db) {
         header('Location: ' . root . 'admin/supplier-payouts'); exit;
     }
     $ctx = supplier_acting_context($db);
-    if (empty($ctx['is_owner'])) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the supplier account owner can view settlement.'];
+    // Delegatable VIEW: owner always passes; a staffer needs 'finance' (org-wide money).
+    if (!supplier_can_orgwide($db, 'finance', 'view')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'You are not authorised to view settlement.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
 
@@ -90,7 +91,8 @@ $router->get('/supplier/settlement/statement.csv', function () use ($SECURE, $db
     $owner = _settlement_ext_owner($db);
     if ($owner === null || $owner === '') { header('Location: ' . root . 'login'); exit; }
     $ctx = supplier_acting_context($db);
-    if (empty($ctx['is_owner'])) { header('Location: ' . root . 'supplier/dashboard'); exit; }
+    // Delegatable VIEW: owner or a 'finance' staffer.
+    if (!supplier_can_orgwide($db, 'finance', 'view')) { header('Location: ' . root . 'supplier/dashboard'); exit; }
 
     [$from, $to] = _settlement_ext_window();
     $currency = strtoupper((string) ($_GET['currency'] ?? 'NGN')) ?: 'NGN';

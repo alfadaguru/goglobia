@@ -11,8 +11,10 @@ $router->get('/supplier/finance', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = supplier_acting_context($db);
     if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
-    // Owner-only: the financial statements are whole-business money, not property-scoped.
-    if (empty($ctx['is_owner'])) { _supplier_stays_deny('Only the account owner can view finances.'); }
+    // Finance is DELEGATABLE now: the owner always passes; a staffer needs the 'finance'
+    // permission (e.g. an Accountant role). Org-wide money → use the org-wide gate so a
+    // property-restricted ('selected') staffer can't read whole-business finances.
+    if (!supplier_can_orgwide($db, 'finance', 'view')) { _supplier_stays_deny('You are not authorised to view finances.'); }
     $owner = (string) $ctx['owner'];
     $orgId = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
 

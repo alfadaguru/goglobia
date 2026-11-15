@@ -7,20 +7,25 @@
 @$SECURE or die('Access Denied!');
 
 if (!function_exists('_proc_org')) {
-    function _proc_org($db): int
+    /** Resolve the org for a procurement action. Delegatable: owner always passes; a staffer
+     *  needs the 'procurement' permission (org-wide — purchasing is whole-business). $action
+     *  'view' for reads, 'edit' for writes. Returns org id (>0) or 0 if not permitted. */
+    function _proc_org($db, string $action = 'edit'): int
     {
         $ctx = supplier_acting_context($db);
-        if ($ctx === null || !empty($ctx['is_admin']) || empty($ctx['is_owner'])) { return 0; }
+        if ($ctx === null || !empty($ctx['is_admin'])) { return 0; }
+        $action = in_array($action, ['view', 'add', 'edit', 'approve'], true) ? $action : 'edit';
+        if (!supplier_can_orgwide($db, 'procurement', $action)) { return 0; }
         return function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, (string) $ctx['owner']) : 0;
     }
 }
 
 // GET /supplier/procurement — vendors, stock, POs
 $router->get('/supplier/procurement', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH();
-    $orgId = _proc_org($db);
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $orgId = _proc_org($db, 'view');
     if ($orgId <= 0) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the supplier account owner can manage procurement.'];
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'You are not authorised to manage procurement.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
     $vendors = $db->select('stays_vendors', ['id', 'name', 'email', 'phone', 'verified', 'payment_terms'], ['org_id' => $orgId, 'ORDER' => ['name' => 'ASC']]) ?: [];
@@ -40,9 +45,9 @@ $router->get('/supplier/procurement', function () use ($SECURE, $db) {
 
 // POST vendor create
 $router->post('/supplier/procurement/vendor', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH(); CSRF::guard();
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $orgId = _proc_org($db); $back = root . 'supplier/procurement';
-    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage procurement.'); }
     $id = function_exists('proc_vendor_create') ? proc_vendor_create($db, $orgId, [
         'name' => $_POST['name'] ?? '', 'email' => $_POST['email'] ?? '', 'phone' => $_POST['phone'] ?? '',
         'bank_code' => $_POST['bank_code'] ?? '', 'account_number' => $_POST['account_number'] ?? '',
@@ -54,9 +59,9 @@ $router->post('/supplier/procurement/vendor', function () use ($SECURE, $db) {
 
 // POST vendor verify toggle (PMS #43)
 $router->post('/supplier/procurement/vendor-verify', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH(); CSRF::guard();
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $orgId = _proc_org($db); $back = root . 'supplier/procurement';
-    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage procurement.'); }
     $ok = function_exists('proc_vendor_verify') && proc_vendor_verify($db, $orgId, (int) ($_POST['vendor_id'] ?? 0), (string) ($_POST['verified'] ?? '0') === '1');
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Vendor verification updated.' : 'Could not update.'];
     header('Location: ' . $back); exit;
@@ -64,9 +69,9 @@ $router->post('/supplier/procurement/vendor-verify', function () use ($SECURE, $
 
 // POST stock item create
 $router->post('/supplier/procurement/item', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH(); CSRF::guard();
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $orgId = _proc_org($db); $back = root . 'supplier/procurement';
-    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage procurement.'); }
     $id = function_exists('proc_item_create') ? proc_item_create($db, $orgId, [
         'name' => $_POST['name'] ?? '', 'unit' => $_POST['unit'] ?? 'unit',
         'on_hand' => $_POST['on_hand'] ?? 0, 'reorder_level' => $_POST['reorder_level'] ?? 0,
@@ -77,9 +82,9 @@ $router->post('/supplier/procurement/item', function () use ($SECURE, $db) {
 
 // POST stock adjust / issue / wastage / count (PMS #42)
 $router->post('/supplier/procurement/stock-adjust', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH(); CSRF::guard();
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $orgId = _proc_org($db); $back = root . 'supplier/procurement';
-    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage procurement.'); }
     $itemId = (int) ($_POST['item_id'] ?? 0);
     $type = strtolower(trim((string) ($_POST['move_type'] ?? 'adjust')));
     $qty = (float) ($_POST['qty'] ?? 0);
@@ -92,9 +97,9 @@ $router->post('/supplier/procurement/stock-adjust', function () use ($SECURE, $d
 
 // POST PO create (draft)
 $router->post('/supplier/procurement/po', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH(); CSRF::guard();
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $orgId = _proc_org($db); $back = root . 'supplier/procurement';
-    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage procurement.'); }
     $id = function_exists('proc_po_create') ? proc_po_create($db, $orgId, (int) ($_POST['vendor_id'] ?? 0), (string) ($_POST['currency'] ?? 'USD')) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Draft purchase order created.' : 'Could not create PO (pick a vendor).'];
     header('Location: ' . $back); exit;
@@ -102,9 +107,9 @@ $router->post('/supplier/procurement/po', function () use ($SECURE, $db) {
 
 // POST PO add line
 $router->post('/supplier/procurement/po/line', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH(); CSRF::guard();
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $orgId = _proc_org($db); $back = root . 'supplier/procurement';
-    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage procurement.'); }
     $ok = function_exists('proc_po_add_line') && proc_po_add_line($db, $orgId, (int) ($_POST['po_id'] ?? 0), (int) ($_POST['item_id'] ?? 0), (float) ($_POST['qty'] ?? 0), (float) ($_POST['unit_cost'] ?? 0));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Line added.' : 'Could not add line (draft PO + owned item + qty>0).'];
     header('Location: ' . $back); exit;
@@ -112,9 +117,9 @@ $router->post('/supplier/procurement/po/line', function () use ($SECURE, $db) {
 
 // POST PO transition: order | receive
 $router->post('/supplier/procurement/po/transition', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH(); CSRF::guard();
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $orgId = _proc_org($db); $back = root . 'supplier/procurement';
-    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage procurement.'); }
     $poId = (int) ($_POST['po_id'] ?? 0);
     $to = strtolower(trim((string) ($_POST['to'] ?? '')));
     if ($to === 'ordered') {
