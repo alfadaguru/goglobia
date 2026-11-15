@@ -84,3 +84,25 @@ Each auto-advance sets the target panel's open-state EXPLICITLY (not via the tog
 open* helper) and focuses the next input in $nextTick; the date auto-open uses .click()
 (datepicker opens on click, not focus — verified) with a plain document lookup (NOT
 this.$root, which is undefined inside setTimeout).
+
+## Full search-to-booking mobile flow test (Flights) — PASSED
+Driven end-to-end in a real headless-iPhone browser (390x844), zero JS/HTTP errors:
+
+1. Results: GET /flights/los/abv/oneway/economy/{date}/1/0/0 -> HTTP 200, no x-overflow,
+   live supplier search ("Searching... 2 Suppliers 50%" -> "Search complete! 59 Flights").
+   Real offers rendered: Air Peace Direct NGN 129,160, correct airline name + logo,
+   Cheapest/Fastest/Earliest tabs, date strip, sort.
+2. Select: tapped "Book Now" -> navigated to /flights/booking/{hash} (passenger page),
+   Booking Summary with correct price breakdown (129,159.78 + 1,291.60 tax = 130,451.38)
+   and the price-trust banner.
+3. Validation: submitting WITHOUT accepting terms correctly blocked with
+   "Please accept the terms and conditions" (proper gate, not a bug).
+4. Confirm: filled passenger (title/first/last/email/phone, DOB defaulted) + accepted
+   terms (Alpine formData.terms_accepted=true) + Paystack selected -> "Processing... Do
+   Not Refresh" overlay -> booking created.
+5. Invoice: landed on /invoice/flights/{id} (#20952794), Status=Pending (awaiting pay),
+   full Air Peace flight detail LOS 06:30 -> ABV 07:50, 1h20m non-stop, renders cleanly
+   on mobile.
+
+Stopped at the gateway boundary (did not enter card details). Test booking (unpaid)
+deleted afterward. The mobile flights funnel is sound end-to-end.
