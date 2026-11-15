@@ -257,13 +257,22 @@ function flightSearchData() {
         // NEW FEATURE: remember this airport in the recent-searches cache
         this.rememberRecent('from', a);
 
-        // AUTO-FOCUS ON TO INPUT AFTER SELECTION
-        setTimeout(() => {
-            const toInput = document.getElementById('arrival_airport_input');
-            if (toInput) {
-                toInput.focus();
-            }
-        }, 300);
+        // SEAMLESS HAND-OFF: after choosing a departure, open the ARRIVAL panel so the
+        // traveller can type the destination next. The old code focused a non-existent
+        // element id ('arrival_airport_input') and did nothing. Only auto-open when the
+        // arrival is still empty, and set toOpen explicitly (do NOT call openTo(), which
+        // TOGGLES and could mis-fire). $nextTick anchors + focuses the arrival search box.
+        if (!this.toSelected && !String(this.toSearch || '').trim()) {
+            this.fromOpen = false;
+            this.toOpen = true;
+            this.$nextTick(() => {
+                if (typeof window.flAnchorPanel === 'function') {
+                    window.flAnchorPanel('fl_to_trigger', 'fl_to_panel');
+                }
+                const q = document.getElementById('fl_to_q');
+                if (q) { q.focus({ preventScroll: true }); }
+            });
+        }
     },
 
     // SELECT TO AIRPORT — COMMIT SELECTION, CLOSE PANEL, RESET QUERY
