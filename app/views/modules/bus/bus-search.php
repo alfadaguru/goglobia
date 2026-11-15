@@ -75,8 +75,8 @@ function busSearchData() {
         },
 
         closeAll() { this.originOpen = false; this.destOpen = false; this.passOpen = false; },
-        openOrigin() { const o = !this.originOpen; this.closeAll(); this.originOpen = o; if (o) this.$nextTick(() => { window.flAnchorPanel('bus_orig_t', 'bus_orig_p'); document.getElementById('bus_orig_q')?.focus(); }); },
-        openDest() { const o = !this.destOpen; this.closeAll(); this.destOpen = o; if (o) this.$nextTick(() => { window.flAnchorPanel('bus_dest_t', 'bus_dest_p'); document.getElementById('bus_dest_q')?.focus(); }); },
+        openOrigin() { const o = !this.originOpen; this.closeAll(); this.originOpen = o; if (o) { const q = document.getElementById('bus_orig_q'); const pnl = document.getElementById('bus_orig_p'); if (pnl) pnl.style.display = 'flex'; if (q) q.focus({ preventScroll: true }); this.$nextTick(() => { window.flAnchorPanel('bus_orig_t', 'bus_orig_p'); if (q && document.activeElement !== q) q.focus({ preventScroll: true }); }); } },
+        openDest() { const o = !this.destOpen; this.closeAll(); this.destOpen = o; if (o) { const q = document.getElementById('bus_dest_q'); const pnl = document.getElementById('bus_dest_p'); if (pnl) pnl.style.display = 'flex'; if (q) q.focus({ preventScroll: true }); this.$nextTick(() => { window.flAnchorPanel('bus_dest_t', 'bus_dest_p'); if (q && document.activeElement !== q) q.focus({ preventScroll: true }); }); } },
         togglePass() { const o = !this.passOpen; this.closeAll(); this.passOpen = o; if (o) this.$nextTick(() => window.flAnchorPanel('bus_pass_t', 'bus_pass_p')); },
 
         getOriginText() { return this.originSearch || ''; },

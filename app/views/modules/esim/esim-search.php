@@ -61,9 +61,16 @@ function esimSearchData() {
             this.typeOpen = false;
             this.countryOpen = !this.countryOpen;
             if (this.countryOpen) {
+                // iOS keyboard fix: focus synchronously in the tap gesture. Previously
+                // focus ran inside $nextTick + setTimeout(50) — doubly async — so iOS
+                // never opened the keyboard and the country field couldn't be typed in.
+                const q = document.getElementById('es_country_q');
+                const pnl = document.getElementById('es_country_panel');
+                if (pnl) { pnl.style.display = 'flex'; }
+                if (q) { q.focus({ preventScroll: true }); }
                 this.$nextTick(() => {
                     window.flAnchorPanel('es_country_trigger', 'es_country_panel');
-                    setTimeout(() => { document.getElementById('es_country_q')?.focus(); }, 50);
+                    if (q && document.activeElement !== q) { q.focus({ preventScroll: true }); }
                 });
             }
         },

@@ -113,9 +113,16 @@ function hotelSearchData() {
         openDest() {
             this.destOpen = !this.destOpen;
             if (this.destOpen) {
+                // iOS keyboard fix: focus the search input SYNCHRONOUSLY inside the tap
+                // gesture — iOS only opens the keyboard then. Focusing in $nextTick (async)
+                // leaves the field focused but keyboard-less, so the user can't type.
+                const q = document.getElementById('st_dest_q');
+                const panel = document.getElementById('st_dest_panel');
+                if (panel) { panel.style.display = 'flex'; }
+                if (q) { q.focus({ preventScroll: true }); }
                 this.$nextTick(() => {
                     window.flAnchorPanel('st_dest_trigger', 'st_dest_panel');
-                    document.getElementById('st_dest_q')?.focus();
+                    if (q && document.activeElement !== q) { q.focus({ preventScroll: true }); }
                 });
             }
         },
@@ -1096,9 +1103,16 @@ function hotelSearchData() {
                         toggleDropdown() {
                             this.open = !this.open;
                             if (this.open) {
+                                // iOS keyboard fix: focus synchronously in the tap (not in
+                                // $nextTick + setTimeout, which lose the gesture and leave the
+                                // field focused but keyboard-less — user can't type).
+                                const q = document.getElementById('st_nat_q');
+                                const panel = document.getElementById('st_nat_panel');
+                                if (panel) { panel.style.display = 'flex'; }
+                                if (q) { q.focus({ preventScroll: true }); }
                                 this.$nextTick(() => {
                                     window.flAnchorPanel('st_nat_trigger', 'st_nat_panel');
-                                    setTimeout(() => { document.getElementById('st_nat_q')?.focus(); }, 50);
+                                    if (q && document.activeElement !== q) { q.focus({ preventScroll: true }); }
                                 });
                             }
                         }

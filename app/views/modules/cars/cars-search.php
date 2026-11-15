@@ -71,8 +71,8 @@ function carSearchData() {
                 if (this.dropoffOpen) { const t = document.getElementById('car_drop_t'), p = document.getElementById('car_drop_p'); if (t && p && !t.contains(e.target) && !p.contains(e.target)) { this.dropoffOpen = false; this.dropoffQuery = ''; } }
             });
         },
-        openPickup() { this.dropoffOpen = false; this.pickupOpen = !this.pickupOpen; if (this.pickupOpen) this.$nextTick(() => { window.flAnchorPanel('car_pick_t', 'car_pick_p'); document.getElementById('car_pick_q')?.focus(); }); },
-        openDropoff() { this.pickupOpen = false; this.dropoffOpen = !this.dropoffOpen; if (this.dropoffOpen) this.$nextTick(() => { window.flAnchorPanel('car_drop_t', 'car_drop_p'); document.getElementById('car_drop_q')?.focus(); }); },
+        openPickup() { this.dropoffOpen = false; this.pickupOpen = !this.pickupOpen; if (this.pickupOpen) { const q = document.getElementById('car_pick_q'); const pnl = document.getElementById('car_pick_p'); if (pnl) pnl.style.display = 'flex'; if (q) q.focus({ preventScroll: true }); this.$nextTick(() => { window.flAnchorPanel('car_pick_t', 'car_pick_p'); if (q && document.activeElement !== q) q.focus({ preventScroll: true }); }); } },
+        openDropoff() { this.pickupOpen = false; this.dropoffOpen = !this.dropoffOpen; if (this.dropoffOpen) { const q = document.getElementById('car_drop_q'); const pnl = document.getElementById('car_drop_p'); if (pnl) pnl.style.display = 'flex'; if (q) q.focus({ preventScroll: true }); this.$nextTick(() => { window.flAnchorPanel('car_drop_t', 'car_drop_p'); if (q && document.activeElement !== q) q.focus({ preventScroll: true }); }); } },
         getPickupText() { return this.pickupSearch || ''; },
         getDropoffText() { return this.dropoffSearch || ''; },
 
