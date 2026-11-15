@@ -112,12 +112,19 @@
       $lk = (isset($limitKeys) && is_array($limitKeys)) ? $limitKeys : [];
       $lv = (isset($roleLimits) && is_array($roleLimits)) ? $roleLimits : [];
     ?>
-    <?php if (!empty($lk)): ?>
+    <?php
+      // Split the catalogue: only keys with an actual auto-enforcement point are shown as
+      // editable caps. The rest (escalation-only) are listed as a note so the owner isn't
+      // misled into thinking they gate an action that doesn't exist (RBAC audit 2026-11-15).
+      $enforcedKeys = array_filter($lk, static fn($m) => !empty($m['enforced']));
+      $escalationOnly = array_filter($lk, static fn($m) => empty($m['enforced']));
+    ?>
+    <?php if (!empty($enforcedKeys)): ?>
     <div class="border-t border-gray-100 pt-4">
       <h2 class="text-sm font-semibold text-gray-800 mb-1">Approval limits <span class="text-gray-400 font-normal">(optional)</span></h2>
       <p class="text-xs text-gray-500 mb-3">Caps for staff in this role. Leave blank to require escalation to an owner; type <code>unlimited</code> for no cap. Owners are never capped.</p>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <?php foreach ($lk as $key => $meta): ?>
+        <?php foreach ($enforcedKeys as $key => $meta): ?>
           <div class="form-control">
             <label class="block text-xs font-medium text-gray-700 mb-1">
               <?= htmlspecialchars($meta['label'] ?? $key) ?>
@@ -130,6 +137,12 @@
           </div>
         <?php endforeach; ?>
       </div>
+      <?php if (!empty($escalationOnly)): ?>
+        <p class="mt-3 text-[11px] text-gray-400">
+          Other approval types (<?= htmlspecialchars(implode(', ', array_map(static fn($m) => $m['label'] ?? '', $escalationOnly))) ?>)
+          are handled as manual requests in the <a href="<?= root ?>supplier/rbac?tab=approvals" class="underline">approvals queue</a> — there is no automatic action to cap yet.
+        </p>
+      <?php endif; ?>
     </div>
     <?php endif; ?>
 

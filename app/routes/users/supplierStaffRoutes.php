@@ -46,10 +46,27 @@ $router->get('/supplier/staff', function () use ($SECURE, $db) {
         ['id', 'staff_user_id', 'role_id', 'invited_email', 'status', 'invite_expires', 'accepted_at', 'created_at'],
         ['owner_user_id' => $owner, 'ORDER' => ['id' => 'DESC']]) ?: [];
 
-    // Roles for the invite dropdown + name lookup, scoped to owner.
-    $roles = $db->select('supplier_roles', ['id', 'name'], ['owner_user_id' => $owner]) ?: [];
+    // Roles for the invite/reassign dropdowns + name lookup + a short permission
+    // summary (so the owner can SEE what each role grants without opening the builder).
+    $roles = $db->select('supplier_roles', ['id', 'name', 'permissions', 'scope_type'], ['owner_user_id' => $owner]) ?: [];
     $roleNames = [];
-    foreach ($roles as $r) { $roleNames[(int) $r['id']] = $r['name']; }
+    $rolePerms = []; // role_id => "Finance (view, edit) · Front desk (view)" style summary
+    $moduleLabels = function_exists('supplier_role_modules') ? supplier_role_modules() : [];
+    foreach ($roles as $r) {
+        $rid = (int) $r['id'];
+        $roleNames[$rid] = $r['name'];
+        $decoded = json_decode((string) ($r['permissions'] ?? ''), true);
+        $parts = [];
+        if (is_array($decoded)) {
+            foreach ($decoded as $mod => $acts) {
+                if (!is_array($acts) || !$acts) { continue; }
+                $label = $moduleLabels[$mod]['label'] ?? ucfirst((string) $mod);
+                $parts[] = $label . ' (' . implode(', ', array_keys($acts)) . ')';
+            }
+        }
+        $scopeTag = (($r['scope_type'] ?? 'all') === 'selected') ? ' · selected properties' : '';
+        $rolePerms[$rid] = $parts ? (implode(' · ', $parts) . $scopeTag) : 'No permissions';
+    }
 
     $title = 'Staff';
     $description = 'Invite and manage your team';
@@ -185,6 +202,51 @@ $router->post('/supplier/staff/revoke', function () use ($SECURE, $db) {
     } catch (\Throwable $e) {
         error_log('supplier staff revoke: ' . $e->getMessage());
         _supplier_staff_deny('Could not revoke access.');
+    }
+    header('Location: ' . root . 'supplier/staff');
+    exit;
+});
+
+// ============================================================================
+// REASSIGN ROLE — POST /supplier/staff/role  (change a member/invitee's role)
+//   Lets the owner move a staffer between roles AFTER the invite (e.g. promote a
+//   front-desk clerk to manager, or grant the accountant role) without revoking +
+//   re-inviting. Owner-only ('staff','edit'); both the staff row AND the target
+//   role must belong to this owner (IDOR guard on both sides).
+// ============================================================================
+$router->post('/supplier/staff/role', function () use ($SECURE, $db) {
+    SUPPLIER_AUTH();
+    CSRF::guard();
+    $owner = _supplier_staff_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'staff', 'edit')) { _supplier_staff_deny(); }
+
+    $id     = (int) ($_POST['id'] ?? 0);
+    $roleId = (int) ($_POST['role_id'] ?? 0);
+
+    // OWNERSHIP: the staff row must belong to this owner.
+    $row = $id ? $db->get('supplier_staff', ['id', 'status'], ['id' => $id, 'owner_user_id' => $owner]) : null;
+    if (!$row) { _supplier_staff_deny('That staff record is not yours.'); }
+    // Don't reassign a revoked/rejected record — re-invite instead.
+    if (in_array((string) $row['status'], ['revoked', 'rejected'], true)) {
+        _supplier_staff_deny('Re-invite this person to grant access again.');
+    }
+    // Role: 0/empty → clear the role (no permissions). Otherwise it MUST be the owner's.
+    if ($roleId > 0) {
+        $role = $db->get('supplier_roles', ['id'], ['id' => $roleId, 'owner_user_id' => $owner]);
+        if (!$role) { _supplier_staff_deny('That role is not yours.'); }
+    } else {
+        $roleId = null;
+    }
+
+    try {
+        $db->update('supplier_staff',
+            ['role_id' => $roleId, 'updated_at' => date('Y-m-d H:i:s')],
+            ['id' => $id, 'owner_user_id' => $owner]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => $roleId === null ? 'Role cleared.' : 'Role updated.'];
+    } catch (\Throwable $e) {
+        error_log('supplier staff role reassign: ' . $e->getMessage());
+        _supplier_staff_deny('Could not update the role.');
     }
     header('Location: ' . root . 'supplier/staff');
     exit;

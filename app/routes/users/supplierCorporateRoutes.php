@@ -20,7 +20,7 @@ if (!function_exists('_corp_org')) {
 $router->get('/supplier/corporate', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $orgId = _corp_org($db);
-    if ($orgId <= 0) { _supplier_stays_deny('Only the account owner can manage corporate accounts.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage corporate accounts.'); }
     $accounts = function_exists('corp_list') ? corp_list($db, $orgId) : [];
     $title = 'Corporate & agents'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -48,7 +48,7 @@ $router->post('/supplier/corporate/status', function () use ($SECURE, $db) {
 $router->get('/supplier/trust', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $orgId = _corp_org($db);
-    if ($orgId <= 0) { _supplier_stays_deny('Only the account owner can view the trust ledger.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to view the trust ledger.'); }
     $balances = function_exists('trust_balances') ? trust_balances($db, $orgId) : ['parties' => [], 'total' => 0];
     $entries = function_exists('trust_list') ? trust_list($db, $orgId) : [];
     $title = 'Trust / client money'; $description = ''; $header = true; $footer = true;

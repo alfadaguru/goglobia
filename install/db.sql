@@ -29148,6 +29148,7 @@ CREATE TABLE `supplier_staff` (
   `accepted_at` datetime DEFAULT NULL,
   `created_by` varchar(255) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_owner_email` (`owner_user_id`,`invited_email`),
   KEY `idx_owner` (`owner_user_id`),
@@ -35834,6 +35835,7 @@ ALTER TABLE `stays_stock_items` ADD COLUMN `category_id` int(11) DEFAULT NULL;
 ALTER TABLE `stays_stock_items` ADD COLUMN `barcode` varchar(64) DEFAULT NULL;
 ALTER TABLE `stays_vendors` ADD COLUMN `category` varchar(40) DEFAULT NULL AFTER `payment_terms`;
 ALTER TABLE `supplier_staff` ADD COLUMN `department_id` INT(11) DEFAULT NULL AFTER `role_id`;
+ALTER TABLE `supplier_staff` ADD COLUMN `updated_at` datetime DEFAULT NULL AFTER `created_at`;
 ALTER TABLE `workflow_rules` ADD COLUMN `action_config` LONGTEXT DEFAULT NULL would be the additive fix.
 
 -- All ADDITIVE. For each, the lead should guard with a SHOW COLUMNS / information_schema.tables check before CREATE (the ensure-pattern) since there is no migration runner.

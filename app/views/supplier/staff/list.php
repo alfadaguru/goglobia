@@ -59,6 +59,7 @@
           <tr class="text-left text-gray-500 border-b border-gray-100">
             <th class="px-4 py-3 font-medium">Email</th>
             <th class="px-4 py-3 font-medium">Role</th>
+            <th class="px-4 py-3 font-medium">Permissions</th>
             <th class="px-4 py-3 font-medium">Status</th>
             <th class="px-4 py-3 font-medium">Actions</th>
           </tr>
@@ -74,12 +75,30 @@
                 'revoked' => 'bg-red-50 text-red-700',
               ][$st] ?? 'bg-gray-100 text-gray-600';
             ?>
+            <?php $curRole = (int) ($m['role_id'] ?? 0); $canReassign = in_array($st, ['invited', 'active', 'suspended'], true); ?>
             <tr>
               <td class="px-4 py-3 text-gray-900"><?= htmlspecialchars($m['invited_email'] ?? '') ?></td>
-              <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars($roleNames[(int) ($m['role_id'] ?? 0)] ?? '—') ?></td>
+              <td class="px-4 py-3 text-gray-600">
+                <?php if ($canReassign && !empty($roles)): ?>
+                  <form action="<?= root ?>supplier/staff/role" method="POST" class="flex items-center gap-1.5">
+                    <?= CSRF::tokenField() ?>
+                    <input type="hidden" name="id" value="<?= (int) $m['id'] ?>">
+                    <select name="role_id" class="select input py-1 text-xs" onchange="this.form.requestSubmit()">
+                      <option value="0"<?= $curRole === 0 ? ' selected' : '' ?>>No role</option>
+                      <?php foreach ($roles as $r): ?>
+                        <option value="<?= (int) $r['id'] ?>"<?= $curRole === (int) $r['id'] ? ' selected' : '' ?>><?= htmlspecialchars($r['name'] ?? '') ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                    <noscript><button type="submit" class="text-emerald-600 hover:underline text-xs font-medium">Save</button></noscript>
+                  </form>
+                <?php else: ?>
+                  <?= htmlspecialchars($roleNames[$curRole] ?? '—') ?>
+                <?php endif; ?>
+              </td>
+              <td class="px-4 py-3 text-xs text-gray-500 max-w-xs"><?= htmlspecialchars($rolePerms[$curRole] ?? ($curRole > 0 ? '—' : 'No role')) ?></td>
               <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $stColor ?>"><?= htmlspecialchars(ucfirst($st)) ?></span></td>
               <td class="px-4 py-3">
-                <?php if (in_array($st, ['invited', 'active', 'suspended'], true)): ?>
+                <?php if ($canReassign): ?>
                   <form action="<?= root ?>supplier/staff/revoke" method="POST" class="inline"
                         onsubmit="return confirm('Revoke this person\'s access?');">
                     <?= CSRF::tokenField() ?>

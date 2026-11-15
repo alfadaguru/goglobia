@@ -16,23 +16,25 @@
 if (!function_exists('_ap_ext_org')) {
     /**
      * Resolve the acting OWNER's org id for AP, or 0 if the caller is not the owner.
-     * AP is owner-only business money (mirrors _proc_org / the finance route guard).
+     * AP is business money — delegatable to a 'finance' staffer (org-wide; a property-
+     * restricted 'selected' staffer is denied). Owner always passes. $action 'view'|'edit'.
      */
-    function _ap_ext_org($db): int
+    function _ap_ext_org($db, string $action = 'view'): int
     {
         $ctx = supplier_acting_context($db);
-        if ($ctx === null || !empty($ctx['is_admin']) || empty($ctx['is_owner'])) { return 0; }
+        if ($ctx === null || !empty($ctx['is_admin'])) { return 0; }
+        if (!supplier_can_orgwide($db, 'finance', $action === 'edit' ? 'edit' : 'view')) { return 0; }
         return function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, (string) $ctx['owner']) : 0;
     }
 }
 
 if (!function_exists('_ap_ext_guard_post')) {
-    /** Shared POST guard: owner org + the finance permission gate. Returns org id or denies. */
+    /** Shared POST guard: finance-edit org. Returns org id or denies. */
     function _ap_ext_guard_post($db): int
     {
-        $orgId = _ap_ext_org($db);
-        if ($orgId <= 0 || !supplier_can($db, 'finance', 'edit')) {
-            _supplier_stays_deny('Only the account owner can manage accounts payable.');
+        $orgId = _ap_ext_org($db, 'edit');
+        if ($orgId <= 0) {
+            _supplier_stays_deny('You are not authorised to manage accounts payable.');
         }
         return $orgId;
     }
@@ -43,8 +45,8 @@ $router->get('/supplier/ap', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = supplier_acting_context($db);
     if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
-    if (empty($ctx['is_owner'])) { _supplier_stays_deny('Only the account owner can view accounts payable.'); }
-    $orgId = _ap_ext_org($db);
+    $orgId = _ap_ext_org($db, 'view');
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to view accounts payable.'); }
 
     $ap = ($orgId > 0 && function_exists('ap_dashboard'))
         ? ap_dashboard($db, $orgId)

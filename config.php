@@ -547,7 +547,14 @@ try {
         // v17: supplier_seed_default_roles backfill — seed the "Front Desk" starter role
         //      for every existing ACTIVE supplier (new approvals get it in the approve
         //      handler). Idempotent: skips owners who already have a role by that name.
-        define('APP_SCHEMA_ENSURE_VERSION', 17);
+        // v18: supplier_default_roles() expanded Front Desk → 7 starter roles (Manager,
+        //      Housekeeping, Accountant, Procurement Officer, HR Officer, Reservations) so
+        //      suppliers can delegate finance/procurement/HR out of the box (RBAC audit
+        //      2026-11-15). Re-run the SAME idempotent seeder → existing owners get the 6
+        //      new roles, their customised/renamed ones untouched. ALSO adds
+        //      supplier_staff.updated_at (the re-invite + new role-reassign paths write it;
+        //      older installs lacked the column, so those writes failed).
+        define('APP_SCHEMA_ENSURE_VERSION', 18);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
@@ -717,10 +724,12 @@ try {
             seedUmrahPhase1($db);
         }
     }
-    // Backfill the "Front Desk" starter role for EXISTING active suppliers (audit #3).
-    // New approvals get it in the approve handler; this covers suppliers approved before
-    // the feature shipped. Idempotent per owner (skips anyone who already has the role),
-    // so running it once via this gated block is enough. Fail-soft per owner.
+    // Backfill the starter roles (Front Desk, Manager, Housekeeping, Accountant,
+    // Procurement Officer, HR Officer, Reservations) for EXISTING active suppliers
+    // (audit #3 + RBAC audit 2026-11-15). New approvals get them in the approve handler;
+    // this covers suppliers approved before the feature shipped. Idempotent per owner
+    // (skips any role name the owner already has), so one run via this gated block is
+    // enough and never clobbers a customised role. Fail-soft per owner.
     if (function_exists('supplier_seed_default_roles')) {
         try {
             $__activeSuppliers = $db->select('users', ['user_id'],

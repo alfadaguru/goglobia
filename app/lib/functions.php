@@ -10542,13 +10542,74 @@ if (!function_exists('supplier_default_roles')) {
      */
     function supplier_default_roles(): array
     {
+        // Every permission key below MUST exist in supplier_role_modules() or it is silently
+        // dropped on save by _supplier_role_build_perms(). Verified against the live set
+        // (hotels/rooms/rates/reservations/staff/finance/procurement/hr/platformops).
         return [
             [
+                // Front-desk clerk: run the desk, create walk-ins/guests, see the room board.
                 'name'       => 'Front Desk',
                 'scope_type' => 'all',
                 'permissions' => [
                     'reservations' => ['view' => '', 'edit' => ''],
                     'rooms'        => ['view' => ''],
+                ],
+            ],
+            [
+                // Property/duty manager: the full operational surface (front desk + rooms +
+                // rates) across every property, but NOT finance/procurement/HR/staff admin.
+                'name'       => 'Manager',
+                'scope_type' => 'all',
+                'permissions' => [
+                    'hotels'       => ['view' => '', 'edit' => ''],
+                    'rooms'        => ['view' => '', 'add' => '', 'edit' => ''],
+                    'rates'        => ['view' => '', 'edit' => ''],
+                    'reservations' => ['view' => '', 'edit' => ''],
+                ],
+            ],
+            [
+                // Housekeeping: see the board + mark rooms (housekeeping/maintenance live under
+                // the 'rooms' permission in the sidebar), read-only reservations for arrivals.
+                'name'       => 'Housekeeping',
+                'scope_type' => 'all',
+                'permissions' => [
+                    'rooms'        => ['view' => '', 'edit' => ''],
+                    'reservations' => ['view' => ''],
+                ],
+            ],
+            [
+                // Accountant: the whole finance back office (ledger/AR/AP/treasury/tax/payments/
+                // settlement) org-wide. No property-ops, no staff admin, no payouts (owner-only).
+                'name'       => 'Accountant',
+                'scope_type' => 'all',
+                'permissions' => [
+                    'finance' => ['view' => '', 'edit' => ''],
+                ],
+            ],
+            [
+                // Procurement officer: vendors, stores/stock, purchase orders (incl. approve).
+                'name'       => 'Procurement Officer',
+                'scope_type' => 'all',
+                'permissions' => [
+                    'procurement' => ['view' => '', 'add' => '', 'edit' => '', 'approve' => ''],
+                ],
+            ],
+            [
+                // HR officer: employee register + leave, org-wide. No finance, no property-ops.
+                'name'       => 'HR Officer',
+                'scope_type' => 'all',
+                'permissions' => [
+                    'hr' => ['view' => '', 'edit' => ''],
+                ],
+            ],
+            [
+                // Reservations agent: take/manage bookings, read-only room board. No rate control.
+                'name'       => 'Reservations',
+                'scope_type' => 'all',
+                'permissions' => [
+                    'reservations' => ['view' => '', 'edit' => ''],
+                    'rooms'        => ['view' => ''],
+                    'rates'        => ['view' => ''],
                 ],
             ],
         ];
@@ -10656,17 +10717,28 @@ if (!function_exists('supplier_permissions_catalogue')) {
 if (!function_exists('supplier_approval_limit_keys')) {
     /**
      * The approval-limit keys an org can configure per role, each as
-     *   key => ['label','unit'=>'percent'|'amount','hint'].
-     * Dormant until the consuming domain (discount/refund/payment approval) ships;
-     * the role-builder can expose them, and supplier_can_approve() enforces them.
+     *   key => ['label','unit'=>'percent'|'amount','hint','enforced'=>bool].
+     *
+     * 'enforced' = TRUE means a real action auto-checks this cap via
+     * supplier_can_approve() and blocks/escalates when exceeded. Verified call sites
+     * (RBAC audit 2026-11-15):
+     *   - discount_percent → ENFORCED at the front desk (supplierReservationsRoutes.php,
+     *     the credit_note folio line). The ONLY key with an automatic enforcement point.
+     *   - refund_amount / payment_amount / rate_override → NOT auto-enforced anywhere:
+     *     suppliers do not process customer refunds/outbound payments (money-out is
+     *     platform/owner-only, see supplierReservationsRoutes.php header) and there is no
+     *     manual rate-override action. They remain usable ONLY as manual escalation
+     *     requests via the RBAC approvals queue, which gates on the same catalogue.
+     * The role-builder uses 'enforced' to avoid presenting caps that do not actually gate
+     * an action (which would mislead the owner); the escalation queue still accepts all keys.
      */
     function supplier_approval_limit_keys(): array
     {
         return [
-            'discount_percent' => ['label' => 'Max discount %',        'unit' => 'percent', 'hint' => 'Largest discount this role may grant without escalation.'],
-            'refund_amount'    => ['label' => 'Max refund amount',     'unit' => 'amount',  'hint' => 'Largest refund this role may issue.'],
-            'payment_amount'   => ['label' => 'Max payment approval',  'unit' => 'amount',  'hint' => 'Largest outbound payment this role may approve.'],
-            'rate_override'    => ['label' => 'Max rate override %',   'unit' => 'percent', 'hint' => 'Largest manual rate change this role may apply.'],
+            'discount_percent' => ['label' => 'Max discount %',        'unit' => 'percent', 'enforced' => true,  'hint' => 'Largest discount this role may grant at the front desk without escalation.'],
+            'refund_amount'    => ['label' => 'Max refund amount',     'unit' => 'amount',  'enforced' => false, 'hint' => 'Escalation-only: suppliers do not process customer refunds directly.'],
+            'payment_amount'   => ['label' => 'Max payment approval',  'unit' => 'amount',  'enforced' => false, 'hint' => 'Escalation-only: outbound payments are owner/platform-controlled.'],
+            'rate_override'    => ['label' => 'Max rate override %',   'unit' => 'percent', 'enforced' => false, 'hint' => 'Escalation-only: no automatic manual-rate-override action exists yet.'],
         ];
     }
 }
@@ -11009,12 +11081,18 @@ function ensureSupplierStaysSchema($db): void
             `accepted_at` DATETIME DEFAULT NULL,
             `created_by` VARCHAR(255) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `uq_owner_email` (`owner_user_id`,`invited_email`),
             KEY `idx_owner` (`owner_user_id`),
             KEY `idx_staff` (`staff_user_id`),
             KEY `idx_token` (`invite_token`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // updated_at (idempotent) — the re-invite + role-reassign paths write it; older
+        // installs created the table before this column existed (RBAC audit 2026-11-15).
+        if (!$db->query("SHOW COLUMNS FROM `supplier_staff` LIKE 'updated_at'")->fetch()) {
+            $db->query("ALTER TABLE `supplier_staff` ADD COLUMN `updated_at` DATETIME DEFAULT NULL AFTER `created_at`");
+        }
 
         // --- stays: per-listing approval + review fields + owner index --------------
         // Additive column adds, each guarded by SHOW COLUMNS (idempotent).

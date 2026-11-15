@@ -21,7 +21,7 @@ if (!function_exists('_ar_ext_org')) {
 $router->get('/supplier/ar', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $orgId = _ar_ext_org($db);
-    if ($orgId <= 0) { _supplier_stays_deny('Only the account owner can manage receivables.'); }
+    if ($orgId <= 0) { _supplier_stays_deny('You are not authorised to manage receivables.'); }
 
     $ageing      = function_exists('ar_ext_ageing') ? ar_ext_ageing($db, $orgId) : ['by_currency' => [], 'grand_total' => [], 'folios' => []];
     $accounts    = function_exists('corp_list') ? corp_list($db, $orgId) : [];
@@ -41,7 +41,7 @@ $router->get('/supplier/ar', function () use ($SECURE, $db) {
 // ---- ASSIGN a folio to a city-ledger account ----------------------------------
 $router->post('/supplier/ar/assign', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _ar_ext_org($db); $back = root . 'supplier/ar';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $ok = function_exists('ar_ext_assign_account')
@@ -53,7 +53,7 @@ $router->post('/supplier/ar/assign', function () use ($SECURE, $db) {
 // ---- RECEIVE a payment against a folio (MONEY) --------------------------------
 $router->post('/supplier/ar/receive', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _ar_ext_org($db); $back = root . 'supplier/ar';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('ar_ext_receive_payment')
@@ -70,7 +70,7 @@ $router->post('/supplier/ar/receive', function () use ($SECURE, $db) {
 // ---- WRITE OFF a folio balance as bad debt (MONEY) ----------------------------
 $router->post('/supplier/ar/writeoff', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _ar_ext_org($db); $back = root . 'supplier/ar';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('ar_ext_write_off')
@@ -84,7 +84,7 @@ $router->post('/supplier/ar/writeoff', function () use ($SECURE, $db) {
 // ---- LOG a collections activity -----------------------------------------------
 $router->post('/supplier/ar/collection', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _ar_ext_org($db); $acctId = (int) ($_POST['account_id'] ?? 0);
     $back = root . 'supplier/ar' . ($acctId > 0 ? '?account=' . $acctId : '');
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
@@ -96,7 +96,7 @@ $router->post('/supplier/ar/collection', function () use ($SECURE, $db) {
 // ---- SEND a statement reminder (HONEST STUB — delivery not connected) ---------
 $router->post('/supplier/ar/remind', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _ar_ext_org($db); $acctId = (int) ($_POST['account_id'] ?? 0);
     $back = root . 'supplier/ar' . ($acctId > 0 ? '?account=' . $acctId : '');
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
