@@ -102,15 +102,23 @@ if (!function_exists('group_block_release')) {
     }
 }
 
-if (!function_exists('group_member_add')) {
-    /** Add a guest to the rooming list of a block. Returns bool. */
-    function group_member_add($db, int $groupId, int $stayId, int $blockId, string $guestName, array $opts = []): bool
+if (!function_exists('group_member_add_r')) {
+    /**
+     * Add a guest to the rooming list of a block — returns a REASONED result so the caller
+     * can tell the operator WHY it failed instead of a generic 'Could not add guest'
+     * (report 11.13-followup #2a: the rooming list 'returns an error' with no cause; the
+     * usual cause is no held block, or the guest name blank). Returns ['ok','message'].
+     */
+    function group_member_add_r($db, int $groupId, int $stayId, int $blockId, string $guestName, array $opts = []): array
     {
         $guestName = trim($guestName);
-        if ($groupId <= 0 || $blockId <= 0 || $guestName === '') { return false; }
+        if ($guestName === '') { return ['ok' => false, 'message' => 'Enter the guest name.']; }
+        if ($groupId <= 0) { return ['ok' => false, 'message' => 'No group selected.']; }
+        if ($blockId <= 0) { return ['ok' => false, 'message' => 'Hold a block of rooms first, then add guests to it.']; }
         try {
-            $blk = $db->get('stays_group_blocks', ['id'], ['id' => $blockId, 'group_id' => $groupId, 'stay_id' => $stayId]);
-            if (!$blk) { return false; }
+            $blk = $db->get('stays_group_blocks', ['id', 'state'], ['id' => $blockId, 'group_id' => $groupId, 'stay_id' => $stayId]);
+            if (!$blk) { return ['ok' => false, 'message' => 'That block was not found for this group — hold a block first.']; }
+            if (($blk['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'That block has been released; hold a new one.']; }
             $db->insert('stays_group_members', [
                 'group_id'  => $groupId, 'block_id' => $blockId,
                 'guest_name'=> substr($guestName, 0, 120),
@@ -119,8 +127,22 @@ if (!function_exists('group_member_add')) {
                 'customer_id' => (int) ($opts['customer_id'] ?? 0) ?: null,
                 'created_at'=> date('Y-m-d H:i:s'),
             ]);
-            return true;
-        } catch (\Throwable $e) { error_log('group_member_add: ' . $e->getMessage()); return false; }
+            if ((int) $db->id() <= 0) { return ['ok' => false, 'message' => 'Could not save the guest.']; }
+            return ['ok' => true, 'message' => 'Guest added to the rooming list.'];
+        } catch (\Throwable $e) {
+            error_log('group_member_add_r: ' . $e->getMessage());
+            // Owner/staff back-office screen — surface the real reason so a schema/DB issue
+            // is diagnosable instead of a mystery 'error'.
+            return ['ok' => false, 'message' => 'Could not add guest: ' . $e->getMessage()];
+        }
+    }
+}
+
+if (!function_exists('group_member_add')) {
+    /** Back-compat bool wrapper over group_member_add_r(). */
+    function group_member_add($db, int $groupId, int $stayId, int $blockId, string $guestName, array $opts = []): bool
+    {
+        return !empty(group_member_add_r($db, $groupId, $stayId, $blockId, $guestName, $opts)['ok']);
     }
 }
 

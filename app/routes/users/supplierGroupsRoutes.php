@@ -128,13 +128,15 @@ $router->post('/supplier/groups/member', function () use ($SECURE, $db) {
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
     if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
-    $ok = function_exists('group_member_add') && group_member_add($db, (int) ($_POST['group_id'] ?? 0), $stayId, (int) ($_POST['block_id'] ?? 0),
-        (string) ($_POST['guest_name'] ?? ''), [
-            'email'       => $_POST['email'] ?? '',
-            'phone'       => $_POST['phone'] ?? '',
-            'customer_id' => (int) ($_POST['customer_id'] ?? 0), // when picked from the guest search
-        ]);
-    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Guest added to rooming list.' : 'Could not add guest.'];
+    $res = function_exists('group_member_add_r')
+        ? group_member_add_r($db, (int) ($_POST['group_id'] ?? 0), $stayId, (int) ($_POST['block_id'] ?? 0),
+            (string) ($_POST['guest_name'] ?? ''), [
+                'email'       => $_POST['email'] ?? '',
+                'phone'       => $_POST['phone'] ?? '',
+                'customer_id' => (int) ($_POST['customer_id'] ?? 0), // when picked from the guest search
+            ])
+        : ['ok' => false, 'message' => 'Rooming engine unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not add guest.'];
     header('Location: ' . $back); exit;
 });
 
@@ -253,6 +255,11 @@ $router->get('/supplier/groups/([0-9]+)', function ($gid) use ($SECURE, $db) {
     if (function_exists('_supplier_room_taxonomy')) {
         $tax = _supplier_room_taxonomy($db); $roomTypes = $tax['room_type'] ?? [];
     }
+    // Friendly room NAME per stays_rooms.id — a block.room_id is a stays_rooms.id, NOT a
+    // room_type_id, so the old $roomTypes[block.room_id] lookup missed and showed
+    // "Room type #2395" (report 11.13-followup #2c display nit). Map the actual room names.
+    $roomNameById = [];
+    try { foreach ($db->select('stays_rooms', ['id', 'room_name'], ['stay_id' => $stayId]) ?: [] as $rr) { $roomNameById[(int) $rr['id']] = (string) ($rr['room_name'] ?? ''); } } catch (\Throwable $e) {}
     // Physical-room number per prid (to show "assigned: Room 101" without another query each).
     $roomNoById = [];
     try { foreach ($db->select('stays_physical_rooms', ['id', 'room_number'], ['stay_id' => $stayId]) ?: [] as $pr) { $roomNoById[(int) $pr['id']] = (string) $pr['room_number']; } } catch (\Throwable $e) {}

@@ -9,6 +9,7 @@ $blocks  = (isset($blocks) && is_array($blocks)) ? $blocks : [];
 $blockMembers   = (isset($blockMembers) && is_array($blockMembers)) ? $blockMembers : [];
 $blockFreeRooms = (isset($blockFreeRooms) && is_array($blockFreeRooms)) ? $blockFreeRooms : [];
 $roomTypes = (isset($roomTypes) && is_array($roomTypes)) ? $roomTypes : [];
+$roomNameById = (isset($roomNameById) && is_array($roomNameById)) ? $roomNameById : [];
 $roomNoById = (isset($roomNoById) && is_array($roomNoById)) ? $roomNoById : [];
 $canEdit = !empty($canEdit);
 $sid = (int) ($stay['id'] ?? ($group['stay_id'] ?? 0));
@@ -51,7 +52,10 @@ $blkColor = ['held'=>'bg-emerald-50 text-emerald-700','released'=>'bg-gray-100 t
   <?php else: foreach ($blocks as $blk): $bid = (int) $blk['id'];
       $members = $blockMembers[$bid] ?? [];
       $freeRooms = $blockFreeRooms[$bid] ?? [];
-      $rtName = $roomTypes[(int) ($blk['room_id'] ?? 0)] ?? ('Room type #' . (int) ($blk['room_id'] ?? 0));
+      $__brid = (int) ($blk['room_id'] ?? 0);
+      // block.room_id is a stays_rooms.id → use the room's own name; fall back to the
+      // room-type map, then a generic label (report 11.13-followup #2c).
+      $rtName = ($roomNameById[$__brid] ?? '') ?: ($roomTypes[$__brid] ?? ('Room type #' . $__brid));
       $assignedCount = 0; foreach ($members as $m) { if ((int) ($m['physical_room_id'] ?? 0) > 0) { $assignedCount++; } }
   ?>
     <div class="card p-5 space-y-4">
