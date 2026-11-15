@@ -225,7 +225,11 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                     document.body.appendChild(dp);
 
                     if (window.Alpine && typeof window.Alpine.initTree === "function") {
-                        window.Alpine.initTree(el);
+                        setTimeout(function () {
+                            var root = el.querySelector("[x-data]");
+                            var initialized = root && (root._x_dataStack || root.__x);
+                            if (!initialized) { window.Alpine.initTree(el); }
+                        }, 120);
                     }
 
                     // WAIT FOR CDN MUTATIONOBSERVER / JIT TO STYLE THE INJECTED FORM
