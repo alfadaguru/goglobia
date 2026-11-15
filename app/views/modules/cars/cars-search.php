@@ -66,9 +66,13 @@ function carSearchData() {
             };
             window.addEventListener('resize', sync);
             window.addEventListener('scroll', sync, true);
+            // Use closest('#id') not getElementById so a tap in a DUPLICATED panel copy
+            // (Alpine double-init) is still "inside" — prevents the overlay from closing
+            // on the first keystroke ("overlay vanishes when I type").
+            const insideAny = (target, ...ids) => ids.some(id => target.closest && target.closest('#' + id));
             document.addEventListener('mousedown', (e) => {
-                if (this.pickupOpen) { const t = document.getElementById('car_pick_t'), p = document.getElementById('car_pick_p'); if (t && p && !t.contains(e.target) && !p.contains(e.target)) { this.pickupOpen = false; this.pickupQuery = ''; } }
-                if (this.dropoffOpen) { const t = document.getElementById('car_drop_t'), p = document.getElementById('car_drop_p'); if (t && p && !t.contains(e.target) && !p.contains(e.target)) { this.dropoffOpen = false; this.dropoffQuery = ''; } }
+                if (this.pickupOpen && !insideAny(e.target, 'car_pick_t', 'car_pick_p')) { this.pickupOpen = false; this.pickupQuery = ''; }
+                if (this.dropoffOpen && !insideAny(e.target, 'car_drop_t', 'car_drop_p')) { this.dropoffOpen = false; this.dropoffQuery = ''; }
             });
         },
         openPickup() { this.dropoffOpen = false; this.pickupOpen = !this.pickupOpen; if (this.pickupOpen) this.$nextTick(() => { window.flAnchorPanel('car_pick_t', 'car_pick_p'); document.getElementById('car_pick_q')?.focus(); }); },

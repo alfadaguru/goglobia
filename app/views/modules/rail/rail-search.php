@@ -368,22 +368,18 @@ function railSearchData() {
             window.addEventListener('resize', sync);
             window.addEventListener('scroll', sync, true);
 
+            // closest('#id') not getElementById — a tap in a DUPLICATED panel copy
+            // (Alpine double-init) stays "inside" so the overlay doesn't close on the
+            // first keystroke ("overlay vanishes when I type").
+            const insideAny = (target, ...ids) => ids.some(id => target.closest && target.closest('#' + id));
             document.addEventListener('mousedown', (e) => {
-                if (this.depOpen) {
-                    const t = document.getElementById('rail_dep_trigger');
-                    const p = document.getElementById('rail_dep_panel');
-                    if (t && p && !t.contains(e.target) && !p.contains(e.target)) {
-                        this.depOpen = false;
-                        this.originQuery = '';
-                    }
+                if (this.depOpen && !insideAny(e.target, 'rail_dep_trigger', 'rail_dep_panel')) {
+                    this.depOpen = false;
+                    this.originQuery = '';
                 }
-                if (this.destOpen) {
-                    const t = document.getElementById('rail_dest_trigger');
-                    const p = document.getElementById('rail_dest_panel');
-                    if (t && p && !t.contains(e.target) && !p.contains(e.target)) {
-                        this.destOpen = false;
-                        this.destQuery = '';
-                    }
+                if (this.destOpen && !insideAny(e.target, 'rail_dest_trigger', 'rail_dest_panel')) {
+                    this.destOpen = false;
+                    this.destQuery = '';
                 }
             });
 

@@ -55,8 +55,11 @@ function busSearchData() {
             document.addEventListener('mousedown', (e) => {
                 const check = (openKey, tId, pId, qKey) => {
                     if (!this[openKey]) return;
-                    const t = document.getElementById(tId), p = document.getElementById(pId);
-                    if (t && p && !t.contains(e.target) && !p.contains(e.target)) { this[openKey] = false; if (qKey) this[qKey] = ''; }
+                    // closest('#id') not getElementById — a tap in a DUPLICATED panel copy
+                    // (Alpine double-init) stays "inside" so the overlay doesn't close on
+                    // the first keystroke ("overlay vanishes when I type").
+                    const inside = (e.target.closest && (e.target.closest('#' + tId) || e.target.closest('#' + pId)));
+                    if (!inside) { this[openKey] = false; if (qKey) this[qKey] = ''; }
                 };
                 check('originOpen', 'bus_orig_t', 'bus_orig_p', 'originQuery');
                 check('destOpen', 'bus_dest_t', 'bus_dest_p', 'destQuery');

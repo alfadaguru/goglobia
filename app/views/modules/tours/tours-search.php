@@ -97,8 +97,11 @@ function tourSearchData() {
             document.addEventListener('mousedown', (e) => {
                 panels.forEach(([k, tId, pId]) => {
                     if (!this[k]) return;
-                    const t = document.getElementById(tId), p = document.getElementById(pId);
-                    if (t && p && !t.contains(e.target) && !p.contains(e.target)) { this[k] = false; if (k === 'destOpen') this.destQuery = ''; }
+                    // closest('#id') not getElementById — a tap in a DUPLICATED panel copy
+                    // (Alpine double-init) stays "inside" so the overlay doesn't close on
+                    // the first keystroke ("overlay vanishes when I type").
+                    const inside = e.target.closest && (e.target.closest('#' + tId) || e.target.closest('#' + pId));
+                    if (!inside) { this[k] = false; if (k === 'destOpen') this.destQuery = ''; }
                 });
             });
         },

@@ -104,8 +104,11 @@ function hotelSearchData() {
             window.addEventListener('scroll', sync, true);
             document.addEventListener('mousedown', (e) => {
                 if (!this.destOpen) return;
-                const t = document.getElementById('st_dest_trigger'), p = document.getElementById('st_dest_panel');
-                if (t && p && !t.contains(e.target) && !p.contains(e.target)) { this.destOpen = false; this.destQuery = ''; }
+                // closest('#id') not getElementById — a tap in a DUPLICATED panel copy
+                // (Alpine double-init) stays "inside" so the overlay doesn't close on the
+                // first keystroke ("overlay vanishes when I type").
+                const inside = e.target.closest && (e.target.closest('#st_dest_trigger') || e.target.closest('#st_dest_panel'));
+                if (!inside) { this.destOpen = false; this.destQuery = ''; }
             });
         },
 
@@ -925,8 +928,9 @@ function hotelSearchData() {
                             window.addEventListener('scroll', sync, true);
                             document.addEventListener('mousedown', (e) => {
                                 if (!this.open) return;
-                                const t = document.getElementById('st_guests_trigger'), p = document.getElementById('st_guests_panel');
-                                if (t && p && !t.contains(e.target) && !p.contains(e.target)) this.open = false;
+                                // closest('#id') not getElementById — survives a duplicated panel copy.
+                                const inside = e.target.closest && (e.target.closest('#st_guests_trigger') || e.target.closest('#st_guests_panel'));
+                                if (!inside) this.open = false;
                             });
                         },
 
@@ -1051,8 +1055,10 @@ function hotelSearchData() {
                             window.addEventListener('scroll', sync, true);
                             document.addEventListener('mousedown', (e) => {
                                 if (!this.open) return;
-                                const t = document.getElementById('st_nat_trigger'), p = document.getElementById('st_nat_panel');
-                                if (t && p && !t.contains(e.target) && !p.contains(e.target)) this.open = false;
+                                // closest('#id') not getElementById — survives a duplicated panel copy
+                                // ("overlay vanishes when I type" in the nationality search box).
+                                const inside = e.target.closest && (e.target.closest('#st_nat_trigger') || e.target.closest('#st_nat_panel'));
+                                if (!inside) this.open = false;
                             });
                         },
 
