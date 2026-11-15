@@ -51,15 +51,22 @@ function flightSearchData() {
             window.addEventListener('resize', sync);
             window.addEventListener('scroll', sync, true);
 
-            // CLOSE ON OUTSIDE CLICK (TELEPORTED PANELS NEED A MANUAL HANDLER)
+            // CLOSE ON OUTSIDE CLICK (TELEPORTED PANELS NEED A MANUAL HANDLER).
+            // BUGFIX (mobile "overlay vanishes when I type"): the form can end up
+            // DUPLICATED in the DOM (two #fl_from_panel / #fl_from_q nodes), so
+            // getElementById returned only the FIRST copy. When the user tapped/typed
+            // in the SECOND copy, p.contains(e.target) was false → the handler treated
+            // it as an outside click and closed the whole overlay on the first keypress.
+            // Fix: test the event target against ANY matching trigger/panel via
+            // closest() + the id selector, which matches whichever duplicate was tapped.
+            const insideAny = (target, ...ids) =>
+                ids.some(id => target.closest && target.closest('#' + id));
             document.addEventListener('mousedown', (e) => {
-                if (this.fromOpen) {
-                    const t = document.getElementById('fl_from_trigger'), p = document.getElementById('fl_from_panel');
-                    if (t && p && !t.contains(e.target) && !p.contains(e.target)) { this.fromOpen = false; this.fromQuery = ''; }
+                if (this.fromOpen && !insideAny(e.target, 'fl_from_trigger', 'fl_from_panel')) {
+                    this.fromOpen = false; this.fromQuery = '';
                 }
-                if (this.toOpen) {
-                    const t = document.getElementById('fl_to_trigger'), p = document.getElementById('fl_to_panel');
-                    if (t && p && !t.contains(e.target) && !p.contains(e.target)) { this.toOpen = false; this.toQuery = ''; }
+                if (this.toOpen && !insideAny(e.target, 'fl_to_trigger', 'fl_to_panel')) {
+                    this.toOpen = false; this.toQuery = '';
                 }
             });
         },
