@@ -107,7 +107,22 @@ function busSearchData() {
                 error: () => { this[rk] = []; this[sk] = true; this[lk] = false; }
             });
         },
-        selectOrigin(loc) { this.originSearch = loc.name; this.originCity = loc.city || loc.name; this.originResults = []; this.originQuery = ''; this.originOpen = false; },
+        selectOrigin(loc) {
+            this.originSearch = loc.name; this.originCity = loc.city || loc.name;
+            this.originResults = []; this.originQuery = ''; this.originOpen = false;
+            // SEAMLESS HAND-OFF: after choosing origin, open the DESTINATION panel so the
+            // flow chains origin -> destination. Only when destination is still empty, so
+            // re-picking origin later doesn't reopen it. Set destOpen explicitly (do not
+            // call openDest(), which toggles) and focus the dest search input in $nextTick.
+            if (!String(this.destSearch || '').trim()) {
+                this.destOpen = true;
+                this.$nextTick(() => {
+                    if (typeof window.flAnchorPanel === 'function') { window.flAnchorPanel('bus_dest_t', 'bus_dest_p'); }
+                    const q = document.getElementById('bus_dest_q');
+                    if (q) { q.focus({ preventScroll: true }); }
+                });
+            }
+        },
         selectDest(loc) { this.destSearch = loc.name; this.destCity = loc.city || loc.name; this.destResults = []; this.destQuery = ''; this.destOpen = false; },
 
         handleBusSearch(event) {

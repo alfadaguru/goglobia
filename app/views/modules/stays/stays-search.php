@@ -240,6 +240,8 @@ function hotelSearchData() {
             this.destinationHasSearched = false;
             this.destQuery = '';
             this.destOpen = false;
+            // No auto-advance: destination is the only type-to-search field here and the
+            // check-in date is pre-filled by default, so there is nothing to hand off to.
         },
 
         // ============================================================================

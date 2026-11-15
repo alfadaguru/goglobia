@@ -58,11 +58,29 @@ independent mapper reads + my own re-check.
    `$nextTick`/`setTimeout` focus calls are harmless for keyboard pop on the tested
    path; revisit only if a real device shows the keyboard not opening.
 
-## Candidate hardening (optional UX polish, not bugs)
-- flights to→date: make the departure-date calendar actually open after arrival pick
-  (currently focuses the readonly date input but the calendar did not open in test).
-- ferries selectDep: focus the destination search input after auto-opening its panel
-  (parity with flights/rail).
+## Seamless hand-off — implemented (verified live)
+The rule we applied: only chain between fields the user actually must fill; never
+auto-pop a field that is pre-filled by default or not needed.
 
-These are UX gaps, not breaks. To be done only with real-device confirmation, per the
-"no guessing" rule.
+- flights: departure → arrival (opens arrival panel) → date (opens the date calendar).
+  Flights one-way date is EMPTY by default, so the date auto-open is useful; round-trip
+  date is pre-filled, so the guard skips it. (commits 90220dc, 8b4fa13)
+- bus: origin → destination (opens dest panel, focuses dest input). Bus date is
+  pre-filled, so we STOP at destination. Verified: dest panel opens + focused.
+- cars: pickup → drop-off, ONLY for serviceType === 'transfer' (where drop-off is a
+  real second location). For 'rental' (default; drop-off = "same as pickup") and
+  'hourly' (no drop-off) it does NOT auto-advance. Verified: rental=no pop, transfer=pop.
+- stays: destination is the only type-to-search field and check-in is pre-filled by
+  default — nothing to hand off to, so NO auto-advance (left intentionally).
+- rail: already had selectOrigin → openDest() (opens + focuses dest). Not changed;
+  disabled locally so not runtime-tested.
+- ferries: selectDep opens the dest panel but does not focus its input — minor polish
+  left (disabled locally; not runtime-tested).
+
+Guard pattern used everywhere: only auto-open the next field when it is still EMPTY, so
+re-selecting an earlier field does not re-pop a later one (verified for flights date).
+
+Each auto-advance sets the target panel's open-state EXPLICITLY (not via the toggling
+open* helper) and focuses the next input in $nextTick; the date auto-open uses .click()
+(datepicker opens on click, not focus — verified) with a plain document lookup (NOT
+this.$root, which is undefined inside setTimeout).

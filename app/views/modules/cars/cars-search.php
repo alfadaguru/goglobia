@@ -174,6 +174,20 @@ function carSearchData() {
             this.pickupHasSearched = false;
             this.pickupQuery = '';
             this.pickupOpen = false;
+            // SEAMLESS HAND-OFF: after choosing pickup, open the DROP-OFF panel so the
+            // flow chains pickup -> drop-off. ONLY for the 'transfer' service type, where
+            // drop-off is a genuine second location. For 'rental' (default) drop-off
+            // means "same as pickup" and for 'hourly' there is no drop-off at all, so we
+            // must NOT auto-pop it there. Also only when drop-off is still empty.
+            if (this.serviceType === 'transfer' && !String(this.dropoffSearch || '').trim()) {
+                this.pickupOpen = false;
+                this.dropoffOpen = true;
+                this.$nextTick(() => {
+                    if (typeof window.flAnchorPanel === 'function') { window.flAnchorPanel('car_drop_t', 'car_drop_p'); }
+                    const q = document.getElementById('car_drop_q');
+                    if (q) { q.focus({ preventScroll: true }); }
+                });
+            }
         },
         selectDropoffLocation(loc) {
             this.dropoffSelected = loc;
