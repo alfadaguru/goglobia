@@ -1172,9 +1172,14 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
     // (walkin_nonce). A double-click / back-then-resubmit replays the SAME nonce, which we
     // remember per-session and refuse the second time — so one physical click can never
     // create two bookings + two room-holds. PHP file sessions serialise same-session
-    // requests, so two rapid clicks run sequentially and the second sees the consumed
-    // nonce. Intentional second bookings come from a fresh page render → a new nonce.
-    // Bounded to the last 20 nonces so the session never grows unbounded.
+    // requests, so two rapid clicks run sequentially: click #1 runs to completion AND
+    // records the nonce (only on a SUCCESSFUL booking, at the bottom of this handler)
+    // before click #2 starts, so click #2 sees the recorded nonce and is refused.
+    // Intentional second bookings come from a fresh page render → a new nonce.
+    // CRITICAL: only CHECK here; the nonce is RECORDED only after the booking actually
+    // succeeds. Recording it up-front would wrongly reject the clerk's legitimate retry on
+    // the SAME form after a failed first attempt (e.g. the room was just taken) — no
+    // booking was made, so the retry must be allowed. Bounded to the last 20 nonces.
     $walkinNonce = preg_replace('/[^a-f0-9]/i', '', (string) ($_POST['walkin_nonce'] ?? ''));
     if ($walkinNonce !== '') {
         $seen = isset($_SESSION['walkin_nonces']) && is_array($_SESSION['walkin_nonces']) ? $_SESSION['walkin_nonces'] : [];
@@ -1182,8 +1187,6 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
             $_SESSION['message'] = ['type' => 'info', 'text' => 'That reservation was already submitted — ignored the duplicate.'];
             header('Location: ' . root . 'supplier/reservations'); exit;
         }
-        $seen[] = $walkinNonce;
-        $_SESSION['walkin_nonces'] = array_slice($seen, -20);
     }
 
     // SINGLE BOOKING = ONE ROOM (owner rule). This page/endpoint books exactly one room;
@@ -1255,6 +1258,15 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
     }
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => ($res['message'] ?? 'Could not create the reservation.') . $assignNote];
     if (!empty($res['ok']) && !empty($res['invoice_id'])) {
+        // Booking succeeded → NOW record the nonce so a double-click/retry of THIS exact
+        // render is refused. A failed attempt above never reaches here, so the clerk can
+        // retry the same form. (Same-session requests serialise, so a rapid 2nd click only
+        // starts after this records the nonce.) Bounded to the last 20 per session.
+        if ($walkinNonce !== '') {
+            $seen = isset($_SESSION['walkin_nonces']) && is_array($_SESSION['walkin_nonces']) ? $_SESSION['walkin_nonces'] : [];
+            $seen[] = $walkinNonce;
+            $_SESSION['walkin_nonces'] = array_slice($seen, -20);
+        }
         header('Location: ' . root . 'supplier/reservations/' . rawurlencode($res['invoice_id']));
     } else {
         header('Location: ' . $back);
