@@ -170,16 +170,19 @@ if ($activeStay > 0) {
     // they can actually use. Each item's `show` is its real permission; truly owner-only
     // money-out / admin items keep $isOwner. Empty groups are dropped below.
     $canFin  = $canOrg('finance', 'view');
+    // GL + Treasury routes require finance:EDIT (not view) — gate their nav on edit so a
+    // view-only finance staffer isn't shown a link that bounces them (RBAC audit 2026-11-15).
+    $canFinEdit = $canOrg('finance', 'edit');
     $canProc = $canOrg('procurement', 'view');
     $canHr   = $canOrg('hr', 'view');
     $canPlat = $canOrg('platformops', 'view');
     $backGroups = [
         ['label' => 'Finance & accounting', 'items' => [
             ['name' => 'Finance',         'icon' => 'account_balance_wallet', 'url' => 'supplier/finance', 'show' => $canFin],
-            ['name' => 'General ledger',  'icon' => 'receipt_long',     'url' => 'supplier/finance/ledger', 'show' => $canFin],
+            ['name' => 'General ledger',  'icon' => 'receipt_long',     'url' => 'supplier/finance/ledger', 'show' => $canFinEdit],
             ['name' => 'Accounts receivable','icon' => 'request_quote', 'url' => 'supplier/ar', 'show' => $canFin],
             ['name' => 'Accounts payable','icon' => 'payments',         'url' => 'supplier/ap', 'show' => $canFin],
-            ['name' => 'Treasury',        'icon' => 'account_balance',  'url' => 'supplier/treasury', 'show' => $canFin],
+            ['name' => 'Treasury',        'icon' => 'account_balance',  'url' => 'supplier/treasury', 'show' => $canFinEdit],
             ['name' => 'Tax & fiscal',    'icon' => 'percent',          'url' => 'supplier/tax', 'show' => $canFin],
             ['name' => 'Payments & deposits','icon' => 'credit_card',   'url' => 'supplier/payments', 'show' => $canFin],
             // Cashier is a per-user till shift — a front-desk/reservations duty, not org finance.

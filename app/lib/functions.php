@@ -10516,6 +10516,11 @@ function supplier_role_modules(): array
         // CREATE (walk-ins/guests/customers), not just editing — so label it so a
         // supplier building a "Front Desk" role actually ticks it (audit #3).
         'reservations' => ['label' => 'Front desk & reservations',  'actions' => ['view', 'edit']],
+        // NOTE: 'staff' is grantable, but staff-management routes use owner-only SUPPLIER_AUTH()
+        // (not SUPPLIER_OR_STAFF_AUTH), so granting it to a staffer is currently INERT — they
+        // still can't reach /supplier/staff|roles. If those routes are ever switched to the
+        // staff-admitting gate, this permission becomes a self-escalation primitive — gate the
+        // reassign/invite routes on supplier_can('staff','edit') explicitly first.
         'staff'        => ['label' => 'Staff & roles', 'actions' => ['view', 'add', 'edit', 'delete']],
         // Delegatable back-office modules (RBAC audit 2026-11-15): these are gated by real
         // routes but used to be absent from the grantable set, so a supplier could never
