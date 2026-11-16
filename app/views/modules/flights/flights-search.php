@@ -24,7 +24,15 @@ if ($is_roundtrip) {
         ? $_SESSION['flights_return_date']
         : date('d-m-Y', strtotime('+4 Days'));
 } else {
-    $flights_departure_date_value = $_SESSION['flights_departure_date'] ?? '';
+    // DEFAULT the oneway departure date (was ''). oneway is the DEFAULT trip type, so
+    // on a first visit (no session) the departure date rendered EMPTY — and
+    // handleFlightSearch() aborts on `if (!departureDate)`, so a new visitor who picked
+    // From + To and clicked Search got NO response (silent no-op). Every other service
+    // (bus/stays/tours/cars) defaults its date; flights oneway was the only one that did
+    // not. Default to +3 days, matching the roundtrip branch above.
+    $flights_departure_date_value = !empty($_SESSION['flights_departure_date'])
+        ? $_SESSION['flights_departure_date']
+        : date('d-m-Y', strtotime('+3 Days'));
     $flights_return_date_value = '';
 }
 ?>
