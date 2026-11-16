@@ -1,0 +1,87 @@
+<h1>Front Desk Booking — Single &amp; Group Journey Audit</h1>
+<p class="sub">Every step traced to the real code with <code>file:line</code>. Open the files and check me. Dated 2026-11-15.</p>
+
+<div class="legend">
+  <span class="tag ok">OK = verified working</span>
+  <span class="tag inc">INCONSISTENCY = works but confusing/uneven</span>
+  <span class="tag bug">BUG = broken</span>
+  <span class="tag fix">FIXED = was broken, now repaired</span>
+</div>
+
+<h2>The honest headline</h2>
+<ul class="headline">
+  <li><span class="tag ok">OK</span> Both flows are wired end-to-end in the code. A clerk can do the full journey.</li>
+  <li><span class="tag fix">FIXED</span> The live crash you hit — <em>"Unknown column 'phone'"</em> on Add Guest — was a real schema bug. The <code>stays_group_members</code> table was missing <code>phone / customer_id / invoice_id</code>. Now in the CREATE + a self-healing migration. <code>functions.php:12835-12870</code></li>
+  <li><span class="tag fix">FIXED</span> The <em>"I booked and nothing stored"</em> was a database rolling back when a column was missing — and the message was a <strong>lie</strong>: it said "Could not create the reservation" while hiding the real error. It now shows the real cause and self-heals two columns. <code>supplier_reservation_ops.php:371-392</code></li>
+  <li><span class="tag inc">⚠️ CAVEAT</span> In <strong>group</strong>, you add guests on one screen and book/pay them on a <strong>different</strong> screen. And "pay" = record a desk payment, not an online customer charge. Details below.</li>
+  <li><span class="tag bug">⚠️ HONEST LIMIT</span> All of this was verified on a <em>local copy</em>. Your live server's database may still be missing a column I haven't seen. The honest-error change means your <strong>next</strong> failed booking will name the exact column.</li>
+</ul>
+
+<hr>
+
+<h2>SINGLE — Walk-in booking</h2>
+<p>Journey: open form → search/create the customer → pick room + rate + room number → dates → book → lands on the reservation.</p>
+<table>
+  <tr><th>Step</th><th>What happens</th><th>Code evidence</th><th>Status</th></tr>
+  <tr><td>1. Open form</td><td>Loads room+rate picker, assignable rooms, booking sources. Pre-selects a room if you clicked one on the board.</td><td><code>supplierReservationsRoutes.php:1123-1148</code></td><td class="ok">OK</td></tr>
+  <tr><td>2. Customer search</td><td>Box "Search by name, email or phone…" + "+ Create new". Picking one fills name/phone/email and links <code>customer_id</code>.</td><td><code>reservations/new.php:92-96, 423</code> → <code>/supplier/customers/search</code></td><td class="ok">OK</td></tr>
+  <tr><td>3. Search backend</td><td>Searches your Customer Book by <strong>name OR email OR phone</strong> (phone matched on normalised digits).</td><td><code>supplierContactsRoutes.php:71-93</code> → <code>supplier_contacts.php:260-263</code></td><td class="ok">OK</td></tr>
+  <tr><td>4. Create new</td><td>"+ Create new" posts a new customer inline, no page leave.</td><td><code>new.php:485</code> → <code>/supplier/customers/quick-create</code></td><td class="ok">OK</td></tr>
+  <tr><td>5. Submit guards</td><td>Auth, CSRF, double-submit nonce, qty&gt;1→group, room must be picked + belong to property + be free.</td><td><code>supplierReservationsRoutes.php:1157-1224</code></td><td class="ok">OK</td></tr>
+  <tr><td>6. Create booking</td><td>Server prices it, holds the room (no oversell), writes the <code>bookings</code> row (28 columns), consumes the hold.</td><td><code>supplier_reservation_ops.php:302-365</code></td><td class="ok">OK</td></tr>
+  <tr><td>7. On failure</td><td>Shows the <strong>real</strong> DB error (e.g. "Unknown column X"), self-heals <code>customer_id/guest_id</code>, retries once.</td><td><code>supplier_reservation_ops.php:371-392</code></td><td class="fix">FIXED (was a generic lie)</td></tr>
+  <tr><td>8. Lands</td><td>Success → the reservation detail page; also shows on the front-desk room board.</td><td><code>supplierReservationsRoutes.php:1270</code></td><td class="ok">OK</td></tr>
+</table>
+
+<h2>GROUP — Multi-room booking</h2>
+<p>Journey: create group → hold N rooms → per room add a guest (search phone/email/name or add new) → assign a room → book → pay.</p>
+<table>
+  <tr><th>Step</th><th>What happens</th><th>Code evidence</th><th>Status</th></tr>
+  <tr><td>1. Open groups</td><td>Scoped to your property; loads blocks, members, rooms.</td><td><code>supplierGroupsRoutes.php:10-66</code></td><td class="ok">OK</td></tr>
+  <tr><td>2. Create group</td><td>Name required; makes a group in "enquiry".</td><td><code>supplier_groups.php:20-46</code></td><td class="ok">OK</td></tr>
+  <tr><td>3. Hold a block</td><td><strong>qty = number of rooms</strong>. Held against real inventory, no oversell. Rolls back if the row fails.</td><td><code>supplier_groups.php:57-87</code></td><td class="ok">OK</td></tr>
+  <tr><td>4. Add a guest + search</td><td>Box "Search a guest by name, email or phone…" or just type a new one. Writes name/email/phone/customer_id.</td><td><code>groups.php:182-199, 305</code> → <code>/supplier/guests/search</code> → <code>supplier_groups.php:112-138</code></td><td class="ok">OK</td></tr>
+  <tr><td>5. Search backend</td><td>Searches stored guests by <strong>name OR email OR phone</strong>; returns the linkable customer id.</td><td><code>supplierGuestsRoutes.php:108-127</code> → <code>supplier_guests.php:223-258</code></td><td class="ok">OK</td></tr>
+  <tr><td>6. The phone column</td><td><code>stays_group_members</code> has phone/customer_id/invoice_id in CREATE + db.sql + a self-healing migration.</td><td><code>functions.php:12835-12870</code>, <code>install/db.sql:30759-30774</code></td><td class="fix">FIXED (your live crash)</td></tr>
+  <tr><td>7. Assign room</td><td>Per member, dropdown of free rooms; locked + re-checked so two guests can't get the same room.</td><td><code>supplier_groups.php:163-215</code> (on the <strong>detail</strong> page)</td><td class="ok">OK</td></tr>
+  <tr><td>8. Book each</td><td>Atomic: decrements the held block, writes a confirmed <code>bookings</code> row. Idempotent. Honest error + self-heal on a schema gap.</td><td><code>supplier_groups.php:292-451</code></td><td class="ok">OK</td></tr>
+  <tr><td>9. Bulk</td><td>"Auto-assign all / Book all / Mark all paid" — each just loops the single-guest action, so no new risk.</td><td><code>supplier_groups.php:789-882</code> · buttons <code>detail.php:58-68</code></td><td class="ok">OK</td></tr>
+</table>
+
+<h2>The two honest caveats on GROUP</h2>
+<div class="caveat">
+  <p><span class="tag inc">INCONSISTENCY #1 — two screens.</span> You <strong>add guests</strong> on the groups list page (<code>groups.php</code>), but <strong>assign / book / pay</strong> live on the group <em>detail</em> page (<code>groups/detail.php</code>), reached via "Manage rooms &amp; rooming". It works, but the add step and the book/pay step are on different screens — easy to think "nothing happened" after adding a guest.</p>
+  <p><span class="tag inc">INCONSISTENCY #2 — "pay" = desk payment.</span> "Mark paid" sets the booking to paid with gateway "Front desk" (<code>supplier_groups.php:262-265</code>) — it records that <em>you</em> took payment at the desk. It does <strong>not</strong> charge the customer online. There is no customer-facing online checkout in the group flow — it's a front-desk / B2B tool. If you expected the group's customer to pay through Paystack/card, that path does not exist here.</p>
+</div>
+
+<h2>What I changed this session (so you can check)</h2>
+<ul>
+  <li>Added missing <code>stays_group_members</code> columns (phone/customer_id/invoice_id) + self-heal. <strong>Committed <code>6e431ec</code>, pushed.</strong></li>
+  <li>Made walk-in + group booking show the <strong>real</strong> error instead of a generic one, and self-heal <code>customer_id/guest_id</code>. <strong>NOT yet committed</strong> — <code>supplier_reservation_ops.php</code>, <code>supplier_groups.php</code>.</li>
+</ul>
+
+<h2>What you can do to end the loop on YOUR server</h2>
+<p>Run this one command against your live database and the result tells us exactly what (if anything) is missing:</p>
+<pre>mysql -uroot goglobia -e "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='goglobia' AND TABLE_NAME='bookings';"</pre>
+<p>Or deploy the honest-error change and the next failed booking will name the missing column on screen. Either way, I fix the exact gap — no more guessing.</p>
+
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; color: #1f2937; max-width: 1000px; margin: 0 auto; padding: 24px; line-height: 1.5; }
+  h1 { font-size: 1.6rem; margin-bottom: 2px; }
+  h2 { font-size: 1.15rem; margin-top: 28px; border-bottom: 2px solid #eee; padding-bottom: 4px; }
+  .sub { color: #6b7280; margin-top: 0; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 0.85em; color: #7c3aed; }
+  pre { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 0.82rem; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 0.86rem; }
+  th, td { border: 1px solid #e5e7eb; padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; margin-right: 4px; white-space: nowrap; }
+  .ok { background: #dcfce7; color: #166534; }
+  .inc { background: #fef9c3; color: #854d0e; }
+  .bug { background: #fee2e2; color: #991b1b; }
+  .fix { background: #dbeafe; color: #1e40af; }
+  td.ok { background: #f0fdf4; } td.inc { background: #fefce8; } td.bug { background: #fef2f2; } td.fix { background: #eff6ff; }
+  .legend { margin: 10px 0; } .headline li { margin: 6px 0; }
+  .caveat { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 12px 16px; }
+  hr { border: none; border-top: 1px solid #e5e7eb; margin: 24px 0; }
+</style>

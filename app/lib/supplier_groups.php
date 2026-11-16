@@ -433,8 +433,20 @@ if (!function_exists('group_member_book')) {
             });
             return $result;
         } catch (\Throwable $e) {
-            error_log('group_member_book (' . $memberId . '): ' . $e->getMessage());
-            return ['ok' => false, 'message' => 'Could not create the reservation.'];
+            $msg = $e->getMessage();
+            error_log('group_member_book (' . $memberId . '): ' . $msg);
+            // SELF-HEAL a schema gap (missing bookings column on a behind-schema install),
+            // retry once (guarded by a per-member static so it can never loop), then surface
+            // the REAL error instead of a generic lie (same pattern as resv_create_walkin).
+            $isSchemaGap = (stripos($msg, '1054') !== false) || (stripos($msg, 'Unknown column') !== false)
+                || (stripos($msg, '1146') !== false) || (stripos($msg, "doesn't exist") !== false);
+            static $healedMembers = [];
+            if ($isSchemaGap && empty($healedMembers[$memberId]) && function_exists('resv_ensure_booking_columns')) {
+                $healedMembers[$memberId] = true;
+                try { resv_ensure_booking_columns($db); } catch (\Throwable $e2) { error_log('group_member_book self-heal: ' . $e2->getMessage()); }
+                return group_member_book($db, $memberId, $stayId); // retry once
+            }
+            return ['ok' => false, 'message' => 'Could not book the guest: ' . $msg];
         }
     }
 }

@@ -20,6 +20,34 @@
 //
 // NOT runtime-verified (no MySQL in the build env) — logic-reasoned + php -l + harness.
 
+if (!function_exists('resv_ensure_booking_columns')) {
+    /**
+     * Self-heal the `bookings` columns a front-desk walk-in insert WRITES but that an
+     * install whose schema is behind may be MISSING. The big ensureSupplierStaysSchema()
+     * has a static one-shot guard (won't re-run mid-request), so this small, guard-free
+     * function is what the create's self-heal path calls to add exactly the columns the
+     * INSERT needs, idempotently. Without these, resv_create_walkin's insert 1054-fails
+     * inside its transaction and rolls back → "I booked and nothing stored."
+     * Types match install/db.sql. Each guarded by SHOW COLUMNS so re-running is safe.
+     */
+    function resv_ensure_booking_columns($db): void
+    {
+        // column => the ALTER that adds it (only the ones added AFTER the original
+        // bookings CREATE — the base columns like first_name/email always exist).
+        $cols = [
+            'customer_id' => "ALTER TABLE `bookings` ADD COLUMN `customer_id` BIGINT UNSIGNED NULL DEFAULT NULL",
+            'guest_id'    => "ALTER TABLE `bookings` ADD COLUMN `guest_id` BIGINT UNSIGNED NULL DEFAULT NULL",
+        ];
+        foreach ($cols as $col => $alter) {
+            try {
+                if (!$db->query("SHOW COLUMNS FROM `bookings` LIKE '" . $col . "'")->fetch()) {
+                    $db->query($alter);
+                }
+            } catch (\Throwable $e) { error_log('resv_ensure_booking_columns(' . $col . '): ' . $e->getMessage()); }
+        }
+    }
+}
+
 if (!function_exists('booking_data_mutate')) {
     /**
      * ATOMIC read-modify-write of a booking's booking_data JSON (audit HIGH fix).
@@ -341,8 +369,26 @@ if (!function_exists('resv_create_walkin')) {
                 return true;
             });
         } catch (\Throwable $e) {
-            error_log('resv_create_walkin: ' . $e->getMessage());
-            return ['ok' => false, 'message' => 'Could not create the reservation.'];
+            $msg = $e->getMessage();
+            error_log('resv_create_walkin: ' . $msg);
+            // SELF-HEAL: a missing column/table (1054 Unknown column / 1146 table doesn't
+            // exist) means this install's schema is behind what the booking engine writes —
+            // the historical cause of "I booked and nothing stored". Run the schema-ensure
+            // (which adds any missing columns idempotently) and retry the create ONCE. If it
+            // still fails, surface the REAL error so the operator sees the actual cause
+            // instead of a generic "could not create" that hides a schema gap for weeks.
+            $isSchemaGap = (stripos($msg, '1054') !== false) || (stripos($msg, 'Unknown column') !== false)
+                || (stripos($msg, '1146') !== false) || (stripos($msg, "doesn't exist") !== false);
+            if ($isSchemaGap && empty($in['_healed'])) {
+                // Heal the exact columns the walk-in insert needs (no static one-shot guard,
+                // so it runs even if the big ensure already ran+stamped this request), then
+                // retry the create ONCE (flagged so it can never loop).
+                try { resv_ensure_booking_columns($db); } catch (\Throwable $e2) { error_log('resv self-heal: ' . $e2->getMessage()); }
+                return resv_create_walkin($db, $stayId, ['_healed' => 1] + $in);
+            }
+            // Honest failure — name the real reason (schema gap or otherwise) so it is
+            // diagnosable, mirroring how group_member_add_r already reports.
+            return ['ok' => false, 'message' => 'Could not create the reservation: ' . $msg];
         }
         return $result;
     }
