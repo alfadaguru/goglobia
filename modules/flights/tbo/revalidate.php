@@ -128,8 +128,11 @@ $router->post('flights/tbo/revalidate', function () use ($db) {
         $newPriceMarkedUp = round($markedUpTotal['price'], 2);
         $newPriceActual   = round($convertedTotal['price'], 2);
 
-        $priceChanged = !empty($quoteResult['IsPriceChanged'])
-            || ($oldPrice > 0 && abs($newPriceMarkedUp - $oldPrice) > 0.50);
+        // PERCENTAGE tolerance (shared helper) + TBO's own IsPriceChanged flag; the
+        // old `> 0.50` absolute was FX-rounding noise on a low-unit base currency.
+        $priceChanged = function_exists('flight_revalidate_price_changed')
+            ? flight_revalidate_price_changed((float) $oldPrice, (float) $newPriceMarkedUp, !empty($quoteResult['IsPriceChanged']))
+            : (!empty($quoteResult['IsPriceChanged']) || ($oldPrice > 0 && abs($newPriceMarkedUp - $oldPrice) > 0.50));
 
         echo json_encode([
             'status'  => true,

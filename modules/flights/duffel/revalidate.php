@@ -127,7 +127,10 @@ $router->post('flights/duffel/revalidate', function () use ($db) {
 
         $convertedTotal = CURRENCY_CONVERT($newNetTotal, $db, $newCurrencyRaw, $currency);
         $markedUpTotal  = MARKUP($newNetTotal, $module, $db, $newCurrencyRaw, $currency);
-        $priceChanged   = ($oldPrice > 0 && abs($convertedTotal['price'] - $oldPrice) > 0.50);
+        // PERCENTAGE tolerance (shared helper); was `> 0.50` absolute (FX-rounding noise).
+        $priceChanged   = function_exists('flight_revalidate_price_changed')
+            ? flight_revalidate_price_changed((float) $oldPrice, (float) $convertedTotal['price'])
+            : ($oldPrice > 0 && abs($convertedTotal['price'] - $oldPrice) > 0.50);
 
         $baggageDisplay = 'Check fare rules';
         if (!empty($offer['passengers'][0]['baggages'])) {

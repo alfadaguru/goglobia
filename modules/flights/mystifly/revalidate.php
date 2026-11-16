@@ -94,9 +94,12 @@ $router->post('flights/mystifly/revalidate', function () use ($db) {
             }
         }
 
-        // Price change detection
+        // Price change detection — PERCENTAGE tolerance (shared helper); the old
+        // `> 0.50` absolute was FX-rounding noise on a low-unit base currency.
         $oldPrice     = (float)($_POST['old_price'] ?? 0);
-        $priceChanged = ($oldPrice > 0 && $newTotal > 0 && abs($newTotal - $oldPrice) > 0.50);
+        $priceChanged = function_exists('flight_revalidate_price_changed')
+            ? flight_revalidate_price_changed($oldPrice, (float) $newTotal)
+            : ($oldPrice > 0 && $newTotal > 0 && abs($newTotal - $oldPrice) > 0.50);
 
         // HoldAllowed lives in PricedItineraries[0] in v1, not inside RevalidateItinerary
         $holdRaw      = $ri['HoldAllowed'] ?? $pricedItem0['HoldAllowed'] ?? false;

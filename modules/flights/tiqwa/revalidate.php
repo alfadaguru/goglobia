@@ -109,11 +109,13 @@ $router->post('flights/tiqwa/revalidate', function () use ($db) {
         if (!is_array($converted) || !isset($converted['price'])) $converted = ['price' => $adultNet];
         if (!is_array($markedUp)  || !isset($markedUp['price']))  $markedUp  = ['price' => $adultNet];
 
-        // Price-change signal: trust Tiqwa's own price_change flag AND cross-check
-        // against what the customer last saw (tolerance 0.50 in display currency).
+        // Price-change signal: trust Tiqwa's own price_change flag, AND cross-check
+        // against what the customer last saw with a PERCENTAGE tolerance (shared helper).
+        // Was `> 0.50` absolute — FX-rounding noise on a low-unit base currency.
         $supplierChanged = !empty($offer['price_change']);
-        $localChanged    = ($oldPrice > 0 && abs((float) $converted['price'] - $oldPrice) > 0.50);
-        $priceChanged    = $supplierChanged || $localChanged;
+        $priceChanged    = function_exists('flight_revalidate_price_changed')
+            ? flight_revalidate_price_changed((float) $oldPrice, (float) $converted['price'], $supplierChanged)
+            : ($supplierChanged || ($oldPrice > 0 && abs((float) $converted['price'] - $oldPrice) > 0.50));
 
         echo json_encode([
             'status'  => true,

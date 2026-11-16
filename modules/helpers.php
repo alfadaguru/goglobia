@@ -1641,6 +1641,30 @@ if (!function_exists('supplier_action_guard')) {
 // (self-contained: only $db (Medoo) + standard PHP). Guarded so that if
 // functions.php ever is loaded, there is no redeclare conflict.
 // ============================================================================
+// ============================================================================
+// FLIGHT REVALIDATE price-change detector (shared by every supplier revalidate.php).
+// Replaces the old per-supplier `abs(new - old) > 0.50` ABSOLUTE check, which was
+// far too tight for low-unit base currencies: with base=NGN, 0.50 is half a naira,
+// so ordinary FX-conversion rounding (suppliers price in their own currency, e.g.
+// Adivaha in INR, converted to NGN) tripped "price changed" within SECONDS of a
+// search — a surprise re-quote even when the real fare had not moved. Use a
+// PERCENTAGE tolerance (default 1%) with a tiny absolute floor so near-zero prices
+// don't false-positive. A supplier's own price-changed flag still forces true.
+// ============================================================================
+if (!function_exists('flight_revalidate_price_changed')) {
+    function flight_revalidate_price_changed(float $oldPrice, float $newPrice, bool $supplierFlag = false, float $tolerancePct = 1.0): bool
+    {
+        if ($supplierFlag) { return true; }
+        if ($oldPrice <= 0 || $newPrice <= 0) { return false; }
+        $delta = abs($newPrice - $oldPrice);
+        // Ignore sub-cent/rounding noise outright.
+        if ($delta < 0.01) { return false; }
+        // Changed only if the move exceeds tolerancePct of the old price.
+        $threshold = ($tolerancePct / 100.0) * $oldPrice;
+        return $delta > $threshold;
+    }
+}
+
 if (!function_exists('reconcilePostPaymentPrice')) {
     function reconcilePostPaymentPrice($db, $booking, $supplierTotal, $supplierCurrency = null, $tolerancePct = 2.0)
     {

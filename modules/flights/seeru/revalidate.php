@@ -135,7 +135,10 @@ $router->post('flights/seeru/revalidate', function() use ($db) {
     $new_price_marked_up = round($markedUpTotal['price'], 2);
     $new_price_actual = round($convertedTotal['price'], 2);
 
-    $price_changed = abs($new_price_marked_up - $old_price) > 0.5;
+    // PERCENTAGE tolerance (shared helper); was `> 0.5` absolute (FX-rounding noise).
+    $price_changed = function_exists('flight_revalidate_price_changed')
+        ? flight_revalidate_price_changed((float) $old_price, (float) $new_price_marked_up)
+        : (abs($new_price_marked_up - $old_price) > 0.5);
 
     echo json_encode([
         'status' => true,

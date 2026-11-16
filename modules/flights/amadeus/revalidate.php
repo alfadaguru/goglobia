@@ -183,7 +183,10 @@ $router->post('flights/amadeus/revalidate', function () use ($db) {
 
         $convertedTotal = CURRENCY_CONVERT($newNetTotal, $db, $sourceCurrency, $currency);
         $markedUpTotal = MARKUP($newNetTotal, $module, $db, $sourceCurrency, $currency);
-        $priceChanged = ($oldPrice > 0 && abs($convertedTotal['price'] - $oldPrice) > 0.50);
+        // PERCENTAGE tolerance (shared helper); was `> 0.50` absolute (FX-rounding noise).
+        $priceChanged = function_exists('flight_revalidate_price_changed')
+            ? flight_revalidate_price_changed((float) $oldPrice, (float) $convertedTotal['price'])
+            : ($oldPrice > 0 && abs($convertedTotal['price'] - $oldPrice) > 0.50);
 
         $baggageDisplay = 'Check fare rules';
         if (!empty($repricedOffer['travelerPricings'][0]['fareDetailsBySegment'][0]['includedCheckedBags'])) {

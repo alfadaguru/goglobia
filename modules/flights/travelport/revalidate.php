@@ -129,7 +129,10 @@ $router->post('flights/travelport/revalidate', function () use ($db) {
         $converted = CURRENCY_CONVERT($supplierTotal, $db, $supplierCurrency, $currency);
         $newPrice = round((float) $markedUp['price'], 2);
         $actualPrice = round((float) $converted['price'], 2);
-        $priceChanged = $oldPrice > 0 && abs($newPrice - $oldPrice) > 0.5;
+        // PERCENTAGE tolerance (shared helper); was `> 0.5` absolute (FX-rounding noise).
+        $priceChanged = function_exists('flight_revalidate_price_changed')
+            ? flight_revalidate_price_changed((float) $oldPrice, (float) $newPrice)
+            : ($oldPrice > 0 && abs($newPrice - $oldPrice) > 0.5);
 
         echo json_encode([
             'status' => true,

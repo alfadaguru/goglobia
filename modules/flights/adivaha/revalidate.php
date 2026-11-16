@@ -120,12 +120,14 @@ $router->post('flights/adivaha/revalidate', function () use ($db) {
         if (!is_array($converted) || !isset($converted['price'])) $converted = ['price' => $netBase];
         if (!is_array($markedUp)  || !isset($markedUp['price']))  $markedUp  = ['price' => $netBase];
 
-        // Trust the supplier's own is_price_changed flag AND cross-check against the
-        // price the customer last saw (tolerance 0.50 in display currency), the
-        // same rule every other provider uses.
+        // Trust the supplier's own is_price_changed flag, AND cross-check against the
+        // price the customer last saw with a PERCENTAGE tolerance (shared helper). The
+        // old `> 0.50` ABSOLUTE check was half a naira on an NGN base — FX-conversion
+        // rounding (Adivaha prices in INR) tripped a surprise re-quote within seconds.
         $supplierChanged = !empty($quote['is_price_changed']);
-        $localChanged    = ($oldPrice > 0 && abs((float) $converted['price'] - $oldPrice) > 0.50);
-        $priceChanged    = $supplierChanged || $localChanged;
+        $priceChanged    = function_exists('flight_revalidate_price_changed')
+            ? flight_revalidate_price_changed((float) $oldPrice, (float) $converted['price'], $supplierChanged)
+            : ($supplierChanged || ($oldPrice > 0 && abs((float) $converted['price'] - $oldPrice) > 0.50));
 
         // Baggage display from the offer meta, when present.
         $baggageDisplay = 'Check fare rules';
