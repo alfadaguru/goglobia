@@ -195,7 +195,15 @@ if (!function_exists('gia_render_norm')) {
 // ---------------------------------------------------------------------------
 // TELEGRAM — sendMessage body with inline_keyboard. Cards have no native
 // carousel, so a card becomes a text block + its buttons as keyboard rows.
-// callback_data must be <=64 bytes; we send the choice id (clamped).
+// callback_data must be <=64 BYTES — Telegram's HARD limit. Previously we did
+// substr($id, 0, 64): if an id exceeded 64 bytes the tap round-tripped a TRUNCATED
+// id that no longer matched the stored last_choices entry, so the choice silently
+// failed (model got a garbage ref). Today every GIA id is short (pay ids 22-32B,
+// the longest stayroom ref with 3 max-int ids is 52B), so this never actually
+// triggers — but it was a latent trap for any future longer ref. Fix: a button
+// whose id would exceed 64 bytes gets a NUMBERED-TEXT fallback line instead of a
+// broken callback button, so the traveller can reply with the number (the channel-
+// agnostic numeric resolver in gia_channel_handle maps it back to the exact id).
 // ---------------------------------------------------------------------------
 if (!function_exists('gia_render_telegram')) {
     function gia_render_telegram(array $norm, string $chatId): array
@@ -203,22 +211,38 @@ if (!function_exists('gia_render_telegram')) {
         $lines = [];
         if ($norm['text'] !== '') { $lines[] = $norm['text']; }
         $rows = [];
-        // Top-level quick buttons: one per row (reliable across clients). A button
-        // with a url opens the link (pay-link); others fire a callback.
-        foreach ($norm['buttons'] as $b) {
+        $numbered = []; // over-64B ids that fall back to "reply with the number"
+        $n = 0;
+        // One callback button; or, if the id is too long for Telegram, a numbered line.
+        $addButton = static function (array $b) use (&$rows, &$numbered, &$n): void {
+            $title = gia_render_clip((string) ($b['title'] ?? ''), 64);
             if (!empty($b['url'])) {
-                $rows[] = [['text' => gia_render_clip($b['title'], 64), 'url' => (string) $b['url']]];
-            } else {
-                $rows[] = [['text' => gia_render_clip($b['title'], 64), 'callback_data' => substr($b['id'], 0, 64)]];
+                $rows[] = [['text' => $title, 'url' => (string) $b['url']]];
+                return;
             }
-        }
+            $id = (string) ($b['id'] ?? '');
+            if ($id === '') { return; }
+            // strlen = BYTES (Telegram's unit). A callback id must round-trip intact.
+            if (strlen($id) <= 64) {
+                $rows[] = [['text' => $title, 'callback_data' => $id]];
+            } else {
+                // Too long to send intact — offer it as a numbered reply instead of a
+                // button that would truncate + break the tap. The numeric resolver
+                // rebuilds the exact id from last_choices on the reply.
+                $numbered[] = (++$n) . '. ' . $title;
+            }
+        };
+        // Top-level quick buttons: one per row (reliable across clients).
+        foreach ($norm['buttons'] as $b) { $addButton($b); }
         // Cards: append a titled text block + each card's buttons as rows.
         foreach ($norm['cards'] as $c) {
             $block = trim($c['title'] . ($c['subtitle'] !== '' ? "\n" . $c['subtitle'] : ''));
             if ($block !== '') { $lines[] = "\n" . $block; }
-            foreach ($c['buttons'] as $b) {
-                $rows[] = [['text' => gia_render_clip($b['title'], 64), 'callback_data' => substr($b['id'], 0, 64)]];
-            }
+            foreach ($c['buttons'] as $b) { $addButton($b); }
+        }
+        if ($numbered !== []) {
+            $lines[] = "\n" . implode("\n", $numbered);
+            $lines[] = 'Reply with the number of your choice.';
         }
         $body = ['chat_id' => $chatId, 'text' => trim(implode("\n", $lines)) ?: '…'];
         if ($rows !== []) {
