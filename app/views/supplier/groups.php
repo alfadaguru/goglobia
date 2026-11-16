@@ -68,41 +68,131 @@ foreach ($rooms as $r) {
     </button>
   </div>
 
-  <!-- New group -->
+  <!-- ONE-PAGE NEW GROUP (Option B): group profile + customer + ONE room block + a rooming
+       list, all in a single submit. Posts to /create-full which orchestrates the SAME guarded
+       engine helpers the step flow uses (group_create → group_block_add → group_member_add_r;
+       and on "Create & book all", group_bulk_assign + group_bulk_book). No new money logic. -->
   <?php if ($canEdit): ?>
+  <?php
+    // Page-level (room:option) → default nightly rate map, so the block estimator can price
+    // against the room's own rate when no group rate is entered. Same shape the per-card block
+    // form builds inline below; built once here for the new-group estimator.
+    $roomOptRateTop = [];
+    foreach ($rooms as $__r) {
+      foreach (($__r['_options'] ?? []) as $__o) {
+        $roomOptRateTop[(int) $__r['id'] . ':' . (int) ($__o['option_id'] ?? 0)] = (float) ($__o['price'] ?? 0);
+      }
+    }
+    $firstOptKey = (string) array_key_first($roomOpts);
+  ?>
   <div class="card p-5">
-    <h2 class="text-sm font-semibold text-gray-900 mb-3">New group</h2>
-    <form action="<?= $base ?>/create" method="POST" class="space-y-3" id="groupCreateForm">
-      <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>">
+    <h2 class="text-sm font-semibold text-gray-900 mb-1">New group</h2>
+    <p class="text-xs text-gray-500 mb-4">Create the group, hold a block of rooms, and add the rooming list — all on this page. Then book everyone with one click.</p>
 
-      <!-- Customer (payer / account): search an existing one or create on the spot. The
-           chosen id is written onto the group (customer_id). Reuses the SAME endpoints as
-           the single-booking desk (/supplier/customers/search + quick-create). -->
-      <div class="form-control">
-        <label class="block text-xs font-medium text-gray-700 mb-1">Customer (payer / account) <span class="text-gray-400">(optional)</span></label>
-        <input type="hidden" name="customer_id" id="gcCustomerId" value="">
-        <div id="gcCustPicked" class="hidden items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 mb-2">
-          <span class="flex items-center gap-2 text-sm text-emerald-900"><span class="material-symbols-outlined text-base">account_circle</span><span id="gcCustPickedLabel" class="font-medium"></span><span id="gcCustPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span></span>
-          <button type="button" id="gcCustClear" class="text-emerald-700 hover:text-emerald-900" title="Clear"><span class="material-symbols-outlined text-base">close</span></button>
-        </div>
-        <div class="relative" id="gcCustSearchWrap">
-          <div class="flex gap-2">
-            <input type="text" id="gcCustSearch" autocomplete="off" class="input text-sm" placeholder="Search a customer by name, email or phone…">
-            <button type="button" id="gcCustCreateOpen" class="btn secondary text-sm whitespace-nowrap"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">add</span> Create</span></button>
+    <?php if (empty($roomOpts)): ?>
+      <div class="alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm">This property has no bookable rooms/rates yet. Add rooms &amp; rates first, then create a group block.</p></div>
+    <?php else: ?>
+    <form action="<?= $base ?>/create-full" method="POST" class="space-y-5" id="groupCreateForm" data-rates='<?= htmlspecialchars(json_encode($roomOptRateTop), ENT_QUOTES) ?>' data-cur="<?= $cur ?>">
+      <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>">
+      <!-- which button was pressed: hold (create + hold block + rooming list) | book (…and book all) -->
+      <input type="hidden" name="submit_action" id="gcSubmitAction" value="hold">
+
+      <!-- 1 · GROUP PROFILE + CUSTOMER -->
+      <div class="space-y-3">
+        <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">1 · Group &amp; customer</div>
+
+        <!-- Customer (payer / account): search an existing one or create on the spot. The
+             chosen id is written onto the group (customer_id). Reuses the SAME endpoints as
+             the single-booking desk (/supplier/customers/search + quick-create). -->
+        <div class="form-control">
+          <label class="block text-xs font-medium text-gray-700 mb-1">Customer (payer / account) <span class="text-gray-400">(optional)</span></label>
+          <input type="hidden" name="customer_id" id="gcCustomerId" value="">
+          <div id="gcCustPicked" class="hidden items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 mb-2">
+            <span class="flex items-center gap-2 text-sm text-emerald-900"><span class="material-symbols-outlined text-base">account_circle</span><span id="gcCustPickedLabel" class="font-medium"></span><span id="gcCustPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span></span>
+            <button type="button" id="gcCustClear" class="text-emerald-700 hover:text-emerald-900" title="Clear"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
-          <div id="gcCustResults" class="hidden absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
+          <div class="relative" id="gcCustSearchWrap">
+            <div class="flex gap-2">
+              <input type="text" id="gcCustSearch" autocomplete="off" class="input text-sm" placeholder="Search a customer by name, email or phone…">
+              <button type="button" id="gcCustCreateOpen" class="btn secondary text-sm whitespace-nowrap"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">add</span> Create</span></button>
+            </div>
+            <div id="gcCustResults" class="hidden absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          <input type="text" name="name" class="input text-sm" placeholder="Group name *" required>
+          <input type="text" name="company" class="input text-sm" placeholder="Company / organiser">
+          <input type="email" name="contact_email" class="input text-sm" placeholder="Contact email">
+          <div><label class="block text-xs text-gray-600 mb-1">Arrival</label><input type="date" name="arrival" class="input text-sm"></div>
+          <div><label class="block text-xs text-gray-600 mb-1">Departure</label><input type="date" name="departure" class="input text-sm"></div>
         </div>
       </div>
 
-      <div class="flex flex-wrap items-end gap-2">
-        <input type="text" name="name" class="input text-sm" placeholder="Group name *" required>
-        <input type="text" name="company" class="input text-sm" placeholder="Company / organiser">
-        <input type="email" name="contact_email" class="input text-sm" placeholder="Contact email">
-        <div><label class="block text-xs text-gray-600 mb-1">Arrival</label><input type="date" name="arrival" class="input text-sm"></div>
-        <div><label class="block text-xs text-gray-600 mb-1">Departure</label><input type="date" name="departure" class="input text-sm"></div>
-        <button type="submit" class="btn secondary text-sm">Create group</button>
+      <!-- 2 · ROOM BLOCK (holds inventory, no oversell) -->
+      <div class="space-y-2 border-t border-gray-100 pt-4">
+        <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">2 · Hold a block of rooms</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="form-control">
+            <label class="block text-xs text-gray-600 mb-0.5">Room type &amp; rate</label>
+            <select class="input text-sm w-full gcf-roomopt" onchange="var v=this.value.split(':');document.getElementById('gcfRoomId').value=v[0];document.getElementById('gcfOptionId').value=v[1];gcfEstimate();">
+              <?php foreach ($roomOpts as $k => $lbl): ?><option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?>
+            </select>
+          </div>
+          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Rooms held</label><input type="number" name="qty" min="1" value="1" class="input text-sm gcf-qty" required oninput="gcfEstimate()"></div>
+        </div>
+        <input type="hidden" name="room_id" id="gcfRoomId" value="<?= (int) explode(':', $firstOptKey)[0] ?>">
+        <input type="hidden" name="option_id" id="gcfOptionId" value="<?= (int) explode(':', $firstOptKey)[1] ?>">
+        <div class="grid grid-cols-1 sm:grid-cols-<?= $canSetRate ? '4' : '3' ?> gap-2">
+          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-in</label><input type="date" name="date_from" class="input text-sm gcf-from" required oninput="gcfEstimate()"></div>
+          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-out</label><input type="date" name="date_to" class="input text-sm gcf-to" required oninput="gcfEstimate()"></div>
+          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Cutoff <span class="text-gray-400">(auto-release)</span></label><input type="date" name="cutoff_date" class="input text-sm" title="Unsold rooms auto-release after this date"></div>
+          <?php if ($canSetRate): ?>
+          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Group rate / night <span class="text-gray-400">(optional)</span></label><input type="number" name="rate" step="0.01" min="0" class="input text-sm gcf-rate" placeholder="room rate" oninput="gcfEstimate()"></div>
+          <?php endif; ?>
+        </div>
+        <div class="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5 flex justify-between">
+          <span class="gcf-breakdown">— rooms × — nights</span>
+          <span class="font-semibold text-gray-900">Est. block total: <span class="gcf-total"><?= $cur ?> 0.00</span></span>
+        </div>
+      </div>
+
+      <!-- 3 · ROOMING LIST (repeatable guest rows, each with search / create-popup) -->
+      <div class="space-y-2 border-t border-gray-100 pt-4">
+        <div class="flex items-center justify-between">
+          <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">3 · Rooming list <span class="text-gray-400 normal-case font-normal">— the guests staying</span></div>
+          <button type="button" id="gcfAddGuest" class="btn secondary text-xs"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">person_add</span> Add another guest</span></button>
+        </div>
+        <div id="gcfGuestRows" class="space-y-2"><!-- guest rows injected by JS (one to start) --></div>
+        <p class="text-[11px] text-gray-400">Search a returning guest to prefill, or just type a name. Leave spare rows blank — they’re ignored. You can add more guests later on the group page.</p>
+      </div>
+
+      <!-- SUBMIT: two buttons, mirroring single booking's Reserve / Reserve & check in -->
+      <div class="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4">
+        <button type="submit" class="btn emerald text-sm" onclick="document.getElementById('gcSubmitAction').value='book';">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">event_available</span> Create &amp; book all</span>
+        </button>
+        <button type="submit" class="btn secondary text-sm" onclick="document.getElementById('gcSubmitAction').value='hold';">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">schedule</span> Create &amp; hold</span>
+        </button>
+        <span class="text-[11px] text-gray-400">“Book all” assigns rooms &amp; books every guest now; “Hold” just reserves the rooms for you to book later.</span>
       </div>
     </form>
+    <?php endif; ?>
+  </div>
+
+  <!-- guest create modal (shared by the new-group rooming rows; posts to /supplier/guests/quick-create) -->
+  <div id="gcfGuestModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div class="w-full max-w-md rounded-lg bg-white shadow-xl">
+      <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3"><h2 class="text-lg font-semibold text-gray-900">New guest</h2><button type="button" id="gcfGuestModalClose" class="text-gray-400 hover:text-gray-700"><span class="material-symbols-outlined">close</span></button></div>
+      <div class="px-5 py-4 space-y-3">
+        <div id="gcfGuestModalErr" class="hidden alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm"></p></div>
+        <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">First name *</label><input type="text" id="gcfNgFirst" class="input"></div>
+        <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Last name</label><input type="text" id="gcfNgLast" class="input"></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3"><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label><input type="tel" id="gcfNgPhone" inputmode="tel" class="input"></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" id="gcfNgEmail" class="input"></div></div>
+      </div>
+      <div class="flex items-center justify-end gap-3 border-t border-gray-100 px-5 py-3"><button type="button" id="gcfGuestModalCancel" class="btn secondary">Cancel</button><button type="button" id="gcfGuestModalSave" class="btn emerald">Create &amp; use</button></div>
+    </div>
   </div>
 
   <!-- customer create modal (shared by the New-group form) -->
@@ -474,5 +564,183 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
       .then(function (d) { saveBtn.disabled = false; if (d && d.ok && d.contact) { closeModal(); selectCustomer(d.contact); } else { errBox.querySelector('p').textContent = (d && d.message) || 'Could not create.'; errBox.classList.remove('hidden'); } })
       .catch(function () { saveBtn.disabled = false; errBox.querySelector('p').textContent = 'Network error.'; errBox.classList.remove('hidden'); });
   });
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ONE-PAGE NEW GROUP (Option B): block estimator + rooming-list repeater with a
+// per-row guest search and a shared "Add guest" create-popup. The whole form posts
+// to /create-full in ONE submit. Guarded by: only runs if #groupCreateForm exists.
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+  var ROOT = <?= json_encode((string) root) ?>;
+  var form = document.getElementById('groupCreateForm');
+  if (!form) { return; }
+  var CSRFEL = form.querySelector('input[name="csrf_token"]');
+  var CSRF_VAL = CSRFEL ? CSRFEL.value : '';
+
+  // ---- Block cost estimate: rooms × nights × rate (room's own rate unless a group rate set).
+  window.gcfEstimate = function () {
+    var rates = {}; try { rates = JSON.parse(form.getAttribute('data-rates') || '{}'); } catch (e) {}
+    var cur = form.getAttribute('data-cur') || '';
+    var sel = form.querySelector('.gcf-roomopt');
+    var key = sel ? sel.value : '';
+    var from = (form.querySelector('.gcf-from') || {}).value || '';
+    var to = (form.querySelector('.gcf-to') || {}).value || '';
+    var qty = parseInt((form.querySelector('.gcf-qty') || {}).value || '1', 10) || 0;
+    var rateInput = parseFloat((form.querySelector('.gcf-rate') || {}).value || '');
+    var rate = (!isNaN(rateInput) && rateInput > 0) ? rateInput : (parseFloat(rates[key]) || 0);
+    var nights = 0;
+    if (from && to) { var d = (new Date(to) - new Date(from)) / 86400000; if (d > 0) nights = Math.round(d); }
+    var total = qty * nights * rate;
+    var fmt = function (n) { return cur + ' ' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    var bd = form.querySelector('.gcf-breakdown'), tt = form.querySelector('.gcf-total');
+    if (bd) bd.textContent = qty + ' room' + (qty === 1 ? '' : 's') + ' × ' + nights + ' night' + (nights === 1 ? '' : 's') + (rate ? ' × ' + fmt(rate) : '');
+    if (tt) tt.textContent = fmt(total);
+  };
+
+  // ---- Rooming-list repeater. Each row = a guest search box + hidden name/email/phone/
+  //      customer_id that POST as parallel arrays (guest_name[], guest_email[], guest_phone[],
+  //      guest_customer_id[]). A visible chip shows the picked/typed guest; "×" removes the row.
+  var rowsWrap = document.getElementById('gcfGuestRows');
+  var addBtn = document.getElementById('gcfAddGuest');
+  var esc = function (s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
+
+  function buildRow() {
+    var row = document.createElement('div');
+    row.className = 'gcf-grow rounded-md border border-gray-200 p-2 space-y-1.5';
+    row.innerHTML =
+      '<div class="flex items-start gap-2">' +
+        '<div class="relative flex-1 gcf-gwrap">' +
+          '<input type="text" class="input text-sm w-full gcf-gsearch" autocomplete="off" placeholder="Search a guest, or type a name…">' +
+          '<div class="gcf-gresults absolute z-20 left-0 right-0 bg-white border border-gray-200 rounded-md shadow hidden max-h-44 overflow-auto"></div>' +
+        '</div>' +
+        '<button type="button" class="btn secondary text-xs whitespace-nowrap gcf-gnew"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">person_add</span> New</span></button>' +
+        '<button type="button" class="text-gray-400 hover:text-rose-600 pt-1.5 gcf-grm" title="Remove this guest"><span class="material-symbols-outlined text-base">close</span></button>' +
+      '</div>' +
+      '<div class="gcf-gchip hidden items-center gap-2 rounded bg-emerald-50 text-emerald-800 text-xs px-2 py-1">' +
+        '<span class="material-symbols-outlined text-sm">check_circle</span><span class="gcf-gchip-label font-medium"></span>' +
+      '</div>' +
+      // The actual POSTed fields (parallel arrays). Name mirrors what /create-full reads.
+      '<input type="hidden" name="guest_name[]" class="gcf-gname" value="">' +
+      '<input type="hidden" name="guest_email[]" class="gcf-gemail" value="">' +
+      '<input type="hidden" name="guest_phone[]" class="gcf-gphone" value="">' +
+      '<input type="hidden" name="guest_customer_id[]" class="gcf-gcust" value="">';
+    wireRow(row);
+    return row;
+  }
+
+  function setRowGuest(row, g) {
+    // g: {name, email, phone, contact_id}. Fills the hidden POST fields + the chip.
+    var name = (g && g.name) || '';
+    row.querySelector('.gcf-gname').value = name;
+    row.querySelector('.gcf-gemail').value = (g && g.email) || '';
+    row.querySelector('.gcf-gphone').value = (g && g.phone) || '';
+    row.querySelector('.gcf-gcust').value = (g && g.contact_id) || '';
+    var chip = row.querySelector('.gcf-gchip');
+    row.querySelector('.gcf-gchip-label').textContent = name + ([g && g.phone, g && g.email].filter(Boolean).length ? ' · ' + [g && g.phone, g && g.email].filter(Boolean).join(' · ') : '');
+    chip.classList.remove('hidden'); chip.classList.add('flex');
+    var s = row.querySelector('.gcf-gsearch'); s.value = name;
+  }
+  function clearRowGuest(row) {
+    row.querySelector('.gcf-gname').value = '';
+    row.querySelector('.gcf-gemail').value = '';
+    row.querySelector('.gcf-gphone').value = '';
+    row.querySelector('.gcf-gcust').value = '';
+    var chip = row.querySelector('.gcf-gchip'); chip.classList.add('hidden'); chip.classList.remove('flex');
+  }
+
+  function wireRow(row) {
+    var search = row.querySelector('.gcf-gsearch');
+    var results = row.querySelector('.gcf-gresults');
+    var wrap = row.querySelector('.gcf-gwrap');
+    var timer = null;
+    function hide() { results.classList.add('hidden'); results.innerHTML = ''; }
+
+    // Typing BOTH updates the hidden name (so a hand-typed guest with no search match still
+    // POSTs) AND searches for a returning guest to pick.
+    search.addEventListener('input', function () {
+      var q = search.value.trim();
+      // Free typing = a new (un-picked) guest: set the name, clear a prior pick's contact_id.
+      row.querySelector('.gcf-gname').value = q;
+      row.querySelector('.gcf-gcust').value = '';
+      var chip = row.querySelector('.gcf-gchip'); chip.classList.add('hidden'); chip.classList.remove('flex');
+      if (timer) clearTimeout(timer);
+      if (q.length < 2) { hide(); return; }
+      timer = setTimeout(function () {
+        fetch(ROOT + 'supplier/guests/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            var rows = (d && d.results) || [];
+            results.innerHTML = '';
+            if (!rows.length) {
+              results.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No match — the typed name is kept, or use “New”.</div>';
+              results.classList.remove('hidden'); return;
+            }
+            rows.forEach(function (g) {
+              var el = document.createElement('button');
+              el.type = 'button';
+              el.className = 'block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50';
+              el.innerHTML = '<span class="font-medium text-gray-800">' + esc(g.name || '(guest)') + '</span> <span class="text-gray-400">' + esc([g.phone, g.email].filter(Boolean).join(' · ')) + '</span>';
+              el.addEventListener('click', function () { setRowGuest(row, g); hide(); });
+              results.appendChild(el);
+            });
+            results.classList.remove('hidden');
+          })
+          .catch(function () { hide(); });
+      }, 220);
+    });
+    document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) hide(); });
+
+    // Remove row (but keep at least one row present).
+    row.querySelector('.gcf-grm').addEventListener('click', function () {
+      if (rowsWrap.querySelectorAll('.gcf-grow').length > 1) { row.remove(); }
+      else { clearRowGuest(row); search.value = ''; }
+    });
+
+    // "New" opens the shared create-popup bound to THIS row.
+    row.querySelector('.gcf-gnew').addEventListener('click', function () { openGuestModal(row, search.value.trim()); });
+  }
+
+  // ---- Shared "New guest" create modal → /supplier/guests/quick-create (the REAL create-or-
+  //      find the booking engine uses, same as the single desk). On success, fills the row.
+  var modal = document.getElementById('gcfGuestModal');
+  var mClose = document.getElementById('gcfGuestModalClose'), mCancel = document.getElementById('gcfGuestModalCancel'),
+      mSave = document.getElementById('gcfGuestModalSave'), mErr = document.getElementById('gcfGuestModalErr'),
+      mFirst = document.getElementById('gcfNgFirst'), mLast = document.getElementById('gcfNgLast'),
+      mPhone = document.getElementById('gcfNgPhone'), mEmail = document.getElementById('gcfNgEmail');
+  var modalRow = null;
+  function openGuestModal(row, seed) {
+    modalRow = row;
+    // Seed first/last from whatever the operator typed.
+    var parts = (seed || '').split(' ');
+    mFirst.value = parts.shift() || ''; mLast.value = parts.join(' ');
+    mPhone.value = ''; mEmail.value = ''; mErr.classList.add('hidden');
+    modal.classList.remove('hidden');
+  }
+  function closeGuestModal() { modal.classList.add('hidden'); modalRow = null; }
+  mClose && mClose.addEventListener('click', closeGuestModal);
+  mCancel && mCancel.addEventListener('click', closeGuestModal);
+  modal && modal.addEventListener('click', function (e) { if (e.target === modal) closeGuestModal(); });
+  mSave && mSave.addEventListener('click', function () {
+    var first = mFirst.value.trim(), last = mLast.value.trim(), ph = mPhone.value.trim();
+    if (!first && !last) { mErr.querySelector('p').textContent = 'A guest name is required.'; mErr.classList.remove('hidden'); return; }
+    if ((ph.replace(/\D+/g, '')).length < 7) { mErr.querySelector('p').textContent = 'A valid phone number is required (at least 7 digits).'; mErr.classList.remove('hidden'); return; }
+    mSave.disabled = true;
+    var fd = new FormData();
+    fd.append('first_name', first); fd.append('last_name', last); fd.append('phone', ph); fd.append('email', mEmail.value.trim()); fd.append('csrf_token', CSRF_VAL);
+    fetch(ROOT + 'supplier/guests/quick-create', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF_VAL } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        mSave.disabled = false;
+        if (d && d.ok && d.guest) { if (modalRow) setRowGuest(modalRow, d.guest); closeGuestModal(); }
+        else { mErr.querySelector('p').textContent = (d && d.message) || 'Could not create the guest.'; mErr.classList.remove('hidden'); }
+      })
+      .catch(function () { mSave.disabled = false; mErr.querySelector('p').textContent = 'Network error.'; mErr.classList.remove('hidden'); });
+  });
+
+  // Start with one guest row, and add-another wiring + initial estimate.
+  addBtn && addBtn.addEventListener('click', function () { rowsWrap.appendChild(buildRow()); });
+  if (rowsWrap) { rowsWrap.appendChild(buildRow()); }
+  window.gcfEstimate();
 })();
 </script>
