@@ -51,6 +51,52 @@ if (!function_exists('gia_bp_reminder_count')) {
     function gia_bp_reminder_count(): int { return 5; }
 }
 
+if (!function_exists('gia_bp_pay_window_minutes')) {
+    /**
+     * The pay window (minutes) for a booking, CAPPED by a flight's real supplier fare
+     * expiry where one is known. Without this cap a flight got a flat ~20-min window
+     * that could outlast the supplier's fare hold (notably Tiqwa, whose confirm returns
+     * a hard `expires_at`) — so a customer could pay after the fare had lapsed and the
+     * ticket then fail to issue (→ auto-refund) or settle against a stale price.
+     *
+     * Effective window = min( gia_bp_window_minutes(service), floor(fare_expiry − now) )
+     * when a flight carries a future fare_expires_at in booking_data; otherwise it is
+     * exactly gia_bp_window_minutes() (so non-flights + unknown-expiry are unchanged).
+     * Wires the previously-dormant gia_flights_pay_window() resolver (per-provider admin
+     * window + supplier expiry); falls back to inline min() if that file isn't loaded.
+     *
+     * @param array $facts  gia_bp_booking_facts() output (service/supplier/fare_expires_at)
+     */
+    function gia_bp_pay_window_minutes($db, array $facts): int
+    {
+        // Base window keys on the MODULE (per-service config, e.g. umrah=30).
+        $base = gia_bp_window_minutes($db, (string) ($facts['module'] ?? ''));
+        // Service (flights/stays/...) resolves the GIA service even for ai_trip rows.
+        $service = (string) ($facts['service'] ?? '');
+        $fareExpiresAt = trim((string) ($facts['fare_expires_at'] ?? ''));
+        $supplier = (string) ($facts['supplier'] ?? '');
+        // Only flights carry a short supplier fare expiry; everything else = base window.
+        if ($service !== 'flights' || $fareExpiresAt === '') { return $base; }
+
+        // Prefer the dedicated resolver (per-provider admin window ∧ fare expiry) if the
+        // flights lib is loaded; else cap inline. Either way, never below 1 minute.
+        if (function_exists('App\\lib\\ai\\gia_flights_pay_window')) {
+            try {
+                $w = \App\lib\ai\gia_flights_pay_window($db, $supplier, $fareExpiresAt);
+                // Still bound by the GIA service window too (the resolver uses its own
+                // admin default of 15; take the tighter of it and the service window).
+                return max(1, min($base, (int) $w));
+            } catch (\Throwable $e) { /* fall through to inline cap */ }
+        }
+        $ts = strtotime($fareExpiresAt);
+        if ($ts !== false && $ts > time()) {
+            $fareMin = (int) floor(($ts - time()) / 60);
+            if ($fareMin >= 1) { return max(1, min($base, $fareMin)); }
+        }
+        return $base; // expiry already passed or unparseable → base (book-time reval guards the stale case)
+    }
+}
+
 if (!function_exists('gia_bp_ensure_schema')) {
     /** Idempotently create gia_booking_payments (house self-healing pattern). */
     function gia_bp_ensure_schema($db): void
@@ -170,11 +216,24 @@ if (!function_exists('gia_bp_booking_facts')) {
             $phone = gia_bp_normalise_phone((string) ($cfg['contact_phone'] ?? ''), '');
         }
         if ($phone === '') { $phone = '+2348000000000'; } // last-resort valid NG format
+        // Decode booking_data once to surface the GIA SERVICE (flights/stays/esim —
+        // for ai_trip rows the real service lives here, not in module_type), the
+        // supplier, and a flight's hard fare expiry (for the pay-window cap). Fail-soft.
+        $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+        if (!is_array($bd)) { $bd = []; }
+        $service = strtolower((string) ($bd['gia_service'] ?? ''));
+        if ($service === '') { $service = $module; } // non-GIA rows: module IS the service
+
         return [
             'amount'   => round($amount, 2),
             'due_now'  => round($dueNow, 2),
             'currency' => $currency,
             'module'   => $module !== '' ? $module : 'booking',
+            // GIA service (flights/stays/esim/umrah...) — use THIS for service logic;
+            // module is 'ai_trip' for GIA bookings and would mis-key a flights check.
+            'service'  => $service,
+            'supplier' => strtolower((string) ($bd['supplier'] ?? '')),
+            'fare_expires_at' => trim((string) ($bd['fare_expires_at'] ?? '')),
             'email'    => trim((string) ($b['email'] ?? '')),
             'phone'    => $phone,
             'paid'     => (string) ($b['payment_status'] ?? '') === 'paid',
@@ -222,10 +281,20 @@ if (!function_exists('gia_bp_create_dva')) {
      * an invoice, and arm the 20-minute window. Idempotent: returns the existing
      * VA if one is already assigned for this invoice.
      *
+     * $deskMode TRUE => FRONT-DESK booking (GoGlobia-gateway at the desk, not a GIA
+     * chat booking): the DVA is created with NO expiry (expires_at = NULL) and the
+     * reminder counter pre-maxed, so the GIA sweep (gia_bp_sweep) NEVER auto-cancels
+     * the booking or sends chat reminders for it — a desk guest may pay by transfer
+     * hours later and the room must stay held. Settlement still flows through the
+     * SAME Paystack webhook -> gia_bp_confirm path (matched by customer_code); a desk
+     * stays booking lands in confirm's generic branch, which marks it paid (its
+     * inventory hold was already consumed at walk-in creation, so stays_on_paid is
+     * not needed). Default FALSE keeps GIA chat behaviour 100% unchanged.
+     *
      * @return array ok + account_number/bank/name/amount/currency/expires_at, or
      *               ok=false with a message (and not_enabled/needs_bvn flags).
      */
-    function gia_bp_create_dva($db, string $invoiceId, string $channel = '', string $channelUserId = ''): array
+    function gia_bp_create_dva($db, string $invoiceId, string $channel = '', string $channelUserId = '', bool $deskMode = false): array
     {
         gia_bp_ensure_schema($db);
         require_once dirname(__DIR__) . '/wallet.php';
@@ -300,7 +369,11 @@ if (!function_exists('gia_bp_create_dva')) {
         $bank = (string) ($d['bank']['name'] ?? '');
         $name = (string) ($d['account_name'] ?? '');
 
-        $expiresAt = date('Y-m-d H:i:s', time() + gia_bp_window_minutes($db, (string) $facts['module']) * 60);
+        // Desk (GoGlobia-gateway) bookings get NO expiry so the sweep never cancels them,
+        // and reminders pre-maxed so the sweep's reminder branch is skipped too. GIA chat
+        // bookings keep their normal per-service window.
+        $expiresAt = $deskMode ? null : date('Y-m-d H:i:s', time() + gia_bp_pay_window_minutes($db, $facts) * 60);
+        $remindersSeed = $deskMode ? gia_bp_reminder_count() : 0;
         try {
             $db->insert('gia_booking_payments', [
                 'invoice_id' => $invoiceId, 'method' => 'dva', 'status' => 'pending',
@@ -308,7 +381,7 @@ if (!function_exists('gia_bp_create_dva')) {
                 'channel' => $channel, 'channel_user_id' => $channelUserId,
                 'paystack_customer_code' => $customerCode,
                 'dva_account_number' => $acct, 'dva_bank_name' => $bank, 'dva_account_name' => $name,
-                'expires_at' => $expiresAt,
+                'expires_at' => $expiresAt, 'reminders_sent' => $remindersSeed,
                 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
             ]);
         } catch (\Throwable $e) {
@@ -377,7 +450,7 @@ if (!function_exists('gia_bp_create_checkout')) {
         }
         $authUrl = (string) $r['json']['data']['authorization_url'];
 
-        $expiresAt = date('Y-m-d H:i:s', time() + gia_bp_window_minutes($db, (string) $facts['module']) * 60);
+        $expiresAt = date('Y-m-d H:i:s', time() + gia_bp_pay_window_minutes($db, $facts) * 60);
         try {
             $db->insert('gia_booking_payments', [
                 'invoice_id' => $invoiceId, 'method' => 'checkout', 'status' => 'pending',

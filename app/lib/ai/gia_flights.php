@@ -618,13 +618,26 @@ if (!function_exists('App\\lib\\ai\\gia_flights_select')) {
         $revItem = \is_array($draft['items'][0] ?? null) ? $draft['items'][0] : $item;
         $newPrice = (float) ($res['new_total'] ?? ($revItem['price'] ?? 0));
 
+        // Supplier's HARD fare expiry from the confirm/revalidate response (Tiqwa
+        // returns one; Adivaha etc. usually ''). The revalidate helper surfaces it per
+        // item in $res['items'][]. Carry it forward so gia_flights_book can store it and
+        // the pay window can be capped to the fare's real life (not a flat 20 min).
+        $fareExpiresAt = '';
+        foreach (($res['items'] ?? []) as $ri) {
+            if (is_array($ri) && ($ri['module'] ?? '') === 'flights' && trim((string) ($ri['fare_expires_at'] ?? '')) !== '') {
+                $fareExpiresAt = trim((string) $ri['fare_expires_at']);
+                break;
+            }
+        }
+
         return [
-            'ok'            => true,
-            'supplier'      => $supplier,
-            'price'         => \round($newPrice, 2),
-            'currency'      => (string) ($res['currency'] ?? $currency),
-            'price_changed' => !empty($res['price_changed']),
-            'item'          => $revItem, // carry forward into gia_flights_book
+            'ok'              => true,
+            'supplier'        => $supplier,
+            'price'           => \round($newPrice, 2),
+            'currency'        => (string) ($res['currency'] ?? $currency),
+            'price_changed'   => !empty($res['price_changed']),
+            'fare_expires_at' => $fareExpiresAt, // '' = unknown (no window cap)
+            'item'            => $revItem, // carry forward into gia_flights_book
         ];
     }
 }
@@ -774,6 +787,7 @@ if (!function_exists('App\\lib\\ai\\gia_flights_book')) {
         }
         $supplier = (string) $sel['supplier'];
         $amount   = (float) $sel['price'];
+        $fareExpiresAt = trim((string) ($sel['fare_expires_at'] ?? '')); // supplier hard expiry ('' = unknown)
         $currency = (string) ($sel['currency'] ?? $currency);
         if ($amount <= 0) {
             return ['ok' => false, 'message' => 'That fare could not be priced. Please search again.'];
@@ -808,6 +822,9 @@ if (!function_exists('App\\lib\\ai\\gia_flights_book')) {
             'gia_conv_key'     => (string) ($lead['conv_key'] ?? ''), // ownership anchor for the pay gate
             'package_id'       => $invoiceId,
             'supplier'         => $supplier,
+            // Supplier's HARD fare expiry (Tiqwa) — '' when unknown. Read by the pay
+            // window to cap the customer's time-to-pay to the fare's real life.
+            'fare_expires_at'  => $fareExpiresAt,
             'items'            => [[
                 'module'   => 'flights',
                 'kind'     => 'flights',

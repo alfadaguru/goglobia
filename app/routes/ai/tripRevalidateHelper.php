@@ -332,6 +332,12 @@ if (!function_exists('aiTripRevalidateFlightItem')) {
             'old_price' => $oldDisplay,
             'new_price' => $newDisplay,
             'currency' => $currency,
+            // Supplier's HARD fare expiry from the confirm/revalidate response (Tiqwa
+            // returns data.expires_at = "Expiry date for ticket issuing"; most others
+            // return ''). Surfaced additively so a caller (GIA's pay window) can cap the
+            // customer's time-to-pay to the fare's real life instead of a flat window.
+            // '' = unknown (no cap). Nothing else reads it, so this is purely additive.
+            'fare_expires_at' => (string) ($result['data']['expires_at'] ?? ''),
             'message' => $changed
                 ? 'Flight fare updated.'
                 : ($result['message'] ?? 'Flight fare verified.'),
