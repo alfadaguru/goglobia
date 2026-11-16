@@ -53,7 +53,7 @@ if (!function_exists('_proc_ext_flash_back')) {
 // ---------------------------------------------------------------------------
 $router->get('/supplier/procurement/ext', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
-    if (!supplier_can($db, 'procurement', 'view')) { _proc_ext_deny('You do not have procurement access.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'view')) { _proc_ext_deny('You do not have procurement access.'); }
     $orgId = _proc_ext_org($db);
     if ($orgId <= 0) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'No supplier organisation is linked to your account.'];
@@ -105,7 +105,7 @@ $router->get('/supplier/procurement/ext', function () use ($SECURE, $db) {
 // ---------------------------------------------------------------------------
 $router->post('/supplier/procurement/ext/requisition', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised to raise requisitions.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised to raise requisitions.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $id = function_exists('proc_req_create') ? proc_req_create($db, $orgId, [
         'title' => $_POST['title'] ?? '', 'justification' => $_POST['justification'] ?? '',
@@ -118,7 +118,7 @@ $router->post('/supplier/procurement/ext/requisition', function () use ($SECURE,
 $router->post('/supplier/procurement/ext/requisition/decide', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     // Approving spend is an elevated action — require 'approve' permission (owner has all).
-    if (!supplier_can($db, 'procurement', 'approve')) { _proc_ext_deny('Not authorised to approve requisitions.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'approve')) { _proc_ext_deny('Not authorised to approve requisitions.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $ok = function_exists('proc_req_decide') && proc_req_decide($db, $orgId,
         (int) ($_POST['req_id'] ?? 0), (string) ($_POST['decision'] ?? ''), (string) ($_POST['note'] ?? ''));
@@ -127,7 +127,7 @@ $router->post('/supplier/procurement/ext/requisition/decide', function () use ($
 
 $router->post('/supplier/procurement/ext/requisition/to-po', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised to create purchase orders.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised to create purchase orders.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $poId = function_exists('proc_req_to_po') ? proc_req_to_po($db, $orgId, (int) ($_POST['req_id'] ?? 0)) : 0;
     _proc_ext_flash_back($poId > 0, 'Draft PO created from requisition. Add lines in Procurement.',
@@ -139,7 +139,7 @@ $router->post('/supplier/procurement/ext/requisition/to-po', function () use ($S
 // ---------------------------------------------------------------------------
 $router->post('/supplier/procurement/ext/rfq', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $id = function_exists('proc_rfq_create') ? proc_rfq_create($db, $orgId, [
         'item_id' => $_POST['item_id'] ?? 0, 'qty' => $_POST['qty'] ?? 0,
@@ -151,7 +151,7 @@ $router->post('/supplier/procurement/ext/rfq', function () use ($SECURE, $db) {
 
 $router->post('/supplier/procurement/ext/rfq/quote', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $rfqId = (int) ($_POST['rfq_id'] ?? 0);
     $ok = function_exists('proc_quote_submit') && proc_quote_submit($db, $orgId, $rfqId,
@@ -163,7 +163,7 @@ $router->post('/supplier/procurement/ext/rfq/quote', function () use ($SECURE, $
 
 $router->post('/supplier/procurement/ext/rfq/dispatch', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     // HONEST STUB — reports 'not connected'; no outbound send is faked.
     $res = function_exists('proc_ext_rfq_dispatch') ? proc_ext_rfq_dispatch($db, $orgId, (int) ($_POST['rfq_id'] ?? 0))
@@ -176,7 +176,7 @@ $router->post('/supplier/procurement/ext/rfq/dispatch', function () use ($SECURE
 $router->post('/supplier/procurement/ext/rfq/award', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     // Awarding commits spend → require 'approve'.
-    if (!supplier_can($db, 'procurement', 'approve')) { _proc_ext_deny('Not authorised to award RFQs.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'approve')) { _proc_ext_deny('Not authorised to award RFQs.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $poId = function_exists('proc_rfq_award') ? proc_rfq_award($db, $orgId,
         (int) ($_POST['rfq_id'] ?? 0), (int) ($_POST['quote_id'] ?? 0)) : 0;
@@ -189,7 +189,7 @@ $router->post('/supplier/procurement/ext/rfq/award', function () use ($SECURE, $
 // ---------------------------------------------------------------------------
 $router->post('/supplier/procurement/ext/po/receive-partial', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'edit')) { _proc_ext_deny('Not authorised to receive goods.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'edit')) { _proc_ext_deny('Not authorised to receive goods.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $poId = (int) ($_POST['po_id'] ?? 0);
     // deliveries[line_id] = qty — server reads unit cost; client qty is clamped to outstanding.
@@ -209,7 +209,7 @@ $router->post('/supplier/procurement/ext/po/receive-partial', function () use ($
 // ---------------------------------------------------------------------------
 $router->post('/supplier/procurement/ext/po/return', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'edit')) { _proc_ext_deny('Not authorised to return goods.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'edit')) { _proc_ext_deny('Not authorised to return goods.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $poId = (int) ($_POST['po_id'] ?? 0);
     $res = function_exists('proc_return_to_vendor')
@@ -225,7 +225,7 @@ $router->post('/supplier/procurement/ext/po/return', function () use ($SECURE, $
 // ---------------------------------------------------------------------------
 $router->post('/supplier/procurement/ext/po/invoice', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'edit')) { _proc_ext_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'edit')) { _proc_ext_deny('Not authorised.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $poId = (int) ($_POST['po_id'] ?? 0);
     $id = function_exists('proc_invoice_record') ? proc_invoice_record($db, $orgId, $poId,
@@ -241,7 +241,7 @@ $router->post('/supplier/procurement/ext/po/invoice', function () use ($SECURE, 
 // ---------------------------------------------------------------------------
 $router->post('/supplier/procurement/ext/contract', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'add')) { _proc_ext_deny('Not authorised.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $id = function_exists('proc_contract_create') ? proc_contract_create($db, $orgId, [
         'vendor_id' => $_POST['vendor_id'] ?? 0, 'title' => $_POST['title'] ?? '',
@@ -258,7 +258,7 @@ $router->post('/supplier/procurement/ext/contract', function () use ($SECURE, $d
 $router->post('/supplier/procurement/ext/budget', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     // Setting budgets is an owner/finance action — require 'approve'.
-    if (!supplier_can($db, 'procurement', 'approve')) { _proc_ext_deny('Not authorised to set budgets.'); }
+    if (!supplier_can_orgwide($db, 'procurement', 'approve')) { _proc_ext_deny('Not authorised to set budgets.'); }
     $orgId = _proc_ext_org($db); if ($orgId <= 0) { _proc_ext_deny('No supplier organisation.'); }
     $ok = function_exists('proc_budget_set') && proc_budget_set($db, $orgId,
         (string) ($_POST['period'] ?? ''), (float) ($_POST['amount'] ?? 0), (string) ($_POST['currency'] ?? 'USD'));

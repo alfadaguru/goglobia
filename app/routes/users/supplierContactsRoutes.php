@@ -27,7 +27,7 @@ $router->get('/supplier/customers', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
 
     // One-time idempotent backfill so the book isn't empty on first open. Cheap on
@@ -49,7 +49,7 @@ $router->get('/supplier/customers', function () use ($SECURE, $db) {
     $contacts = $orgId > 0 ? contacts_list($db, $orgId, ['q' => $q, 'type' => $type]) : [];
     $counts = $orgId > 0 ? contacts_counts_by_type($db, $orgId) : ['all' => 0];
     $types = contacts_types();
-    $canEdit = supplier_can($db, 'reservations', 'edit');
+    $canEdit = supplier_can_orgwide($db, 'reservations', 'edit');
     // P2b: surface possible duplicates (same phone / name) for a one-click merge — only
     // on the unfiltered view, so it reads as a "tidy up your book" prompt, not noise.
     $dupes = ($orgId > 0 && $q === '' && $type === '' && function_exists('contacts_duplicates'))
@@ -72,7 +72,7 @@ $router->get('/supplier/customers/search', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
-    if ($ctx === null || !supplier_can($db, 'reservations', 'view')) {
+    if ($ctx === null || !supplier_can_orgwide($db, 'reservations', 'view')) {
         echo json_encode(['ok' => false, 'results' => []]); exit;
     }
     $orgId = (int) $ctx['org'];
@@ -103,7 +103,7 @@ $router->post('/supplier/customers/quick-create', function () use ($SECURE, $db)
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard(); // reads X-CSRF-TOKEN header (fetch) or csrf_token field; emits JSON 403 on fail
     $ctx = _contacts_ctx($db);
-    if ($ctx === null || !supplier_can($db, 'reservations', 'edit')) {
+    if ($ctx === null || !supplier_can_orgwide($db, 'reservations', 'edit')) {
         echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit;
     }
     $orgId = (int) $ctx['org'];
@@ -161,7 +161,7 @@ $router->get('/supplier/customers/new', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $types = contacts_types();
     // ?id= present → prefill for EDIT (same form serves create + edit); else blank new.
     $contact = null;
@@ -182,7 +182,7 @@ $router->post('/supplier/customers/save', function () use ($SECURE, $db) {
     CSRF::guard();
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $id = (int) ($_POST['id'] ?? 0);
     // EDITING an existing org-wide customer (id>0) is the cross-property class (audit N8):
@@ -206,7 +206,7 @@ $router->get('/supplier/customers/([0-9]+)', function ($id) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $contact = contacts_get($db, $orgId, (int) $id);
     if (!$contact) {
