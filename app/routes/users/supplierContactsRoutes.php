@@ -27,7 +27,7 @@ $router->get('/supplier/customers', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'customers', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
 
     // One-time idempotent backfill so the book isn't empty on first open. Cheap on
@@ -49,7 +49,7 @@ $router->get('/supplier/customers', function () use ($SECURE, $db) {
     $contacts = $orgId > 0 ? contacts_list($db, $orgId, ['q' => $q, 'type' => $type]) : [];
     $counts = $orgId > 0 ? contacts_counts_by_type($db, $orgId) : ['all' => 0];
     $types = contacts_types();
-    $canEdit = supplier_can_orgwide($db, 'reservations', 'edit');
+    $canEdit = supplier_can_orgwide($db, 'customers', 'edit');
     // P2b: surface possible duplicates (same phone / name) for a one-click merge — only
     // on the unfiltered view, so it reads as a "tidy up your book" prompt, not noise.
     $dupes = ($orgId > 0 && $q === '' && $type === '' && function_exists('contacts_duplicates'))
@@ -72,7 +72,7 @@ $router->get('/supplier/customers/search', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
-    if ($ctx === null || !supplier_can_orgwide($db, 'reservations', 'view')) {
+    if ($ctx === null || !supplier_can_orgwide($db, 'customers', 'view')) {
         echo json_encode(['ok' => false, 'results' => []]); exit;
     }
     $orgId = (int) $ctx['org'];
@@ -103,7 +103,7 @@ $router->post('/supplier/customers/quick-create', function () use ($SECURE, $db)
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard(); // reads X-CSRF-TOKEN header (fetch) or csrf_token field; emits JSON 403 on fail
     $ctx = _contacts_ctx($db);
-    if ($ctx === null || !supplier_can_orgwide($db, 'reservations', 'edit')) {
+    if ($ctx === null || !supplier_can_orgwide($db, 'customers', 'edit')) {
         echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit;
     }
     $orgId = (int) $ctx['org'];
@@ -130,7 +130,7 @@ $router->post('/supplier/customers/merge', function () use ($SECURE, $db) {
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
     // Org-wide write (merges wallet balances across the WHOLE customer book) — a
     // property-restricted 'selected'-scope staffer must not reach it (audit #10).
-    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'customers', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $survivor = (int) ($_POST['survivor_id'] ?? 0);
     // The loser set = the OTHER members of this duplicate group (sent as a JSON id list),
@@ -161,7 +161,7 @@ $router->get('/supplier/customers/new', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'customers', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $types = contacts_types();
     // ?id= present → prefill for EDIT (same form serves create + edit); else blank new.
     $contact = null;
@@ -182,14 +182,14 @@ $router->post('/supplier/customers/save', function () use ($SECURE, $db) {
     CSRF::guard();
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'customers', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $id = (int) ($_POST['id'] ?? 0);
     // EDITING an existing org-wide customer (id>0) is the cross-property class (audit N8):
     // a 'selected'-scope staffer must not alter a customer tied to properties they can't
     // see. Creating a NEW customer (id=0) stays allowed — the front-desk walk-in form
     // needs it (parity with /quick-create, see audit #10).
-    if ($id > 0 && !supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised to edit an org-wide customer.'); }
+    if ($id > 0 && !supplier_can_orgwide($db, 'customers', 'edit')) { _supplier_stays_deny('Not authorised to edit an org-wide customer.'); }
 
     $res = contacts_save($db, $orgId, $_POST, $id);
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
@@ -206,7 +206,7 @@ $router->get('/supplier/customers/([0-9]+)', function ($id) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'customers', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $contact = contacts_get($db, $orgId, (int) $id);
     if (!$contact) {
@@ -228,7 +228,7 @@ $router->get('/supplier/customers/([0-9]+)', function ($id) use ($SECURE, $db) {
     // A 'selected'-scope staffer may see the shared profile, but editing an org-wide
     // customer and seeing its deposit-wallet money (balances/ledger span properties they
     // cannot see) is the org-wide class (audit N8). Gate both on supplier_can_orgwide.
-    $canOrgWide = supplier_can_orgwide($db, 'reservations', 'edit');
+    $canOrgWide = supplier_can_orgwide($db, 'customers', 'edit');
     $canEdit = $canOrgWide;
 
     // Phase 4b: the customer's deposit wallet (balances per currency + recent ledger) —
@@ -255,7 +255,7 @@ $router->post('/supplier/customers/([0-9]+)/wallet', function ($id) use ($SECURE
     // Org-wide MONEY MOVE on a customer's deposit wallet (keyed only by org, not property)
     // — a 'selected'-scope staffer must not reach it (audit N3). supplier_can with no
     // stayId would skip the property whitelist entirely.
-    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'customers', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $back = root . 'supplier/customers/' . (int) $id;
     if (!contacts_get($db, $orgId, (int) $id)) {
@@ -304,7 +304,7 @@ $router->post('/supplier/customers/([0-9]+)/note', function ($id) use ($SECURE, 
     // a 'selected'-scope staffer must not edit a customer tied to properties they can't see
     // (audit M6: this sibling path bypassed the supplier_can_orgwide gate N8 added to /save
     // and /wallet).
-    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'customers', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $existing = contacts_get($db, $orgId, (int) $id);
     if (!$existing) {

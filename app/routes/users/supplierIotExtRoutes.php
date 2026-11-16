@@ -16,7 +16,7 @@ if (!function_exists('_iot_ext_ctx')) {
         SUPPLIER_OR_STAFF_AUTH($db);
         $owner = _supplier_stays_owner($db);
         if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-        if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+        if (!supplier_can($db, 'iot', 'view')) { _supplier_stays_deny('Not authorised.'); }
         return [$owner, supplier_owned_stay_ids($db, $owner)];
     }
 }
@@ -28,7 +28,7 @@ if (!function_exists('_iot_ext_mutate_ctx')) {
         SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
         $owner = _supplier_stays_owner($db);
         if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-        if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+        if (!supplier_can($db, 'iot', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
         $orgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
         return [$owner, $orgId];
     }
@@ -67,7 +67,7 @@ $router->get('/supplier/iot', function () use ($SECURE, $db) {
 
     $propMap = [];
     if (!empty($stayIds)) { try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {} }
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'iot', 'edit');
 
     $view = 'list';
     $title = 'Smart building & IoT'; $description = ''; $header = true; $footer = true;
@@ -90,7 +90,7 @@ $router->get('/supplier/iot/device/([0-9]+)', function ($id) use ($SECURE, $db) 
     $propMap = [];
     try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
     $live = function_exists('iot_live_status') ? iot_live_status($db, $stayId) : ['connected' => false, 'message' => ''];
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'iot', 'edit');
 
     $view = 'detail';
     $title = 'IoT device'; $description = ''; $header = true; $footer = true;

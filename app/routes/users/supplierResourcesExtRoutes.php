@@ -28,7 +28,7 @@ $router->get('/supplier/resources', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'resources', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
 
     $resources = function_exists('resource_list') ? resource_list($db, $stayIds) : [];
@@ -39,7 +39,7 @@ $router->get('/supplier/resources', function () use ($SECURE, $db) {
     $resMap = []; foreach ($resources as $r) { $resMap[(int) $r['id']] = $r; }
     $kinds = function_exists('resource_kinds') ? resource_kinds() : [];
     $statuses = function_exists('resource_statuses') ? resource_statuses() : [];
-    $canEdit = supplier_can($db, 'reservations', 'edit');
+    $canEdit = supplier_can($db, 'resources', 'edit');
 
     $title = 'Resources'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -52,7 +52,7 @@ $router->post('/supplier/resources/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/resources';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'resources', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('resource_add') ? resource_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Resource added.' : 'Could not add (name + property required).'];
     header('Location: ' . $back); exit;
@@ -63,7 +63,7 @@ $router->post('/supplier/resources/active', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/resources';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'resources', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $active = (string) ($_POST['active'] ?? '1') === '1';
     $ok = function_exists('resource_set_active') && resource_set_active($db, (int) ($_POST['id'] ?? 0), $stayId, $active);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Updated.' : 'Could not update.'];
@@ -75,7 +75,7 @@ $router->post('/supplier/resources/reserve', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/resources';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'resources', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $r = function_exists('resource_reserve')
         ? resource_reserve($db, $stayId, (int) ($_POST['resource_id'] ?? 0), $_POST)
         : ['ok' => false, 'error' => 'Unavailable.'];
@@ -92,7 +92,7 @@ $router->post('/supplier/resources/slot-status', function () use ($SECURE, $db) 
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/resources';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'resources', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('resource_slot_set_status')
         && resource_slot_set_status($db, (int) ($_POST['id'] ?? 0), $stayId, strtolower(trim((string) ($_POST['status'] ?? ''))));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Updated.' : 'Could not update.'];
@@ -106,7 +106,7 @@ $router->post('/supplier/resources/post-folio', function () use ($SECURE, $db) {
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/resources';
     // Posting money requires the stronger 'folio' grant on the named property; fall back
     // to reservations-edit if that action is not defined in the role matrix.
-    $allowed = supplier_can($db, 'reservations', 'folio', $stayId) || supplier_can($db, 'reservations', 'edit', $stayId);
+    $allowed = supplier_can($db, 'resources', 'folio', $stayId) || supplier_can($db, 'reservations', 'edit', $stayId);
     if (!$allowed) { _supplier_stays_deny('Not authorised to post charges.'); }
     $r = function_exists('resource_slot_post_folio')
         ? resource_slot_post_folio($db, (int) ($_POST['id'] ?? 0), $stayId)

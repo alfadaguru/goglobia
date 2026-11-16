@@ -22,7 +22,7 @@ if (!function_exists('_apt_ext_unit_guard')) {
     {
         $stayId = function_exists('apartment_unit_stay_id') ? apartment_unit_stay_id($db, $unitId) : 0;
         if ($stayId <= 0) { _supplier_stays_deny('Unit not found.'); }
-        if (!supplier_can($db, 'rooms', $need, $stayId)) { _supplier_stays_deny('Not your property.'); }
+        if (!supplier_can($db, 'apartments', $need, $stayId)) { _supplier_stays_deny('Not your property.'); }
         return $stayId;
     }
 }
@@ -52,7 +52,7 @@ $router->get('/supplier/apartment/manage', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'apartments', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
 
     // Properties flagged as apartment/vacation-rental accommodation types.
@@ -79,7 +79,7 @@ $router->get('/supplier/apartment/manage', function () use ($SECURE, $db) {
     $checkinMethods   = function_exists('apartment_checkin_methods') ? apartment_checkin_methods() : [];
     $turnoverStatuses = function_exists('apartment_turnover_statuses') ? apartment_turnover_statuses() : [];
     $damageStatuses   = function_exists('apartment_damage_statuses') ? apartment_damage_statuses() : [];
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'apartments', 'edit');
 
     $title = 'Apartment & vacation-rental'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -135,7 +135,7 @@ $router->post('/supplier/apartment/turnover/status', function () use ($SECURE, $
     $taskId = (int) ($_POST['id'] ?? 0);
     $stayId = _apt_ext_turnover_stay($db, $taskId);
     if ($stayId <= 0) { _supplier_stays_deny('Task not found.'); }
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'apartments', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $status = (string) ($_POST['status'] ?? '');
     $ok = function_exists('apartment_turnover_set_status') && apartment_turnover_set_status($db, $taskId, $stayId, $status);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Turnover updated.' : 'Could not update turnover.'];
@@ -164,7 +164,7 @@ $router->post('/supplier/apartment/damage/status', function () use ($SECURE, $db
     $reportId = (int) ($_POST['id'] ?? 0);
     $stayId = _apt_ext_damage_stay($db, $reportId);
     if ($stayId <= 0) { _supplier_stays_deny('Report not found.'); }
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'apartments', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $status = (string) ($_POST['status'] ?? '');
     $ok = function_exists('apartment_damage_set_status') && apartment_damage_set_status($db, $reportId, $stayId, $status);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Report updated.' : 'Could not update report.'];

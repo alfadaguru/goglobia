@@ -18,7 +18,7 @@ if (!function_exists('_lf_ext_item_guard')) {
     {
         $stayId = function_exists('lostfound_item_stay_id') ? lostfound_item_stay_id($db, $itemId) : 0;
         if ($stayId <= 0) { _supplier_stays_deny('Item not found.'); }
-        if (!supplier_can($db, 'rooms', $need, $stayId)) { _supplier_stays_deny('Not your property.'); }
+        if (!supplier_can($db, 'lostfound', $need, $stayId)) { _supplier_stays_deny('Not your property.'); }
         return $stayId;
     }
 }
@@ -29,7 +29,7 @@ $router->get('/supplier/lost-found/manage', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'lostfound', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $items = function_exists('lostfound_list') ? lostfound_list($db, $stayIds) : [];
     $detailMap = function_exists('lostfound_detail_map') ? lostfound_detail_map($db, array_map(fn($i) => (int) $i['id'], $items)) : [];
@@ -44,7 +44,7 @@ $router->get('/supplier/lost-found/manage', function () use ($SECURE, $db) {
     if (!empty($stayIds)) {
         try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; $propList[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
     }
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'lostfound', 'edit');
     $title = 'Lost & found — manage'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/lost-found-ext.php";
@@ -59,7 +59,7 @@ $router->get('/supplier/lost-found/audit/([0-9]+)', function ($itemId) use ($SEC
     $itemId = (int) $itemId;
     $stayId = function_exists('lostfound_item_stay_id') ? lostfound_item_stay_id($db, $itemId) : 0;
     header('Content-Type: application/json');
-    if ($stayId <= 0 || !supplier_can($db, 'rooms', 'view', $stayId)) { echo json_encode(['ok' => false, 'trail' => []]); exit; }
+    if ($stayId <= 0 || !supplier_can($db, 'lostfound', 'view', $stayId)) { echo json_encode(['ok' => false, 'trail' => []]); exit; }
     $trail = function_exists('lostfound_audit_trail') ? lostfound_audit_trail($db, $itemId) : [];
     echo json_encode(['ok' => true, 'trail' => $trail]); exit;
 });
@@ -124,7 +124,7 @@ $router->post('/supplier/lost-found/policy', function () use ($SECURE, $db) {
     $back = root . 'supplier/lost-found/manage';
     // Policy is org-wide → require edit on at least one owned property; derive org from it.
     $stayIds = supplier_owned_stay_ids($db, $owner);
-    if (empty($stayIds) || !supplier_can($db, 'rooms', 'edit', (int) $stayIds[0])) { _supplier_stays_deny('Not authorised.'); }
+    if (empty($stayIds) || !supplier_can($db, 'lostfound', 'edit', (int) $stayIds[0])) { _supplier_stays_deny('Not authorised.'); }
     $orgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, (int) $stayIds[0]) : 0;
     $ok = $orgId > 0 && function_exists('lostfound_policy_save') && lostfound_policy_save($db, $orgId, $_POST);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Disposal policy saved.' : 'Could not save policy.'];

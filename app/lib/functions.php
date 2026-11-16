@@ -10571,37 +10571,197 @@ if (!function_exists('stays_site_resolve_host')) {
 }
 
 /**
- * The modules (capability areas) a supplier role can grant permissions on, and the
- * actions available per module. Single source of truth for the role-builder matrix
- * and the supplier_role_allows() checks. Phase 1 ships the stays/hotel areas; later
- * phases (PMS/F&B) add more modules here without touching the gate.
+ * THE grantable permission catalogue — the SINGLE source of truth that both the Roles-page
+ * builder renders AND supplier_can()/supplier_role_allows() enforce. (Adding a key here makes
+ * it grantable AND enforceable; _supplier_role_build_perms() whitelists saves against it.)
+ *
+ * PER-AREA REDESIGN 2026-11-16 (owner-approved; docs/SUPPLIER-PERMISSION-MENU-REDESIGN.md):
+ * the old 9 broad modules bundled 86 menu screens (e.g. 'reservations' silently controlled
+ * ~21 screens, 'rooms' ~13), so a supplier could not delegate one area in isolation. This adds
+ * ONE key per real menu area. Each new key maps to a real route being re-gated onto it (Step 4);
+ * the actions listed are exactly what those routes check (verified in the route-gate extraction).
+ *
+ * The ORIGINAL 9 keys are KEPT (never removed) so existing stored roles keep working and the
+ * backfill (supplier_roles_backfill_per_area) can grant a broad-module holder all the new
+ * sub-keys it used to cover — no staff loses access on upgrade.
+ *
+ * supplier_role_modules_groups() groups these for the Roles-page UI only — it does not change
+ * the flat grant map this function returns.
  */
 function supplier_role_modules(): array
 {
     return [
+        // ---- ORIGINAL 9 (retained: back-compat + the legacy-expand source) ----
         'hotels'       => ['label' => 'Properties',    'actions' => ['view', 'add', 'edit', 'delete']],
         'rooms'        => ['label' => 'Rooms',         'actions' => ['view', 'add', 'edit', 'delete']],
         'rates'        => ['label' => 'Rates & availability', 'actions' => ['view', 'edit']],
-        // 'reservations' gates the WHOLE front-desk surface: the front-desk console,
-        // reservations inbox, guests, customers, walk-ins, POS. 'edit' is what grants
-        // CREATE (walk-ins/guests/customers), not just editing — so label it so a
-        // supplier building a "Front Desk" role actually ticks it (audit #3).
         'reservations' => ['label' => 'Front desk & reservations',  'actions' => ['view', 'edit']],
-        // NOTE: 'staff' is grantable, but staff-management routes use owner-only SUPPLIER_AUTH()
-        // (not SUPPLIER_OR_STAFF_AUTH), so granting it to a staffer is currently INERT — they
-        // still can't reach /supplier/staff|roles. If those routes are ever switched to the
-        // staff-admitting gate, this permission becomes a self-escalation primitive — gate the
-        // reassign/invite routes on supplier_can('staff','edit') explicitly first.
         'staff'        => ['label' => 'Staff & roles', 'actions' => ['view', 'add', 'edit', 'delete']],
-        // Delegatable back-office modules (RBAC audit 2026-11-15): these are gated by real
-        // routes but used to be absent from the grantable set, so a supplier could never
-        // give staff finance/procurement/HR access — now they can (e.g. hire an accountant
-        // or procurement officer). Actions listed match exactly what the routes check.
         'finance'      => ['label' => 'Finance & accounting', 'actions' => ['view', 'edit']],
         'procurement'  => ['label' => 'Procurement & stores', 'actions' => ['view', 'add', 'edit', 'approve']],
         'hr'           => ['label' => 'HR & workforce',        'actions' => ['view', 'edit']],
         'platformops'  => ['label' => 'Platform & compliance', 'actions' => ['view', 'edit']],
+
+        // ---- PER-AREA keys: one per menu screen. Actions match each route's real gate. ----
+        // Rooms & operations (property-scoped; carved out of 'rooms')
+        'housekeeping' => ['label' => 'Housekeeping',   'actions' => ['view', 'edit']],
+        'maintenance'  => ['label' => 'Maintenance',    'actions' => ['view', 'edit']],
+        'engineering'  => ['label' => 'Engineering',    'actions' => ['view', 'edit']],
+        'laundry'      => ['label' => 'Laundry',        'actions' => ['view', 'edit']],
+        'minibar'      => ['label' => 'Minibar',        'actions' => ['view', 'edit']],
+        'lostfound'    => ['label' => 'Lost & found',   'actions' => ['view', 'edit']],
+        'assets'       => ['label' => 'Assets',         'actions' => ['view', 'edit']],
+        'locks'        => ['label' => 'Smart locks',    'actions' => ['view', 'edit']],
+        'iot'          => ['label' => 'Smart building (IoT)', 'actions' => ['view', 'edit']],
+        'safety'       => ['label' => 'Safety & docs',  'actions' => ['view', 'edit']],
+        'compliance'   => ['label' => 'Compliance',     'actions' => ['view', 'edit']],
+        'apartments'   => ['label' => 'Apartments',     'actions' => ['view', 'edit']],
+        // Front desk & guest services (property-scoped; carved out of 'reservations')
+        'pos'          => ['label' => 'F&B / POS',      'actions' => ['view', 'edit']],
+        'recipes'      => ['label' => 'Recipes',        'actions' => ['view', 'edit']],
+        'kitchen'      => ['label' => 'Kitchen & food cost', 'actions' => ['view', 'edit']],
+        'spa'          => ['label' => 'Spa & wellness', 'actions' => ['view', 'edit']],
+        'services'     => ['label' => 'Ancillary services', 'actions' => ['view', 'edit']],
+        'resources'    => ['label' => 'Resources',      'actions' => ['view', 'edit']],
+        'events'       => ['label' => 'Events',         'actions' => ['view', 'edit']],
+        'nightaudit'   => ['label' => 'Night audit',    'actions' => ['view', 'edit']],
+        'groups'       => ['label' => 'Groups & blocks', 'actions' => ['view', 'edit']],
+        'cashier'      => ['label' => 'Cashier',        'actions' => ['view', 'edit']],
+        'reviews'      => ['label' => 'Reviews',        'actions' => ['view', 'edit']],
+        'reputation'   => ['label' => 'Reputation',     'actions' => ['view', 'edit']],
+        // Guests & CRM (org-wide; carved out of 'reservations')
+        'customers'    => ['label' => 'Customers',      'actions' => ['view', 'edit']],
+        'guests'       => ['label' => 'Guests',         'actions' => ['view', 'edit']],
+        'guestcrm'     => ['label' => 'Guest CRM',      'actions' => ['view', 'edit']],
+        'loyalty'      => ['label' => 'Loyalty',        'actions' => ['view', 'edit']],
+        'journey'      => ['label' => 'Guest journey',  'actions' => ['view', 'edit']],
+        'guestservice' => ['label' => 'Service & messages', 'actions' => ['view', 'edit']],
+        // Rates & distribution (property-scoped; carved out of 'rates')
+        'channels'     => ['label' => 'Channels',       'actions' => ['view', 'edit']],
+        'rms'          => ['label' => 'Revenue mgmt',   'actions' => ['view', 'edit']],
+        'calendar'     => ['label' => 'Calendar',       'actions' => ['view', 'edit']],
+        'packages'     => ['label' => 'Packages',       'actions' => ['view', 'edit']],
+        // Property & tenancy (property-scoped; carved out of 'hotels')
+        'buildings'    => ['label' => 'Buildings',      'actions' => ['view', 'edit']],
+        'leases'       => ['label' => 'Leases & utilities', 'actions' => ['view', 'edit']],
+        'site'         => ['label' => 'Site & domain',  'actions' => ['view', 'edit']],
+        // Finance detail (org-wide; carved out of 'finance')
+        'gl'           => ['label' => 'General ledger', 'actions' => ['view', 'edit']],
+        'ar'           => ['label' => 'Accounts receivable', 'actions' => ['view', 'edit']],
+        'ap'           => ['label' => 'Accounts payable', 'actions' => ['view', 'edit']],
+        'treasury'     => ['label' => 'Treasury',       'actions' => ['view', 'edit']],
+        'tax'          => ['label' => 'Tax & fiscal',   'actions' => ['view', 'edit']],
+        'payments'     => ['label' => 'Payments & deposits', 'actions' => ['view', 'edit']],
+        'settlement'   => ['label' => 'Settlement',     'actions' => ['view', 'edit']],
+        'corporate'    => ['label' => 'Corporate & trust', 'actions' => ['view', 'edit']],
+        'owneracct'    => ['label' => 'Owner accounting', 'actions' => ['view', 'edit']],
+        // Procurement detail (org-wide; carved out of 'procurement')
+        'stores'       => ['label' => 'Stores & inventory', 'actions' => ['view', 'add', 'edit']],
+        'vendors'      => ['label' => 'Vendors',        'actions' => ['view', 'edit']],
+        // Platform & intelligence (org-wide; carved out of 'platformops'/'reservations')
+        'alerts'       => ['label' => 'Alerts',         'actions' => ['view', 'edit']],
+        'workflow'     => ['label' => 'Tasks & workflow', 'actions' => ['view', 'edit']],
+        'bi'           => ['label' => 'Executive BI',   'actions' => ['view']],
+        'ai'           => ['label' => 'AI & automation', 'actions' => ['view', 'edit']],
+        'marketplace'  => ['label' => 'Marketplace',    'actions' => ['view']],
+        'rbac'         => ['label' => 'Access control', 'actions' => ['view', 'edit']],
     ];
+}
+
+if (!function_exists('supplier_role_modules_groups')) {
+    /**
+     * UI grouping for the Roles-page matrix ONLY — maps the flat catalogue into labelled
+     * sections so the builder reads as a map of the menu, not a wall of checkboxes. Every key
+     * here MUST exist in supplier_role_modules(). Does NOT change the grant map.
+     */
+    function supplier_role_modules_groups(): array
+    {
+        return [
+            'Front desk & reservations' => ['reservations', 'groups', 'cashier', 'pos', 'recipes', 'kitchen', 'spa', 'services', 'resources', 'events', 'nightaudit'],
+            'Guests & CRM'              => ['customers', 'guests', 'guestcrm', 'loyalty', 'journey', 'guestservice', 'reviews', 'reputation'],
+            'Rooms & operations'        => ['rooms', 'housekeeping', 'maintenance', 'engineering', 'laundry', 'minibar', 'lostfound', 'assets', 'locks', 'iot', 'safety', 'compliance', 'apartments'],
+            'Rates & distribution'      => ['rates', 'calendar', 'channels', 'rms', 'packages'],
+            'Property & tenancy'        => ['hotels', 'buildings', 'leases', 'site'],
+            'Finance & accounting'      => ['finance', 'gl', 'ar', 'ap', 'treasury', 'tax', 'payments', 'settlement', 'corporate', 'owneracct'],
+            'Procurement & stores'      => ['procurement', 'stores', 'vendors'],
+            'People'                    => ['staff', 'hr', 'rbac'],
+            'Intelligence & platform'   => ['platformops', 'alerts', 'workflow', 'bi', 'ai', 'marketplace'],
+        ];
+    }
+}
+
+if (!function_exists('supplier_role_legacy_expand_map')) {
+    /**
+     * BACKFILL MAP (per-area redesign 2026-11-16): a role holding an OLD broad module must be
+     * auto-granted the NEW per-area keys it used to cover, so no existing staff loses access
+     * when routes re-gate onto the per-area keys (Step 4). old-key => [new sub-keys]. The caller
+     * (supplier_roles_backfill_per_area) preserves the action level. 'payouts' and staff/role
+     * MANAGEMENT stay owner-only and are intentionally NOT in any expansion.
+     */
+    function supplier_role_legacy_expand_map(): array
+    {
+        return [
+            'rooms'        => ['housekeeping', 'maintenance', 'engineering', 'laundry', 'minibar', 'lostfound', 'assets', 'locks', 'iot', 'safety', 'compliance', 'apartments', 'vendors'],
+            'reservations' => ['pos', 'recipes', 'kitchen', 'spa', 'services', 'resources', 'events', 'nightaudit', 'groups', 'cashier', 'reviews', 'reputation', 'customers', 'guests', 'guestcrm', 'loyalty', 'journey', 'guestservice', 'workflow', 'marketplace', 'bi', 'ai'],
+            'finance'      => ['gl', 'ar', 'ap', 'treasury', 'tax', 'payments', 'settlement', 'corporate', 'owneracct'],
+            'rates'        => ['calendar', 'channels', 'rms', 'packages'],
+            'hotels'       => ['buildings', 'leases', 'site'],
+            'procurement'  => ['stores'],
+            'platformops'  => ['alerts'],
+            'staff'        => ['rbac'],
+        ];
+    }
+}
+
+if (!function_exists('supplier_roles_backfill_per_area')) {
+    /**
+     * PER-AREA PERMISSION BACKFILL (redesign 2026-11-16). MUST run BEFORE any route is re-gated
+     * onto a per-area key (Step 4), so a role holding an OLD broad module (e.g. 'rooms') is
+     * auto-granted all the NEW sub-keys it used to cover (housekeeping/maintenance/…) at the
+     * SAME action level — otherwise existing staff lose access the moment a route switches to
+     * the per-area key.
+     *
+     * ADD-ONLY + idempotent: never removes a permission; only adds a sub-key the role lacks,
+     * derived from a broad key the role HAS. Re-running is a no-op. Fail-soft per row. Returns
+     * the count of roles modified.
+     *
+     * Example: {"rooms":{"view":""}} →
+     *   {"rooms":{"view":""},"housekeeping":{"view":""},"maintenance":{"view":""},…}
+     */
+    function supplier_roles_backfill_per_area($db): int
+    {
+        $map = function_exists('supplier_role_legacy_expand_map') ? supplier_role_legacy_expand_map() : [];
+        if (empty($map)) { return 0; }
+        $changed = 0;
+        try {
+            $roles = $db->select('supplier_roles', ['id', 'permissions']) ?: [];
+        } catch (\Throwable $e) { error_log('supplier_roles_backfill_per_area select: ' . $e->getMessage()); return 0; }
+        foreach ($roles as $role) {
+            $perms = json_decode((string) ($role['permissions'] ?? ''), true);
+            if (!is_array($perms)) { continue; }
+            $before = $perms;
+            foreach ($map as $oldKey => $newKeys) {
+                if (!isset($perms[$oldKey]) || !is_array($perms[$oldKey])) { continue; }
+                $actions = $perms[$oldKey]; // e.g. ['view'=>'','edit'=>'']
+                foreach ($newKeys as $nk) {
+                    foreach ($actions as $act => $_) {
+                        // Only propagate view/edit/add (the actions per-area keys define); never
+                        // invent an action a per-area key doesn't support.
+                        if (!in_array($act, ['view', 'edit', 'add'], true)) { continue; }
+                        if (!isset($perms[$nk]) || !is_array($perms[$nk])) { $perms[$nk] = []; }
+                        if (!array_key_exists($act, $perms[$nk])) { $perms[$nk][$act] = ''; }
+                    }
+                }
+            }
+            if ($perms !== $before) {
+                try {
+                    $db->update('supplier_roles', ['permissions' => json_encode($perms)], ['id' => (int) $role['id']]);
+                    $changed++;
+                } catch (\Throwable $e) { error_log('supplier_roles_backfill_per_area update ' . $role['id'] . ': ' . $e->getMessage()); }
+            }
+        }
+        return $changed;
+    }
 }
 
 if (!function_exists('supplier_default_roles')) {

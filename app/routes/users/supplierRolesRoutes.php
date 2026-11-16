@@ -71,7 +71,7 @@ $router->get('/supplier/roles', function () use ($SECURE, $db) {
     SUPPLIER_AUTH();
     $owner = _supplier_roles_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'staff', 'view')) { _supplier_roles_deny(); }
+    if (!supplier_can($db, 'rbac', 'view')) { _supplier_roles_deny(); }
 
     $roles = $db->select('supplier_roles', ['id', 'name', 'scope_type', 'created_at'],
         ['owner_user_id' => $owner, 'ORDER' => ['id' => 'DESC']]) ?: [];
@@ -100,7 +100,7 @@ $supplierRoleForm = function ($id = 0) use ($SECURE, $db) {
     SUPPLIER_AUTH();
     $owner = _supplier_roles_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'staff', $id ? 'edit' : 'add')) { _supplier_roles_deny(); }
+    if (!supplier_can($db, 'rbac', $id ? 'edit' : 'add')) { _supplier_roles_deny(); }
 
     $role = null;
     if ($id) {
@@ -163,7 +163,7 @@ $router->post('/supplier/roles/save', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
 
     $id   = (int) ($_POST['id'] ?? 0);
-    if (!supplier_can($db, 'staff', $id ? 'edit' : 'add')) { _supplier_roles_deny(); }
+    if (!supplier_can($db, 'rbac', $id ? 'edit' : 'add')) { _supplier_roles_deny(); }
 
     $name = trim($_POST['name'] ?? '');
     if ($name === '') {
@@ -275,7 +275,7 @@ $router->post('/supplier/roles/delete', function () use ($SECURE, $db) {
     CSRF::guard();
     $owner = _supplier_roles_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'staff', 'delete')) { _supplier_roles_deny(); }
+    if (!supplier_can($db, 'rbac', 'delete')) { _supplier_roles_deny(); }
 
     $id = (int) ($_POST['id'] ?? 0);
     if (!$id || !_supplier_role_owned($db, $id, $owner)) { _supplier_roles_deny('That role is not yours.'); }

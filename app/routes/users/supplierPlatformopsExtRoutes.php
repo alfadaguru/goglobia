@@ -57,7 +57,7 @@ $router->get('/supplier/platform-ops', function () use ($SECURE, $db) {
     supplier_platformops_ext_ensure_schema($db);
     $c = _supplier_platformops_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'platformops', 'view')) { _supplier_platformops_deny('supplier/dashboard'); }
+    if (!supplier_can_orgwide($db, 'platformops', 'view')) { _supplier_platformops_deny('supplier/dashboard'); }
 
     $owner = $c['owner']; $org = $c['org'];
 
@@ -72,7 +72,7 @@ $router->get('/supplier/platform-ops', function () use ($SECURE, $db) {
     $configValues    = platformops_config_all($db, $org);
     $configLog       = platformops_config_changelog($db, $org, 50);
     $infra           = platformops_infra_status();
-    $canManage       = supplier_can($db, 'platformops', 'edit');
+    $canManage       = supplier_can_orgwide($db, 'platformops', 'edit');
 
     $title = 'Security & platform operations';
     require_once views . "includes/header.php";
@@ -90,7 +90,7 @@ $router->post('/supplier/platform-ops/privacy/export', function () use ($SECURE,
     supplier_platformops_ext_ensure_schema($db);
     $c = _supplier_platformops_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'platformops', 'edit')) { _supplier_platformops_deny('supplier/platform-ops?tab=privacy'); }
+    if (!supplier_can_orgwide($db, 'platformops', 'edit')) { _supplier_platformops_deny('supplier/platform-ops?tab=privacy'); }
 
     $email = trim($_POST['email'] ?? '');
     if ($email === '') { _supplier_platformops_redirect('error', 'Enter the guest email to export.', 'supplier/platform-ops?tab=privacy'); }
@@ -121,7 +121,7 @@ $router->post('/supplier/platform-ops/privacy/erase', function () use ($SECURE, 
     supplier_platformops_ext_ensure_schema($db);
     $c = _supplier_platformops_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'platformops', 'edit')) { _supplier_platformops_deny('supplier/platform-ops?tab=privacy'); }
+    if (!supplier_can_orgwide($db, 'platformops', 'edit')) { _supplier_platformops_deny('supplier/platform-ops?tab=privacy'); }
     // Erasure is destructive to PII — require a fresh step-up (reuses MODULE 45 re-auth).
     if (function_exists('supplier_reauth_ok') && !supplier_reauth_ok()) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Confirm your password before erasing guest data.'];
@@ -175,7 +175,7 @@ $router->post('/supplier/platform-ops/config/save', function () use ($SECURE, $d
     supplier_platformops_ext_ensure_schema($db);
     $c = _supplier_platformops_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'platformops', 'edit')) { _supplier_platformops_deny('supplier/platform-ops?tab=config'); }
+    if (!supplier_can_orgwide($db, 'platformops', 'edit')) { _supplier_platformops_deny('supplier/platform-ops?tab=config'); }
     if ($c['org'] <= 0) { _supplier_platformops_redirect('error', 'No organisation resolved for your account.', 'supplier/platform-ops?tab=config'); }
 
     $key   = trim($_POST['key'] ?? '');

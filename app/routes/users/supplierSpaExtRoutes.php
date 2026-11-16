@@ -31,7 +31,7 @@ if (!function_exists('_spa_ext_props')) {
 // ---- WORKSPACE (roster + calendar + memberships) -------------------------------
 $router->get('/supplier/spa', function () use ($SECURE, $db) {
     $owner = _spa_ext_owner_or_redirect($db);
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'spa', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
 
     // Date window for the calendar (defaults: today → +13 days).
@@ -49,7 +49,7 @@ $router->get('/supplier/spa', function () use ($SECURE, $db) {
     $svcMap   = []; foreach ($services as $s) { $svcMap[(int) $s['id']] = $s; }
     $resMap   = []; foreach ($resources as $r) { $resMap[(int) $r['id']] = $r; }
     $memMap   = []; foreach ($memberships as $m) { $memMap[(int) $m['id']] = $m; }
-    $canEdit  = supplier_can($db, 'reservations', 'edit');
+    $canEdit  = supplier_can($db, 'spa', 'edit');
 
     $title = 'Spa & wellness'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -62,7 +62,7 @@ $router->post('/supplier/spa/resource/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/spa';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'spa', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('spa_resource_add') ? spa_resource_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Resource added.' : 'Could not add (name + property required).'];
     header('Location: ' . $back); exit;
@@ -71,7 +71,7 @@ $router->post('/supplier/spa/resource/toggle', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/spa';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'spa', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('spa_resource_set_active') ? spa_resource_set_active($db, (int) ($_POST['id'] ?? 0), $stayId, (($_POST['active'] ?? '1') === '1')) : false;
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Resource updated.' : 'Could not update.'];
     header('Location: ' . $back); exit;
@@ -82,7 +82,7 @@ $router->post('/supplier/spa/appointment/book', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/spa';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'spa', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('spa_appointment_book')
         ? spa_appointment_book($db, $stayId, (int) ($_POST['service_id'] ?? 0), (int) ($_POST['resource_id'] ?? 0), $_POST)
         : ['ok' => false, 'error' => 'Unavailable.'];
@@ -93,7 +93,7 @@ $router->post('/supplier/spa/appointment/status', function () use ($SECURE, $db)
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/spa';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'spa', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('spa_appointment_set_status') ? spa_appointment_set_status($db, (int) ($_POST['id'] ?? 0), $stayId, (string) ($_POST['status'] ?? '')) : false;
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Appointment updated.' : 'Could not update.'];
     header('Location: ' . $back); exit;
@@ -104,7 +104,7 @@ $router->post('/supplier/spa/appointment/charge', function () use ($SECURE, $db)
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/spa';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'spa', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ctx = function_exists('supplier_acting_context') ? supplier_acting_context($db) : null;
     $actor = ($ctx && !empty($ctx['owner'])) ? substr((string) $ctx['owner'], 0, 60) : 'spa';
     $res = function_exists('spa_appointment_charge_to_room')
@@ -119,7 +119,7 @@ $router->post('/supplier/spa/membership/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/spa';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'spa', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('spa_membership_add') ? spa_membership_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Membership sold.' : 'Could not add (holder + property required).'];
     header('Location: ' . $back); exit;
@@ -128,7 +128,7 @@ $router->post('/supplier/spa/membership/redeem', function () use ($SECURE, $db) 
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/spa';
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'spa', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('spa_membership_redeem')
         ? spa_membership_redeem($db, (int) ($_POST['membership_id'] ?? 0), (int) ($_POST['appointment_id'] ?? 0), $stayId)
         : ['ok' => false, 'error' => 'Unavailable.'];

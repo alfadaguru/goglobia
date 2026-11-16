@@ -24,7 +24,7 @@ if (!function_exists('_stores_ext_org')) {
 // GET /supplier/stores — the stores & inventory control panel
 $router->get('/supplier/stores', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
-    if (!supplier_can($db, 'procurement', 'view')) { _supplier_stays_deny('Not authorised for procurement.'); }
+    if (!supplier_can_orgwide($db, 'stores', 'view')) { _supplier_stays_deny('Not authorised for procurement.'); }
     $orgId = _stores_ext_org($db);
     if ($orgId <= 0) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'No supplier organisation found for this account.'];
@@ -42,7 +42,7 @@ $router->get('/supplier/stores', function () use ($SECURE, $db) {
     $barcode    = function_exists('stores_barcode_status') ? stores_barcode_status($db, $orgId) : ['connected' => false, 'message' => ''];
     // Base stock items (for the select controls) — read-only here.
     $items = $db->select('stays_stock_items', ['id', 'name', 'unit'], ['org_id' => $orgId, 'status' => 1, 'ORDER' => ['name' => 'ASC']]) ?: [];
-    $canEdit = supplier_can($db, 'procurement', 'edit');
+    $canEdit = supplier_can_orgwide($db, 'stores', 'edit');
 
     $title = 'Stores & inventory'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -54,7 +54,7 @@ $router->get('/supplier/stores', function () use ($SECURE, $db) {
 if (!function_exists('_stores_ext_guard_write')) {
     function _stores_ext_guard_write($db): int
     {
-        if (!supplier_can($db, 'procurement', 'edit')) { _supplier_stays_deny('Not authorised to edit stores.'); }
+        if (!supplier_can_orgwide($db, 'stores', 'edit')) { _supplier_stays_deny('Not authorised to edit stores.'); }
         $orgId = _stores_ext_org($db);
         if ($orgId <= 0) { _supplier_stays_deny('No supplier organisation found.'); }
         return $orgId;

@@ -27,7 +27,7 @@ $router->post('/supplier/pos/order/adjust', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_ext_outlet($db, $outletId);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $orderId = (int) ($_POST['order_id'] ?? 0);
     // Order must belong to this outlet (defence in depth; the lib re-checks stay_id too).
     $ord = $db->get('pos_orders', ['id'], ['id' => $orderId, 'outlet_id' => $outletId]);
@@ -48,7 +48,7 @@ $router->post('/supplier/pos/order/adjust-remove', function () use ($SECURE, $db
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_ext_outlet($db, $outletId);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $orderId = (int) ($_POST['order_id'] ?? 0);
     $ord = $db->get('pos_orders', ['id'], ['id' => $orderId, 'outlet_id' => $outletId]);
     if (!$ord) { _supplier_stays_deny('Order not found for this outlet.'); }
@@ -66,7 +66,7 @@ $router->post('/supplier/pos/order/split', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_ext_outlet($db, $outletId);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $orderId = (int) ($_POST['order_id'] ?? 0);
     $ord = $db->get('pos_orders', ['id'], ['id' => $orderId, 'outlet_id' => $outletId]);
     if (!$ord) { _supplier_stays_deny('Order not found for this outlet.'); }
@@ -86,7 +86,7 @@ $router->post('/supplier/pos/order/settle-ext', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_ext_outlet($db, $outletId);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $orderId = (int) ($_POST['order_id'] ?? 0);
     $ord = $db->get('pos_orders', ['id'], ['id' => $orderId, 'outlet_id' => $outletId]);
     if (!$ord) { _supplier_stays_deny('Order not found for this outlet.'); }
@@ -105,7 +105,7 @@ $router->post('/supplier/pos/shift/open', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_ext_outlet($db, $outletId);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $res = function_exists('pos_shift_open')
         ? pos_shift_open($db, $outletId, (int) $outlet['stay_id'], (float) ($_POST['opening_float'] ?? 0))
         : ['ok' => false, 'message' => 'Unavailable.'];
@@ -120,7 +120,7 @@ $router->post('/supplier/pos/shift/close', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_ext_outlet($db, $outletId);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $res = function_exists('pos_shift_close')
         ? pos_shift_close($db, (int) ($_POST['shift_id'] ?? 0), $outletId, (float) ($_POST['counted_cash'] ?? 0))
         : ['ok' => false, 'message' => 'Unavailable.'];
@@ -132,7 +132,7 @@ $router->post('/supplier/pos/shift/close', function () use ($SECURE, $db) {
 $router->get('/supplier/pos/outlet/([0-9]+)/report', function ($outletId) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $outlet = _pos_ext_outlet($db, (int) $outletId);
-    if (!supplier_can($db, 'rooms', 'view', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'pos', 'view', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not authorised.'); }
 
     $to   = date('Y-m-d');
     $from = date('Y-m-d', strtotime('-29 days'));

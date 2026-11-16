@@ -1,18 +1,20 @@
 <?php
 // FILE: app/routes/users/supplierArExtRoutes.php
 // MODULE 35 DEEPEN — Accounts receivable (city ledger): ageing, statements, payment
-// allocation (receipts), write-offs, collections. Owner-only (org-scoped money), same
-// gate as finance/corporate/trust. Reuses _corp_org() from supplierCorporateRoutes.php
-// (loaded alongside this file) with a guarded fallback so load-order can't fatal.
+// allocation (receipts), write-offs, collections. Org-scoped money. Gated on the
+// per-area 'ar' key (its own grantable permission) — read needs ar:view, writes ar:edit.
+// (Previously inherited _corp_org's 'corporate' gate; now AR is a first-class area so a
+// staffer granted only AR can open it — permission redesign Step 7 fix.)
 
 @$SECURE or die('Access Denied!');
 
 if (!function_exists('_ar_ext_org')) {
-    function _ar_ext_org($db): int
+    /** Resolve the acting org for AR, gated on the 'ar' area key. 0 = denied. */
+    function _ar_ext_org($db, string $action = 'view'): int
     {
-        if (function_exists('_corp_org')) { return (int) _corp_org($db); }
         $ctx = supplier_acting_context($db);
-        if ($ctx === null || !empty($ctx['is_admin']) || empty($ctx['is_owner'])) { return 0; }
+        if ($ctx === null || !empty($ctx['is_admin'])) { return 0; }
+        if (!supplier_can_orgwide($db, 'ar', $action === 'edit' ? 'edit' : 'view')) { return 0; }
         return function_exists('supplier_org_for_owner') ? (int) supplier_org_for_owner($db, (string) $ctx['owner']) : 0;
     }
 }
@@ -41,8 +43,8 @@ $router->get('/supplier/ar', function () use ($SECURE, $db) {
 // ---- ASSIGN a folio to a city-ledger account ----------------------------------
 $router->post('/supplier/ar/assign', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
-    $orgId = _ar_ext_org($db); $back = root . 'supplier/ar';
+    if (!supplier_can_orgwide($db, 'ar', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    $orgId = _ar_ext_org($db, 'edit'); $back = root . 'supplier/ar';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $ok = function_exists('ar_ext_assign_account')
         && ar_ext_assign_account($db, $orgId, (int) ($_POST['folio_id'] ?? 0), (int) ($_POST['account_id'] ?? 0));
@@ -53,8 +55,8 @@ $router->post('/supplier/ar/assign', function () use ($SECURE, $db) {
 // ---- RECEIVE a payment against a folio (MONEY) --------------------------------
 $router->post('/supplier/ar/receive', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
-    $orgId = _ar_ext_org($db); $back = root . 'supplier/ar';
+    if (!supplier_can_orgwide($db, 'ar', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    $orgId = _ar_ext_org($db, 'edit'); $back = root . 'supplier/ar';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('ar_ext_receive_payment')
         ? ar_ext_receive_payment($db, $orgId, (int) ($_POST['folio_id'] ?? 0), (float) ($_POST['amount'] ?? 0), [
@@ -70,8 +72,8 @@ $router->post('/supplier/ar/receive', function () use ($SECURE, $db) {
 // ---- WRITE OFF a folio balance as bad debt (MONEY) ----------------------------
 $router->post('/supplier/ar/writeoff', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
-    $orgId = _ar_ext_org($db); $back = root . 'supplier/ar';
+    if (!supplier_can_orgwide($db, 'ar', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    $orgId = _ar_ext_org($db, 'edit'); $back = root . 'supplier/ar';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('ar_ext_write_off')
         ? ar_ext_write_off($db, $orgId, (int) ($_POST['folio_id'] ?? 0), (float) ($_POST['amount'] ?? 0), (string) ($_POST['reason'] ?? ''))
@@ -84,8 +86,8 @@ $router->post('/supplier/ar/writeoff', function () use ($SECURE, $db) {
 // ---- LOG a collections activity -----------------------------------------------
 $router->post('/supplier/ar/collection', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
-    $orgId = _ar_ext_org($db); $acctId = (int) ($_POST['account_id'] ?? 0);
+    if (!supplier_can_orgwide($db, 'ar', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    $orgId = _ar_ext_org($db, 'edit'); $acctId = (int) ($_POST['account_id'] ?? 0);
     $back = root . 'supplier/ar' . ($acctId > 0 ? '?account=' . $acctId : '');
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $id = function_exists('ar_ext_collection_add') ? ar_ext_collection_add($db, $orgId, $acctId, $_POST) : 0;
@@ -96,8 +98,8 @@ $router->post('/supplier/ar/collection', function () use ($SECURE, $db) {
 // ---- SEND a statement reminder (HONEST STUB — delivery not connected) ---------
 $router->post('/supplier/ar/remind', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
-    $orgId = _ar_ext_org($db); $acctId = (int) ($_POST['account_id'] ?? 0);
+    if (!supplier_can_orgwide($db, 'ar', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    $orgId = _ar_ext_org($db, 'edit'); $acctId = (int) ($_POST['account_id'] ?? 0);
     $back = root . 'supplier/ar' . ($acctId > 0 ? '?account=' . $acctId : '');
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('ar_ext_send_reminder') ? ar_ext_send_reminder($db, $orgId, $acctId) : ['connected' => false, 'message' => 'Unavailable'];

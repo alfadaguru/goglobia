@@ -19,7 +19,7 @@ $router->get('/supplier/housekeeping/tasks', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('You are not authorised to view housekeeping.'); }
+    if (!supplier_can($db, 'housekeeping', 'view')) { _supplier_stays_deny('You are not authorised to view housekeeping.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayFilter = (int) ($_GET['stay_id'] ?? 0);
@@ -28,7 +28,7 @@ $router->get('/supplier/housekeeping/tasks', function () use ($SECURE, $db) {
     if ($stayFilter === 0 && count($stayIds) === 1) { $stayFilter = (int) $stayIds[0]; }
 
     $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['date'] ?? '')) ? (string) $_GET['date'] : date('Y-m-d');
-    $canEdit = supplier_can($db, 'rooms', 'edit', $stayFilter > 0 ? $stayFilter : null);
+    $canEdit = supplier_can($db, 'housekeeping', 'edit', $stayFilter > 0 ? $stayFilter : null);
 
     // Auto-generate the day's tasks on view when a single property is in scope and the
     // viewer can edit (so a read-only role doesn't trigger writes).
@@ -65,7 +65,7 @@ $router->get('/supplier/housekeeping/productivity', function () use ($SECURE, $d
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'housekeeping', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayFilter = (int) ($_GET['stay_id'] ?? 0);
@@ -101,7 +101,7 @@ $router->post('/supplier/housekeeping/tasks/generate', function () use ($SECURE,
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_POST['date'] ?? '')) ? (string) $_POST['date'] : date('Y-m-d');
     $back = root . 'supplier/housekeeping/tasks?stay_id=' . $stayId . '&date=' . rawurlencode($date);
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'housekeeping', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     $g = function_exists('hk_generate_tasks') ? hk_generate_tasks($db, $stayId, $date) : ['created' => 0];
     $_SESSION['message'] = ['type' => 'success', 'text' => ($g['created'] ?? 0) . ' task(s) generated, ' . ($g['skipped'] ?? 0) . ' already present.'];
@@ -120,7 +120,7 @@ $router->post('/supplier/housekeeping/tasks/add', function () use ($SECURE, $db)
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_POST['date'] ?? '')) ? (string) $_POST['date'] : date('Y-m-d');
     $back = root . 'supplier/housekeeping/tasks?stay_id=' . $stayId . '&date=' . rawurlencode($date);
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'housekeeping', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     $id = function_exists('hk_task_create') ? hk_task_create($db, $stayId, [
         'physical_room_id' => (int) ($_POST['physical_room_id'] ?? 0),
@@ -146,7 +146,7 @@ $router->post('/supplier/housekeeping/tasks/assign', function () use ($SECURE, $
     $taskId = (int) ($_POST['task_id'] ?? 0);
     $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_POST['date'] ?? '')) ? (string) $_POST['date'] : date('Y-m-d');
     $back = root . 'supplier/housekeeping/tasks?stay_id=' . $stayId . '&date=' . rawurlencode($date);
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'housekeeping', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     $ok = function_exists('hk_task_assign') && hk_task_assign($db, $taskId, $stayId, (string) ($_POST['attendant'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Attendant updated.' : 'Could not assign.'];
@@ -167,7 +167,7 @@ $router->post('/supplier/housekeeping/tasks/status', function () use ($SECURE, $
     $to = strtolower(trim((string) ($_POST['to'] ?? '')));
     $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_POST['date'] ?? '')) ? (string) $_POST['date'] : date('Y-m-d');
     $back = root . 'supplier/housekeeping/tasks?stay_id=' . $stayId . '&date=' . rawurlencode($date);
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'housekeeping', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     $ok = function_exists('hk_task_set_status') && hk_task_set_status($db, $taskId, $stayId, $to, (string) ($_SESSION['user_id'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Task updated.' : 'Could not update that task (invalid transition?).'];
@@ -189,7 +189,7 @@ $router->post('/supplier/housekeeping/tasks/checklist', function () use ($SECURE
     $done = !empty($_POST['done']);
     $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_POST['date'] ?? '')) ? (string) $_POST['date'] : date('Y-m-d');
     $back = root . 'supplier/housekeeping/tasks?stay_id=' . $stayId . '&date=' . rawurlencode($date);
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'housekeeping', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     $ok = function_exists('hk_task_checklist_toggle') && hk_task_checklist_toggle($db, $taskId, $stayId, $itemKey, $done);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Checklist updated.' : 'Could not update the checklist.'];
@@ -210,7 +210,7 @@ $router->post('/supplier/housekeeping/tasks/inspect', function () use ($SECURE, 
     $pass = ((string) ($_POST['result'] ?? '')) === 'pass';
     $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_POST['date'] ?? '')) ? (string) $_POST['date'] : date('Y-m-d');
     $back = root . 'supplier/housekeeping/tasks?stay_id=' . $stayId . '&date=' . rawurlencode($date);
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'housekeeping', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     $ok = function_exists('hk_task_inspect') && hk_task_inspect($db, $taskId, $stayId, $pass,
         (string) ($_SESSION['user_id'] ?? ''), (string) ($_POST['fail_reason'] ?? ''));

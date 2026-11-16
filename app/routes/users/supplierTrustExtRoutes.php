@@ -39,7 +39,7 @@ $router->get('/supplier/trust-ext', function () use ($SECURE, $db) {
 // ---- CREATE a structured bond/deposit ------------------------------------------
 $router->post('/supplier/trust-ext/bond/create', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can($db, 'corporate', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _trust_ext_org($db); $back = root . 'supplier/trust-ext';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('trust_bond_create') ? trust_bond_create($db, $orgId, $_POST) : ['ok' => false, 'message' => 'Unavailable'];
@@ -50,7 +50,7 @@ $router->post('/supplier/trust-ext/bond/create', function () use ($SECURE, $db) 
 // ---- RELEASE (refund / forfeit) a bond  [MONEY] --------------------------------
 $router->post('/supplier/trust-ext/bond/release', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can($db, 'corporate', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _trust_ext_org($db); $back = root . 'supplier/trust-ext';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('trust_bond_release')
@@ -63,7 +63,7 @@ $router->post('/supplier/trust-ext/bond/release', function () use ($SECURE, $db)
 // ---- CHARGE a management fee out of held trust  [MONEY] ------------------------
 $router->post('/supplier/trust-ext/fee', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can($db, 'corporate', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _trust_ext_org($db); $back = root . 'supplier/trust-ext';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('trust_management_fee_charge') ? trust_management_fee_charge(
@@ -77,7 +77,7 @@ $router->post('/supplier/trust-ext/fee', function () use ($SECURE, $db) {
 // ---- RECORD the trust-bank statement balance (reconciliation "bank side") ------
 $router->post('/supplier/trust-ext/bank', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can($db, 'finance', 'edit')) { _supplier_stays_deny('Not permitted.'); }
+    if (!supplier_can($db, 'corporate', 'edit')) { _supplier_stays_deny('Not permitted.'); }
     $orgId = _trust_ext_org($db); $back = root . 'supplier/trust-ext';
     if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
     $r = function_exists('trust_bank_record') ? trust_bank_record(

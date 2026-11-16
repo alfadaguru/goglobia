@@ -14,7 +14,7 @@ if (!function_exists('_pos_outlet_owned')) {
         try {
             $o = $db->get('stays_outlets', '*', ['id' => $outletId]);
             if (!$o) { return null; }
-            if (!supplier_can($db, 'rooms', 'view', (int) $o['stay_id'])) { return null; }
+            if (!supplier_can($db, 'pos', 'view', (int) $o['stay_id'])) { return null; }
             return $o;
         } catch (\Throwable $e) { error_log('_pos_outlet_owned: ' . $e->getMessage()); return null; }
     }
@@ -25,7 +25,7 @@ $router->get('/supplier/pos', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'pos', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $outlets = [];
@@ -37,7 +37,7 @@ $router->get('/supplier/pos', function () use ($SECURE, $db) {
     if (!empty($stayIds)) {
         try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
     }
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'pos', 'edit');
 
     $title = 'Restaurants & POS'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -53,7 +53,7 @@ $router->post('/supplier/pos/outlet', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/pos';
-    if (!supplier_can($db, 'rooms', 'add', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'pos', 'add', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $name = trim((string) ($_POST['name'] ?? ''));
     $type = (string) ($_POST['type'] ?? 'restaurant');
     if (!isset(pos_outlet_types()[$type])) { $type = 'restaurant'; }
@@ -91,7 +91,7 @@ $router->get('/supplier/pos/outlet/([0-9]+)', function ($outletId) use ($SECURE,
         $orderTotals[$oid] = function_exists('pos_order_total') ? pos_order_total($db, $oid) : 0.0;
     }
     $checkedIn = function_exists('pos_checked_in_reservations') ? pos_checked_in_reservations($db, $stayId) : [];
-    $canEdit = supplier_can($db, 'rooms', 'edit', $stayId);
+    $canEdit = supplier_can($db, 'pos', 'edit', $stayId);
 
     // Keep the property sidebar on this drill-in page (its URL has no ?stay_id). The
     // sidebar reads $GLOBALS['supplierActiveStay'] so it stays in property mode (report V2 #4).
@@ -111,7 +111,7 @@ $router->post('/supplier/pos/menu-item', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_outlet_owned($db, $outletId, $owner);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!$outlet || !supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!$outlet || !supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $name = trim((string) ($_POST['name'] ?? '')); $price = round((float) ($_POST['price'] ?? 0), 2);
     if ($name === '' || $price < 0) { $_SESSION['message'] = ['type' => 'error', 'text' => 'Name and a valid price are required.']; header('Location: ' . $back); exit; }
     try {
@@ -140,7 +140,7 @@ $router->post('/supplier/pos/order', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_outlet_owned($db, $outletId, $owner);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!$outlet || !supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!$outlet || !supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $id = function_exists('pos_order_create') ? pos_order_create($db, (int) $outlet['stay_id'], $outletId, ['table_label' => $_POST['table_label'] ?? '', 'currency' => $_POST['currency'] ?? 'USD']) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Order opened.' : 'Could not open order.'];
     header('Location: ' . $back); exit;
@@ -155,7 +155,7 @@ $router->post('/supplier/pos/order/add', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_outlet_owned($db, $outletId, $owner);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!$outlet || !supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!$outlet || !supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     // Verify the order belongs to this outlet before mutating.
     $orderId = (int) ($_POST['order_id'] ?? 0);
     $ord = $db->get('pos_orders', ['id'], ['id' => $orderId, 'outlet_id' => $outletId]);
@@ -173,7 +173,7 @@ $router->post('/supplier/pos/order/settle', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_outlet_owned($db, $outletId, $owner);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!$outlet || !supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!$outlet || !supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     // Order must belong to this outlet.
     $orderId = (int) ($_POST['order_id'] ?? 0);
     $ord = $db->get('pos_orders', ['id'], ['id' => $orderId, 'outlet_id' => $outletId]);
@@ -200,7 +200,7 @@ $router->post('/supplier/pos/order/void', function () use ($SECURE, $db) {
     $outletId = (int) ($_POST['outlet_id'] ?? 0);
     $outlet = _pos_outlet_owned($db, $outletId, $owner);
     $back = root . 'supplier/pos/outlet/' . $outletId;
-    if (!$outlet || !supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    if (!$outlet || !supplier_can($db, 'pos', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
     $orderId = (int) ($_POST['order_id'] ?? 0);
     $ord = $db->get('pos_orders', ['id'], ['id' => $orderId, 'outlet_id' => $outletId]);
     if (!$ord) { _supplier_stays_deny('Order not found for this outlet.'); }

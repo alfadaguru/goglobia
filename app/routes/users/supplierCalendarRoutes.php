@@ -14,7 +14,7 @@ $router->get('/supplier/calendar', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rates', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'calendar', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayId = (int) ($_GET['stay_id'] ?? 0);
@@ -23,7 +23,7 @@ $router->get('/supplier/calendar', function () use ($SECURE, $db) {
         header('Location: ' . root . 'supplier/stays'); exit;
     }
     // Per-property authorisation (fires the stays.user_id === owner IDOR check).
-    if (!supplier_can($db, 'rates', 'view', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
+    if (!supplier_can($db, 'calendar', 'view', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
 
     $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId]);
 
@@ -38,7 +38,7 @@ $router->get('/supplier/calendar', function () use ($SECURE, $db) {
         ? stays_calendar_grid($db, $stayId, $start, $nights, $taxonomy)
         : ['window' => stays_calendar_window($start, $nights), 'rooms' => []];
 
-    $canEdit = supplier_can($db, 'rates', 'edit', $stayId);
+    $canEdit = supplier_can($db, 'calendar', 'edit', $stayId);
 
     $title = 'Calendar — ' . ($stay['name'] ?? ''); $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -64,7 +64,7 @@ $router->post('/supplier/calendar/set', function () use ($SECURE, $db) {
         . '&start=' . urlencode(preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) ? $start : date('Y-m-d'))
         . '&nights=' . ($nights > 0 ? $nights : 14);
 
-    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'calendar', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     // Only the fields the operator actually submitted are applied.
     $fields = [];
@@ -101,7 +101,7 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/bulk-price', function ($i
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) $id; $roomId = (int) $roomId;
-    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not authorised to edit rates.'); }
+    if (!supplier_can($db, 'calendar', 'edit', $stayId)) { _supplier_stays_deny('Not authorised to edit rates.'); }
 
     $back = root . 'supplier/stays/' . $stayId . '/rooms/' . $roomId . '/calendar';
     $optionId = (int) ($_POST['option_id'] ?? 0);
@@ -127,7 +127,7 @@ $router->get('/supplier/stays/([0-9]+)/inventory-audit', function ($id) use ($SE
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) $id;
-    if (!supplier_can($db, 'rates', 'view', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
+    if (!supplier_can($db, 'calendar', 'view', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
     $stay = $db->get('stays', ['id', 'name'], ['id' => $stayId]);
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
     $auditRows = function_exists('stays_inventory_audit_list') ? stays_inventory_audit_list($db, $stayId, 200) : [];

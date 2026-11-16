@@ -52,7 +52,7 @@ $router->get('/supplier/reputation', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'reputation', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     // Property drill-in: a ?stay_id scopes the dashboard to one owned property.
@@ -62,7 +62,7 @@ $router->get('/supplier/reputation', function () use ($SECURE, $db) {
     $dash     = function_exists('reputation_dashboard') ? reputation_dashboard($db, $scopeIds) : [];
     $surveys  = function_exists('survey_list_for_org') ? survey_list_for_org($db, $scopeIds, 50) : [];
     $internal = function_exists('internal_rating_list') ? internal_rating_list($db, $scopeIds, 50) : [];
-    $canEdit  = supplier_can($db, 'reservations', 'edit');
+    $canEdit  = supplier_can($db, 'reputation', 'edit');
 
     $propMap = [];
     if (!empty($stayIds)) {
@@ -82,11 +82,11 @@ $router->post('/supplier/reputation/internal', function () use ($SECURE, $db) {
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $back = root . 'supplier/reputation';
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'reputation', 'edit')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     // The property must belong to this owner (defense in depth behind supplier_can).
-    if (!supplier_can($db, 'reservations', 'edit', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
+    if (!supplier_can($db, 'reputation', 'edit', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
         _supplier_stays_deny('Not your property.');
     }
     $ctx = supplier_acting_context($db);
@@ -106,7 +106,7 @@ $router->post('/supplier/reputation/suggest', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { echo json_encode(['ok' => false, 'message' => 'Unauthorised']); exit; }
-    if (!supplier_can($db, 'reservations', 'edit')) { echo json_encode(['ok' => false, 'message' => 'Not authorised']); exit; }
+    if (!supplier_can($db, 'reputation', 'edit')) { echo json_encode(['ok' => false, 'message' => 'Not authorised']); exit; }
 
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     // Scope the property name to an owned property only (no cross-tenant leak).

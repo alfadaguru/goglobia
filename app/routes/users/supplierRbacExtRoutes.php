@@ -44,7 +44,7 @@ $router->get('/supplier/rbac', function () use ($SECURE, $db) {
     supplier_rbac_ext_ensure_schema($db);
     $owner = _supplier_rbac_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'staff', 'view')) { _supplier_rbac_deny('supplier/dashboard'); }
+    if (!supplier_can_orgwide($db, 'rbac', 'view')) { _supplier_rbac_deny('supplier/dashboard'); }
 
     $tab = $_GET['tab'] ?? 'departments';
     $tab = in_array($tab, ['departments', 'approvals', 'audit', 'security'], true) ? $tab : 'departments';
@@ -86,7 +86,7 @@ $router->post('/supplier/rbac/departments/save', function () use ($SECURE, $db) 
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
 
     $id = (int) ($_POST['id'] ?? 0);
-    if (!supplier_can($db, 'staff', $id ? 'edit' : 'add')) {
+    if (!supplier_can_orgwide($db, 'rbac', $id ? 'edit' : 'add')) {
         _supplier_rbac_deny('supplier/rbac?tab=departments');
     }
     $name   = trim($_POST['name'] ?? '');
@@ -109,7 +109,7 @@ $router->post('/supplier/rbac/staff/department', function () use ($SECURE, $db) 
     supplier_rbac_ext_ensure_schema($db);
     $owner = _supplier_rbac_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'staff', 'edit')) { _supplier_rbac_deny('supplier/rbac?tab=departments'); }
+    if (!supplier_can_orgwide($db, 'rbac', 'edit')) { _supplier_rbac_deny('supplier/rbac?tab=departments'); }
 
     $staffId = (int) ($_POST['staff_id'] ?? 0);
     $deptId  = (int) ($_POST['department_id'] ?? 0);
@@ -191,7 +191,7 @@ $router->post('/supplier/rbac/approvals/decide', function () use ($SECURE, $db) 
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     // Deciding is a staff-admin action AND requires the decider hold the limit
     // (re-checked inside supplier_approval_request_decide via supplier_can_approve).
-    if (!supplier_can($db, 'staff', 'edit')) { _supplier_rbac_deny('supplier/rbac?tab=approvals'); }
+    if (!supplier_can_orgwide($db, 'rbac', 'edit')) { _supplier_rbac_deny('supplier/rbac?tab=approvals'); }
 
     $id       = (int) ($_POST['id'] ?? 0);
     $decision = trim($_POST['decision'] ?? '');

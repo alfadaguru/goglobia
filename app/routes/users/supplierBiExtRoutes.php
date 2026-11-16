@@ -33,7 +33,7 @@ $__biext_ctx = function ($db) {
 // ============================================================================
 $router->get('/supplier/insights/executive', function () use ($SECURE, $db, $__biext_ctx) {
     SUPPLIER_OR_STAFF_AUTH($db);
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) {
+    if (!supplier_can_orgwide($db, 'bi', 'view')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'You are not authorised to view insights.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
@@ -65,7 +65,7 @@ $router->get('/supplier/insights/executive', function () use ($SECURE, $db, $__b
 // ============================================================================
 $router->get('/supplier/insights/report.csv', function () use ($SECURE, $db, $__biext_ctx) {
     SUPPLIER_OR_STAFF_AUTH($db);
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) {
+    if (!supplier_can_orgwide($db, 'bi', 'view')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Not authorised.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
@@ -97,7 +97,7 @@ $router->get('/supplier/insights/report.csv', function () use ($SECURE, $db, $__
 // ============================================================================
 $router->post('/supplier/insights/schedule/create', function () use ($SECURE, $db, $__biext_ctx) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) {
+    if (!supplier_can_orgwide($db, 'bi', 'view')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Not authorised.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
@@ -120,7 +120,7 @@ $router->post('/supplier/insights/schedule/create', function () use ($SECURE, $d
 // ============================================================================
 $router->post('/supplier/insights/schedule/delete', function () use ($SECURE, $db, $__biext_ctx) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) {
+    if (!supplier_can_orgwide($db, 'bi', 'view')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Not authorised.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }

@@ -32,7 +32,7 @@ if (!function_exists('_vext_write_ctx')) {
         // is ORG-WIDE — no property dimension. A 'selected'-scope staffer must not read/write
         // it or post vendor-invoice GL money entries (audit N4). supplier_can with no stayId
         // would skip the property whitelist; use the org-wide gate.
-        if (!supplier_can_orgwide($db, 'rooms', 'edit')) { _supplier_stays_deny('Not authorised to manage vendors.'); }
+        if (!supplier_can_orgwide($db, 'vendors', 'edit')) { _supplier_stays_deny('Not authorised to manage vendors.'); }
         $orgId = _vext_org($db);
         if ($orgId <= 0) { _supplier_stays_deny('No property organisation found for this account.'); }
         return $orgId;
@@ -46,7 +46,7 @@ $router->get('/supplier/vendors', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can_orgwide($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); } // org-wide vendor ledger (audit N4)
+    if (!supplier_can_orgwide($db, 'vendors', 'view')) { _supplier_stays_deny('Not authorised.'); } // org-wide vendor ledger (audit N4)
     $orgId = _vext_org($db);
     if ($orgId <= 0) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'No property organisation found for this account yet.'];
@@ -74,7 +74,7 @@ $router->get('/supplier/vendors', function () use ($SECURE, $db) {
     try { $stockItems = $db->select('stays_stock_items', ['id', 'name', 'unit'], ['org_id' => $orgId, 'status' => 1, 'ORDER' => ['name' => 'ASC']]) ?: []; }
     catch (\Throwable $e) {}
     $disb = function_exists('vendor_disbursement_status') ? vendor_disbursement_status() : ['connected' => false, 'message' => ''];
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'vendors', 'edit');
 
     $vendorNames = []; foreach ($vendors as $v) { $vendorNames[(int) $v['id']] = $v['name']; }
 

@@ -31,7 +31,7 @@ if (!function_exists('_api_ext_guard_post')) {
     function _api_ext_guard_post($db): int
     {
         $orgId = _api_ext_org($db);
-        if ($orgId <= 0 || !supplier_can($db, 'finance', 'edit')) {
+        if ($orgId <= 0 || !supplier_can($db, 'platformops', 'edit')) {
             _supplier_stays_deny('Only the account owner can manage API & webhooks.');
         }
         return $orgId;

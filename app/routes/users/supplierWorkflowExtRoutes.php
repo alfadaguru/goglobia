@@ -45,7 +45,7 @@ if (!function_exists('_wf_ext_task_guard')) {
     function _wf_ext_task_guard($db, int $taskId, string $need = 'edit'): array
     {
         [$owner, $orgId] = _wf_ext_owner_org($db);
-        if (!supplier_can($db, 'reservations', $need)) { _supplier_stays_deny('Not authorised.'); }
+        if (!supplier_can_orgwide($db, 'workflow', $need)) { _supplier_stays_deny('Not authorised.'); }
         $info = function_exists('task_owner_org') ? task_owner_org($db, $taskId) : null;
         if ($info === null || (int) $info['org_id'] !== $orgId || (string) $info['owner_user_id'] !== $owner) {
             _supplier_stays_deny('Task not found.');
@@ -58,7 +58,7 @@ if (!function_exists('_wf_ext_task_guard')) {
 $router->get('/supplier/workflow', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'workflow', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     // Filters (all optional, all validated inside task_list).
     $filters = [
@@ -94,8 +94,8 @@ $router->get('/supplier/workflow', function () use ($SECURE, $db) {
         }
     } catch (\Throwable $e) { error_log('workflow pickers: ' . $e->getMessage()); }
 
-    $canEdit    = supplier_can($db, 'reservations', 'edit');
-    $canApprove = supplier_can($db, 'finance', 'edit');
+    $canEdit    = supplier_can_orgwide($db, 'workflow', 'edit');
+    $canApprove = supplier_can_orgwide($db, 'finance', 'edit');
     $title = 'Task & workflow'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/workflow-ext.php";
@@ -108,7 +108,7 @@ $router->get('/supplier/workflow/task/([0-9]+)/trail', function ($taskId) use ($
     [$owner, $orgId] = _wf_ext_owner_org($db);
     $taskId = (int) $taskId;
     header('Content-Type: application/json');
-    if (!supplier_can($db, 'reservations', 'view')) { echo json_encode(['ok' => false, 'trail' => []]); exit; }
+    if (!supplier_can_orgwide($db, 'workflow', 'view')) { echo json_encode(['ok' => false, 'trail' => []]); exit; }
     $info = function_exists('task_owner_org') ? task_owner_org($db, $taskId) : null;
     if ($info === null || (int) $info['org_id'] !== $orgId) { echo json_encode(['ok' => false, 'trail' => []]); exit; }
     $trail = function_exists('task_activity_trail') ? task_activity_trail($db, $taskId) : [];
@@ -119,7 +119,7 @@ $router->get('/supplier/workflow/task/([0-9]+)/trail', function ($taskId) use ($
 $router->post('/supplier/workflow/task', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'workflow', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/workflow';
     $id = function_exists('task_create') ? task_create($db, $orgId, $owner, $_POST, 'manual') : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Task created.' : 'Could not create task (a title is required).'];
@@ -167,7 +167,7 @@ $router->post('/supplier/workflow/task/approval', function () use ($SECURE, $db)
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $taskId = (int) ($_POST['id'] ?? 0);
     [$owner, $orgId] = _wf_ext_task_guard($db, $taskId, 'edit');
-    if (!supplier_can($db, 'finance', 'edit')) { _supplier_stays_deny('You do not have approval authority.'); }
+    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('You do not have approval authority.'); }
     $back = root . 'supplier/workflow';
     $decision = (string) ($_POST['decision'] ?? '');
     $ok = function_exists('task_set_approval') && task_set_approval($db, $taskId, $owner, $decision, (string) ($_POST['note'] ?? ''));
@@ -179,7 +179,7 @@ $router->post('/supplier/workflow/task/approval', function () use ($SECURE, $db)
 $router->post('/supplier/workflow/template', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'workflow', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/workflow';
     $id = function_exists('task_template_save') ? task_template_save($db, $orgId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Template saved.' : 'Could not save template (name + title required).'];
@@ -189,7 +189,7 @@ $router->post('/supplier/workflow/template', function () use ($SECURE, $db) {
 $router->post('/supplier/workflow/template/delete', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'workflow', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/workflow';
     $ok = function_exists('task_template_delete') && task_template_delete($db, $orgId, (int) ($_POST['id'] ?? 0));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Template deleted.' : 'Could not delete template.'];
@@ -200,7 +200,7 @@ $router->post('/supplier/workflow/template/delete', function () use ($SECURE, $d
 $router->post('/supplier/workflow/template/spawn', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'workflow', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/workflow';
     $id = function_exists('task_from_template')
         ? task_from_template($db, $orgId, $owner, (int) ($_POST['template_id'] ?? 0), [
@@ -216,7 +216,7 @@ $router->post('/supplier/workflow/template/spawn', function () use ($SECURE, $db
 $router->post('/supplier/workflow/recurrence', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'workflow', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/workflow';
     $id = function_exists('task_recurrence_save') ? task_recurrence_save($db, $orgId, $owner, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Recurring schedule saved.' : 'Could not save schedule (pick a template and a cadence).'];
@@ -226,7 +226,7 @@ $router->post('/supplier/workflow/recurrence', function () use ($SECURE, $db) {
 $router->post('/supplier/workflow/recurrence/toggle', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'workflow', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/workflow';
     $ok = function_exists('task_recurrence_set_active')
         && task_recurrence_set_active($db, $orgId, (int) ($_POST['id'] ?? 0), !empty($_POST['active']));
@@ -240,7 +240,7 @@ $router->post('/supplier/workflow/rule', function () use ($SECURE, $db) {
     [$owner, $orgId] = _wf_ext_owner_org($db);
     // Authoring automations is a privileged action — require edit on BOTH ops + finance
     // scopes (so a limited-scope staffer can't wire rules that create approval tasks).
-    if (!supplier_can($db, 'reservations', 'edit') || !supplier_can($db, 'finance', 'edit')) {
+    if (!supplier_can_orgwide($db, 'workflow', 'edit') || !supplier_can_orgwide($db, 'finance', 'edit')) {
         _supplier_stays_deny('Authoring automations requires operations + finance edit rights.');
     }
     $back = root . 'supplier/workflow';
@@ -252,7 +252,7 @@ $router->post('/supplier/workflow/rule', function () use ($SECURE, $db) {
 $router->post('/supplier/workflow/rule/toggle', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'edit') || !supplier_can($db, 'finance', 'edit')) {
+    if (!supplier_can_orgwide($db, 'workflow', 'edit') || !supplier_can_orgwide($db, 'finance', 'edit')) {
         _supplier_stays_deny('Not authorised.');
     }
     $back = root . 'supplier/workflow';
@@ -268,7 +268,7 @@ $router->post('/supplier/workflow/rule/toggle', function () use ($SECURE, $db) {
 $router->post('/supplier/workflow/tick', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$owner, $orgId] = _wf_ext_owner_org($db);
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'workflow', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/workflow';
     $res = function_exists('workflow_tick') ? workflow_tick($db, $orgId) : ['recurring_tasks_created' => 0, 'rule_actions_fired' => 0];
     $_SESSION['message'] = ['type' => 'success', 'text' => 'Ran one automation pass — ' . (int) $res['recurring_tasks_created'] . ' recurring task(s), ' . (int) $res['rule_actions_fired'] . ' rule action(s).'];

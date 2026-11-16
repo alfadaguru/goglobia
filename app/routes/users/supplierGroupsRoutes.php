@@ -11,7 +11,7 @@ $router->get('/supplier/groups', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'groups', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayId = (int) ($_GET['stay_id'] ?? 0);
@@ -53,7 +53,7 @@ $router->get('/supplier/groups', function () use ($SECURE, $db) {
     }
     foreach ($rooms as &$__r) { $__r['_options'] = function_exists('stays_room_option_ids') ? stays_room_option_ids($db, (int) $__r['id'], $stayId) : []; }
     unset($__r);
-    $canEdit = supplier_can($db, 'reservations', 'edit', $stayId);
+    $canEdit = supplier_can($db, 'groups', 'edit', $stayId);
     // Setting a negotiated group RATE changes the booking price, so it is gated on the
     // stronger 'rates:edit' permission (report 11.13-followup #2d). The owner always has
     // it; a front-desk staffer only if their role grants it — otherwise the group-rate
@@ -73,7 +73,7 @@ $router->post('/supplier/groups/create', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('group_create') ? group_create($db, $stayId, [
         'name' => $_POST['name'] ?? '', 'company' => $_POST['company'] ?? '', 'contact_name' => $_POST['contact_name'] ?? '',
         'contact_email' => $_POST['contact_email'] ?? '', 'arrival' => $_POST['arrival'] ?? '', 'departure' => $_POST['departure'] ?? '',
@@ -90,7 +90,7 @@ $router->post('/supplier/groups/block', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     // A negotiated group RATE changes the booking price → require the stronger 'rates:edit'
     // permission (report 11.13-followup #2d). SERVER-authoritative: a posted rate from a
     // user without the permission is IGNORED (forced null), so hiding the field in the view
@@ -114,7 +114,7 @@ $router->post('/supplier/groups/block/release', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('group_block_release') && group_block_release($db, (int) ($_POST['block_id'] ?? 0), $stayId);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Block released; rooms freed.' : 'Could not release block.'];
     header('Location: ' . $back); exit;
@@ -127,7 +127,7 @@ $router->post('/supplier/groups/member', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_member_add_r')
         ? group_member_add_r($db, (int) ($_POST['group_id'] ?? 0), $stayId, (int) ($_POST['block_id'] ?? 0),
             (string) ($_POST['guest_name'] ?? ''), [
@@ -147,7 +147,7 @@ $router->post('/supplier/groups/rooming-import', function () use ($SECURE, $db) 
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_rooming_import')
         ? group_rooming_import($db, (int) ($_POST['group_id'] ?? 0), $stayId, (int) ($_POST['block_id'] ?? 0), (string) ($_POST['roster'] ?? ''))
         : ['ok' => false, 'message' => 'Import engine unavailable.'];
@@ -162,7 +162,7 @@ $router->post('/supplier/groups/folio', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('group_folio_add') && group_folio_add($db, (int) ($_POST['group_id'] ?? 0), $stayId,
         strtolower(trim((string) ($_POST['ltype'] ?? ''))), (float) ($_POST['amount'] ?? 0), (string) ($_POST['description'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Folio line added.' : 'Could not add line.'];
@@ -176,7 +176,7 @@ $router->post('/supplier/groups/status', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('group_set_status') && group_set_status($db, (int) ($_POST['group_id'] ?? 0), $stayId, strtolower(trim((string) ($_POST['to'] ?? ''))));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Group updated.' : 'Could not update the group.'];
     header('Location: ' . $back); exit;
@@ -187,7 +187,7 @@ $router->post('/supplier/groups/checkin-all', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/groups?stay_id=' . $stayId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_checkin_all') ? group_checkin_all($db, (int) ($_POST['group_id'] ?? 0), $stayId) : ['checked_in' => 0, 'skipped' => 0];
     $_SESSION['message'] = ['type' => 'success', 'text' => 'Group check-in: ' . (int) $res['checked_in'] . ' checked in, ' . (int) $res['skipped'] . ' skipped (no linked booking).'];
     header('Location: ' . $back); exit;
@@ -201,7 +201,7 @@ $router->post('/supplier/groups/bulk-assign', function () use ($SECURE, $db) {
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $gid = (int) ($_POST['group_id'] ?? 0);
     $back = root . 'supplier/groups/' . $gid;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_bulk_assign') ? group_bulk_assign($db, $gid, $stayId) : ['ok' => 0, 'message' => 'Unavailable.'];
     $_SESSION['message'] = ['type' => ($res['ok'] ?? 0) > 0 ? 'success' : 'info', 'text' => 'Auto-assign — ' . ($res['message'] ?? 'done.')];
     header('Location: ' . $back); exit;
@@ -211,7 +211,7 @@ $router->post('/supplier/groups/bulk-book', function () use ($SECURE, $db) {
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $gid = (int) ($_POST['group_id'] ?? 0);
     $back = root . 'supplier/groups/' . $gid;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_bulk_book') ? group_bulk_book($db, $gid, $stayId) : ['ok' => 0, 'message' => 'Unavailable.'];
     $_SESSION['message'] = ['type' => ($res['ok'] ?? 0) > 0 ? 'success' : 'info', 'text' => 'Book all — ' . ($res['message'] ?? 'done.')];
     header('Location: ' . $back); exit;
@@ -221,7 +221,7 @@ $router->post('/supplier/groups/bulk-mark-paid', function () use ($SECURE, $db) 
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $gid = (int) ($_POST['group_id'] ?? 0);
     $back = root . 'supplier/groups/' . $gid;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_bulk_mark_paid') ? group_bulk_mark_paid($db, $gid, $stayId) : ['ok' => 0, 'message' => 'Unavailable.'];
     $_SESSION['message'] = ['type' => ($res['ok'] ?? 0) > 0 ? 'success' : 'info', 'text' => 'Mark all paid — ' . ($res['message'] ?? 'done.')];
     header('Location: ' . $back); exit;
@@ -276,8 +276,8 @@ $router->get('/supplier/groups/([0-9]+)', function ($gid) use ($SECURE, $db) {
         ['id' => $gid]);
     if (!$group) { _supplier_stays_deny('Group not found.'); }
     $stayId = (int) $group['stay_id'];
-    if (!supplier_can($db, 'reservations', 'view', $stayId)) { _supplier_stays_deny('That group is not yours.'); }
-    $canEdit = supplier_can($db, 'reservations', 'edit', $stayId);
+    if (!supplier_can($db, 'groups', 'view', $stayId)) { _supplier_stays_deny('That group is not yours.'); }
+    $canEdit = supplier_can($db, 'groups', 'edit', $stayId);
 
     $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId]);
     // Blocks + their members (with any assigned room number) + the free-room picker per block.
@@ -343,7 +343,7 @@ $router->post('/supplier/groups/member/assign-room', function () use ($SECURE, $
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $groupId = (int) ($_POST['group_id'] ?? 0);
     $back = root . 'supplier/groups/' . $groupId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_member_assign_room')
         ? group_member_assign_room($db, (int) ($_POST['member_id'] ?? 0), $stayId, (int) ($_POST['physical_room_id'] ?? 0))
         : ['ok' => false, 'message' => 'Assign engine unavailable.'];
@@ -360,7 +360,7 @@ $router->post('/supplier/groups/member/book', function () use ($SECURE, $db) {
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $groupId = (int) ($_POST['group_id'] ?? 0);
     $back = root . 'supplier/groups/' . $groupId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_member_book')
         ? group_member_book($db, (int) ($_POST['member_id'] ?? 0), $stayId)
         : ['ok' => false, 'message' => 'Booking engine unavailable.'];
@@ -376,7 +376,7 @@ $router->post('/supplier/groups/member/mark-paid', function () use ($SECURE, $db
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $groupId = (int) ($_POST['group_id'] ?? 0);
     $back = root . 'supplier/groups/' . $groupId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_member_mark_paid')
         ? group_member_mark_paid($db, (int) ($_POST['member_id'] ?? 0), $stayId)
         : ['ok' => false, 'message' => 'Unavailable.'];
@@ -392,7 +392,7 @@ $router->post('/supplier/groups/member/unassign-room', function () use ($SECURE,
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $groupId = (int) ($_POST['group_id'] ?? 0);
     $back = root . 'supplier/groups/' . $groupId;
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('group_member_unassign_room') && group_member_unassign_room($db, (int) ($_POST['member_id'] ?? 0), $stayId);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Room cleared.' : 'Could not clear the room.'];
     header('Location: ' . $back); exit;
@@ -406,7 +406,7 @@ $router->get('/supplier/groups/([0-9]+)/invoice', function ($gid) use ($SECURE, 
     $g = $db->get('stays_groups', ['stay_id'], ['id' => (int) $gid]);
     if (!$g) { _supplier_stays_deny('Group not found.'); }
     $stayId = (int) $g['stay_id'];
-    if (!supplier_can($db, 'reservations', 'view', $stayId)) { _supplier_stays_deny('That group is not yours.'); }
+    if (!supplier_can($db, 'groups', 'view', $stayId)) { _supplier_stays_deny('That group is not yours.'); }
     $inv = function_exists('group_invoice_data') ? group_invoice_data($db, (int) $gid, $stayId) : null;
     if ($inv === null) { _supplier_stays_deny('Could not build the invoice.'); }
     $stay = $db->get('stays', ['name', 'currency', 'address'], ['id' => $stayId]);

@@ -24,7 +24,7 @@ if (!function_exists('_tax_ext_owner_org')) {
         if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
         // Tax/fiscal is finance — delegatable to a 'finance' staffer (org-wide; a property-
         // restricted 'selected' staffer is denied). Owner always passes.
-        if (!supplier_can_orgwide($db, 'finance', $action === 'edit' ? 'edit' : 'view')) {
+        if (!supplier_can_orgwide($db, 'tax', $action === 'edit' ? 'edit' : 'view')) {
             _supplier_stays_deny('You are not authorised to manage tax settings.');
         }
         $owner = (string) $ctx['owner'];
@@ -61,7 +61,7 @@ $router->get('/supplier/tax', function () use ($SECURE, $db) {
 $router->post('/supplier/tax/profile/save', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised to manage tax.'); }
+    if (!supplier_can_orgwide($db, 'tax', 'edit')) { _supplier_stays_deny('Not authorised to manage tax.'); }
     $oo = _tax_ext_owner_org($db, 'edit');
     $back = root . 'supplier/tax';
     $res = ($oo['org'] > 0 && function_exists('tax_ext_profile_save'))
@@ -86,7 +86,7 @@ $router->post('/supplier/tax/profile/save', function () use ($SECURE, $db) {
 $router->post('/supplier/tax/profile/toggle', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised to manage tax.'); }
+    if (!supplier_can_orgwide($db, 'tax', 'edit')) { _supplier_stays_deny('Not authorised to manage tax.'); }
     $oo = _tax_ext_owner_org($db, 'edit');
     $back = root . 'supplier/tax';
     $ok = ($oo['org'] > 0 && function_exists('tax_ext_profile_set_active'))
@@ -99,7 +99,7 @@ $router->post('/supplier/tax/profile/toggle', function () use ($SECURE, $db) {
 $router->post('/supplier/tax/exemption/save', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised to manage tax.'); }
+    if (!supplier_can_orgwide($db, 'tax', 'edit')) { _supplier_stays_deny('Not authorised to manage tax.'); }
     $oo = _tax_ext_owner_org($db, 'edit');
     $back = root . 'supplier/tax';
     $res = ($oo['org'] > 0 && function_exists('tax_ext_exemption_save'))
@@ -121,7 +121,7 @@ $router->post('/supplier/tax/exemption/save', function () use ($SECURE, $db) {
 $router->post('/supplier/tax/exemption/toggle', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised to manage tax.'); }
+    if (!supplier_can_orgwide($db, 'tax', 'edit')) { _supplier_stays_deny('Not authorised to manage tax.'); }
     $oo = _tax_ext_owner_org($db, 'edit');
     $back = root . 'supplier/tax';
     $ok = ($oo['org'] > 0 && function_exists('tax_ext_exemption_set_active'))

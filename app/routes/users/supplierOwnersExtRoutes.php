@@ -33,7 +33,7 @@ if (!function_exists('_owners_ext_org')) {
 // ----------------------------------------------------------------------------
 $router->get('/supplier/owners/manage', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
-    if (!supplier_can_orgwide($db, 'finance', 'view')) { _supplier_stays_deny('You are not authorised to view owner accounting.'); }
+    if (!supplier_can_orgwide($db, 'owneracct', 'view')) { _supplier_stays_deny('You are not authorised to view owner accounting.'); }
     $orgId = _owners_ext_org($db);
     if ($orgId <= 0) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'No supplier organisation resolved for owner accounting.'];
@@ -79,7 +79,7 @@ $router->get('/supplier/owners/manage', function () use ($SECURE, $db) {
 // POST /supplier/owners/kyc — set an owner's KYC/verification status
 $router->post('/supplier/owners/kyc', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'owneracct', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = _owners_ext_org($db);
     $back = root . 'supplier/owners/manage';
     if ($orgId <= 0) { _supplier_stays_deny('No organisation.'); }
@@ -96,7 +96,7 @@ $router->post('/supplier/owners/coowner', function () use ($SECURE, $db) {
     $orgId = _owners_ext_org($db);
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     // Property-scoped permission (IDOR guard): must own/have scope on this property.
-    if (!supplier_can($db, 'finance', 'edit', $stayId)) { _supplier_stays_deny('Not authorised for this property.'); }
+    if (!supplier_can($db, 'owneracct', 'edit', $stayId)) { _supplier_stays_deny('Not authorised for this property.'); }
     $back = root . 'supplier/owners/manage?stay_id=' . $stayId;
     if ($orgId <= 0) { _supplier_stays_deny('No organisation.'); }
     $res = function_exists('owner_coowner_set')
@@ -109,7 +109,7 @@ $router->post('/supplier/owners/coowner', function () use ($SECURE, $db) {
 // POST /supplier/owners/coowner/remove — remove a co-ownership share
 $router->post('/supplier/owners/coowner/remove', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'owneracct', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = _owners_ext_org($db);
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/owners/manage' . ($stayId > 0 ? ('?stay_id=' . $stayId) : '');
@@ -122,7 +122,7 @@ $router->post('/supplier/owners/coowner/remove', function () use ($SECURE, $db) 
 // POST /supplier/owners/document — record an owner document (metadata)
 $router->post('/supplier/owners/document', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'owneracct', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = _owners_ext_org($db);
     $ownerId = (int) ($_POST['owner_id'] ?? 0);
     $back = root . 'supplier/owners/manage?owner_id=' . $ownerId;
@@ -140,7 +140,7 @@ $router->post('/supplier/owners/document', function () use ($SECURE, $db) {
 // POST /supplier/owners/document/remove — remove an owner document
 $router->post('/supplier/owners/document/remove', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'owneracct', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = _owners_ext_org($db);
     $ownerId = (int) ($_POST['owner_id'] ?? 0);
     $back = root . 'supplier/owners/manage' . ($ownerId > 0 ? ('?owner_id=' . $ownerId) : '');
@@ -155,7 +155,7 @@ $router->post('/supplier/owners/usage', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $orgId = _owners_ext_org($db);
     $stayId = (int) ($_POST['stay_id'] ?? 0);
-    if (!supplier_can($db, 'finance', 'edit', $stayId)) { _supplier_stays_deny('Not authorised for this property.'); }
+    if (!supplier_can($db, 'owneracct', 'edit', $stayId)) { _supplier_stays_deny('Not authorised for this property.'); }
     $back = root . 'supplier/owners/manage?stay_id=' . $stayId;
     if ($orgId <= 0) { _supplier_stays_deny('No organisation.'); }
     $res = function_exists('owner_usage_add')
@@ -169,7 +169,7 @@ $router->post('/supplier/owners/usage', function () use ($SECURE, $db) {
 // POST /supplier/owners/usage/cancel — cancel an owner-usage block
 $router->post('/supplier/owners/usage/cancel', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'owneracct', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = _owners_ext_org($db);
     $back = root . 'supplier/owners/manage';
     if ($orgId <= 0) { _supplier_stays_deny('No organisation.'); }
@@ -181,7 +181,7 @@ $router->post('/supplier/owners/usage/cancel', function () use ($SECURE, $db) {
 // POST /supplier/owners/comm — log (and optionally email) an owner communication
 $router->post('/supplier/owners/comm', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'owneracct', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = _owners_ext_org($db);
     $ownerId = (int) ($_POST['owner_id'] ?? 0);
     $back = root . 'supplier/owners/manage?owner_id=' . $ownerId;

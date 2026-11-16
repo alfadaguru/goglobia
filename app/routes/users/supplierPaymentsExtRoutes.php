@@ -31,7 +31,7 @@ if (!function_exists('_spayx_owner_ctx')) {
         $ctx = supplier_acting_context($db);
         // Payments/deposits/chargebacks are finance — delegatable to a 'finance' staffer
         // (org-wide; a property-restricted 'selected' staffer is denied). Owner always passes.
-        if (!supplier_can_orgwide($db, 'finance', 'view')) { _supplier_stays_deny('You are not authorised to manage payments.'); }
+        if (!supplier_can_orgwide($db, 'payments', 'view')) { _supplier_stays_deny('You are not authorised to manage payments.'); }
         $orgId   = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
         $stayIds = supplier_owned_stay_ids($db, $owner);
         return ['owner' => $owner, 'org_id' => (int) $orgId, 'stayIds' => $stayIds];

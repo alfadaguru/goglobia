@@ -10,7 +10,7 @@ $router->get('/supplier/stays/([0-9]+)/rms', function ($id) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rates', 'view', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+    if (!supplier_can($db, 'rms', 'view', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
     $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => (int) $id]);
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
     $stayId = (int) $id;
@@ -32,3 +32,4 @@ $router->get('/supplier/stays/([0-9]+)/rms', function ($id) use ($SECURE, $db) {
     require_once views . "supplier/stays/rms.php";
     require_once views . "includes/footer.php";
 });
+

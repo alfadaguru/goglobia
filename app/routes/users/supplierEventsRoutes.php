@@ -10,7 +10,7 @@ $router->get('/supplier/events', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'events', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayFilter = (int) ($_GET['stay_id'] ?? 0);
@@ -42,7 +42,7 @@ $router->get('/supplier/events', function () use ($SECURE, $db) {
     if ($stayFilter > 0 && function_exists('mice_space_availability')) {
         $spaceAvail = mice_space_availability($db, $stayFilter, date('Y-m-d'), date('Y-m-d', strtotime('+30 days')));
     }
-    $canEdit = supplier_can($db, 'reservations', 'edit');
+    $canEdit = supplier_can($db, 'events', 'edit');
 
     $title = 'Events'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -57,7 +57,7 @@ $router->post('/supplier/events/space', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/events' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'events', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('mice_space_create') ? mice_space_create($db, $stayId, ['name' => $_POST['name'] ?? '', 'capacity' => $_POST['capacity'] ?? 0]) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Function space added.' : 'Could not add space (name required?).'];
     header('Location: ' . $back); exit;
@@ -70,7 +70,7 @@ $router->post('/supplier/events/create', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/events' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'events', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('mice_event_create') ? mice_event_create($db, $stayId, (int) ($_POST['space_id'] ?? 0), [
         'title' => $_POST['title'] ?? '', 'client_name' => $_POST['client_name'] ?? '', 'client_email' => $_POST['client_email'] ?? '',
         'event_date' => $_POST['event_date'] ?? '', 'pax' => $_POST['pax'] ?? 0, 'currency' => $_POST['currency'] ?? 'USD',
@@ -86,7 +86,7 @@ $router->post('/supplier/events/line', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/events' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'events', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('mice_folio_add') && mice_folio_add($db, (int) ($_POST['event_id'] ?? 0), $stayId,
         strtolower(trim((string) ($_POST['ltype'] ?? ''))), (float) ($_POST['amount'] ?? 0), (string) ($_POST['description'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Event line added.' : 'Could not add line (event open + valid type/amount).'];
@@ -100,7 +100,7 @@ $router->post('/supplier/events/status', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/events' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'events', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('mice_event_set_status') && mice_event_set_status($db, (int) ($_POST['event_id'] ?? 0), $stayId, strtolower(trim((string) ($_POST['to'] ?? ''))));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Event updated.' : 'Could not update the event (invalid transition?).'];
     header('Location: ' . $back); exit;

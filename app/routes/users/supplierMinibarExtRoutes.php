@@ -13,7 +13,7 @@ $router->get('/supplier/minibar/manage', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'minibar', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $items     = function_exists('minibar_list') ? minibar_list($db, $stayIds) : [];
     $pars      = function_exists('minibar_par_list') ? minibar_par_list($db, $stayIds) : [];
@@ -26,7 +26,7 @@ $router->get('/supplier/minibar/manage', function () use ($SECURE, $db) {
     // Item name lookup for the movement/shrinkage tables.
     $itemMap = [];
     foreach ($items as $it) { $itemMap[(int) $it['id']] = (string) $it['name']; }
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'minibar', 'edit');
     $title = 'Minibar operations'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/minibar-ext.php";
@@ -38,7 +38,7 @@ $router->post('/supplier/minibar/par', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/minibar/manage';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'minibar', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('minibar_set_par') && minibar_set_par(
         $db, $stayId, (int) ($_POST['item_id'] ?? 0),
         (string) ($_POST['room_number'] ?? ''), (int) ($_POST['par_qty'] ?? 0));
@@ -51,7 +51,7 @@ $router->post('/supplier/minibar/consume', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/minibar/manage';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'minibar', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('minibar_post_consumption')
         ? minibar_post_consumption(
             $db, $stayId, (int) ($_POST['item_id'] ?? 0),
@@ -67,7 +67,7 @@ $router->post('/supplier/minibar/replenish', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/minibar/manage';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'minibar', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('minibar_replenish') && minibar_replenish(
         $db, $stayId, (int) ($_POST['item_id'] ?? 0),
         (string) ($_POST['room_number'] ?? ''), (int) ($_POST['qty'] ?? 1));
@@ -80,7 +80,7 @@ $router->post('/supplier/minibar/count', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/minibar/manage';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'minibar', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('minibar_record_count') && minibar_record_count(
         $db, $stayId, (int) ($_POST['item_id'] ?? 0),
         (string) ($_POST['room_number'] ?? ''), (int) ($_POST['counted_qty'] ?? 0));

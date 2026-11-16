@@ -25,7 +25,7 @@ $router->get('/supplier/packages/builder', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rates', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'packages', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds   = supplier_owned_stay_ids($db, $owner);
     $packages  = function_exists('package_list') ? package_list($db, $stayIds) : [];
     $itemsMap  = function_exists('pkg_items_map') ? pkg_items_map($db, $stayIds) : [];
@@ -33,7 +33,7 @@ $router->get('/supplier/packages/builder', function () use ($SECURE, $db) {
     $propMap   = _pkgext_props($db, $owner); $propList = $propMap;
     $mealCodes = function_exists('pkg_meal_plan_codes') ? pkg_meal_plan_codes() : [];
     $itemCats  = function_exists('pkg_item_categories') ? pkg_item_categories() : [];
-    $canEdit   = supplier_can($db, 'rates', 'edit');
+    $canEdit   = supplier_can($db, 'packages', 'edit');
     $canBill   = supplier_can($db, 'reservations', 'edit');
     $title = 'Package builder & meal plans'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -46,7 +46,7 @@ $router->post('/supplier/packages/item/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/packages/builder';
-    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'packages', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('pkg_item_add') ? pkg_item_add($db, (int) ($_POST['package_id'] ?? 0), $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Component added.' : 'Could not add (label + package required).'];
     header('Location: ' . $back); exit;
@@ -55,7 +55,7 @@ $router->post('/supplier/packages/item/delete', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/packages/builder';
-    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'packages', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('pkg_item_delete') && pkg_item_delete($db, (int) ($_POST['id'] ?? 0), (int) ($_POST['package_id'] ?? 0), $stayId);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Component removed.' : 'Could not remove.'];
     header('Location: ' . $back); exit;
@@ -66,7 +66,7 @@ $router->post('/supplier/meal-plans/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/packages/builder';
-    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'packages', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('meal_plan_add') ? meal_plan_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Meal plan added.' : 'Could not add (valid plan code + property; one row per plan).'];
     header('Location: ' . $back); exit;
@@ -75,7 +75,7 @@ $router->post('/supplier/meal-plans/toggle', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/packages/builder';
-    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'packages', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('meal_plan_set_active') && meal_plan_set_active($db, (int) ($_POST['id'] ?? 0), $stayId, (string) ($_POST['active'] ?? '0') === '1');
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Updated.' : 'Could not update.'];
     header('Location: ' . $back); exit;

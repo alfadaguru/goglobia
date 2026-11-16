@@ -11,7 +11,7 @@ $router->get('/supplier/access/locks', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'locks', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayFilter = (int) ($_GET['stay_id'] ?? 0);
     if ($stayFilter > 0 && !in_array($stayFilter, $stayIds, true)) { $stayFilter = 0; }
@@ -37,7 +37,7 @@ $router->get('/supplier/access/locks', function () use ($SECURE, $db) {
     $adapter   = function_exists('locks_adapter_status') ? locks_adapter_status($db, $stayFilter) : ['connected' => false, 'message' => ''];
     $propMap = [];
     if (!empty($stayIds)) { try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {} }
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'locks', 'edit');
 
     $title = 'Smart locks & access'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -52,7 +52,7 @@ if (!function_exists('_locks_ext_ctx')) {
         SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
         $owner = _supplier_stays_owner($db);
         if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-        if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+        if (!supplier_can($db, 'locks', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
         return true;
     }
 }

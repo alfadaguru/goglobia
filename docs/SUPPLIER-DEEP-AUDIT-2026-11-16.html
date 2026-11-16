@@ -1,0 +1,77 @@
+<h1>Supplier Area — Deep Permission &amp; Menu Audit</h1>
+<p class="sub">Full sweep: 82 route files, 150 views, 454 POST handlers, the 9-function permission core, and all ~90 menu items. Every finding cites <code>file:line</code> — open the file and check it. Dated 2026-11-16. 5 independent auditors; the HIGH findings re-verified by hand.</p>
+
+<div class="legend">
+  <span class="tag crit">CRITICAL</span><span class="tag high">HIGH</span><span class="tag med">MEDIUM</span><span class="tag low">LOW</span><span class="tag ok">OK</span>
+</div>
+
+<h2>Bottom line (honest)</h2>
+<p>The permission <strong>engine is sound</strong> — fail-closed, IDOR-safe, no cross-tenant (cross-owner) leak, no self-escalation, CSRF everywhere. The problem is <strong>inconsistent application</strong>: the codebase has two gate functions — <code>supplier_can()</code> (scope-blind when no stay id is passed) and <code>supplier_can_orgwide()</code> (denies property-restricted staff). Some org-wide screens were converted to <code>_orgwide</code>; their siblings were missed. The result: <strong>a property-restricted ("selected"-scope) staffer, and in a couple of cases ANY staffer, can reach whole-business data and screens the owner believes are locked down.</strong> No outsider gets in; the leak is <em>between staff inside one owner's org</em>.</p>
+
+<h2>What is SOLID (verified, so you know it's not all broken)</h2>
+<ul class="good">
+  <li><span class="tag ok">OK</span> <b>No cross-owner leak.</b> <code>supplier_can()</code> checks <code>stays.user_id === owner</code> when a stay id is passed (<code>functions.php:753-766</code>); a staffer's owner is bound from the <code>supplier_staff</code> row, never client input (<code>:587</code>). One owner's staff can never touch another owner's data.</li>
+  <li><span class="tag ok">OK</span> <b>No self-escalation.</b> Role/staff editing lives only in <code>supplierRolesRoutes</code> + <code>supplierStaffRoutes</code>, both owner-only <code>SUPPLIER_AUTH()</code>. Staff can't edit their own role or invite staff.</li>
+  <li><span class="tag ok">OK</span> <b>Role builder is allow-listed.</b> <code>_supplier_role_build_perms()</code> (<code>supplierRolesRoutes.php:49-65</code>) iterates the catalogue, not the POST — a hand-crafted POST can't grant a module/action that isn't in <code>supplier_role_modules()</code>.</li>
+  <li><span class="tag ok">OK</span> <b>CSRF everywhere.</b> All 454 POST handlers verify CSRF (directly or via a shared <code>_ctx</code> helper). The "POST&gt;CSRF count" suspicion was a false positive in all 10 flagged files.</li>
+  <li><span class="tag ok">OK</span> <b>Staff accept flow is takeover-safe; approval-limit gate is fail-closed; suspended owner disables their whole team.</b></li>
+  <li><span class="tag ok">OK</span> <b>Property-mode menu</b> passes the stay id correctly on all 34 items; no cross-property drop. Group-render has no empty-header / hidden-item leak.</li>
+</ul>
+
+<h2>FINDINGS — ranked, every one with code evidence</h2>
+
+<h3><span class="tag high">HIGH-1 — Customer Book: whole-org customer PII readable by a property-restricted clerk</span></h3>
+<p><code>supplierContactsRoutes.php</code> gates the READ paths on plain <code>supplier_can($db,'reservations','view')</code> (<code>:30</code> list, <code>:75</code> search, <code>:209</code> detail), then fetches by org (<code>contacts_list($db,$orgId)</code> :49/:82, <code>contacts_get($db,$orgId,$id)</code> :211). <b>Same file's WRITE paths DO use <code>supplier_can_orgwide</code></b> (<code>:133, :192, :258</code>) — so the reads are a clear miss, not a design choice.</p>
+<p><b>Who/what:</b> a front-desk clerk whose role is <code>scope_type='selected'</code>, limited to Property A, holding only <code>reservations:view</code>, opens <code>/supplier/customers</code> and reads every customer's name/email/phone/tax_id/credit_limit across Properties B, C… Walking <code>/supplier/customers/{id}</code> is a direct IDOR. <b>Verified by hand.</b></p>
+
+<h3><span class="tag high">HIGH-2 — Guest book: whole-org guest PII + loyalty readable/writable by a property-restricted clerk</span></h3>
+<p><code>supplierGuestsRoutes.php:27/:81/:112</code> gate on plain <code>reservations:view/edit</code>; data is org-keyed (<code>guests_stored_list($db,$c['org'])</code> :42/:115). The sibling <code>supplierGuestCrmExtRoutes.php</code> was correctly converted to <code>_orgwide</code> (<code>:32,:79</code>) — Guests was missed. A selected-scope clerk reads/edits every guest's PII + loyalty balance across all properties. <b>Verified by hand.</b></p>
+
+<h3><span class="tag high">HIGH-3 — Extended Procurement console reachable by a property-restricted staffer (money-posting)</span></h3>
+<p><code>supplierProcurementExtRoutes.php</code> has <b>zero</b> <code>_orgwide</code> calls — every gate is plain <code>supplier_can($db,'procurement',…)</code> (<code>:56,:108,…</code>) and <code>_proc_ext_org</code> (:22) resolves the org for any staffer. The BASE console (<code>supplierProcurementRoutes.php:24</code>) correctly uses <code>_orgwide</code>. A selected-scope procurement staffer reaches requisitions/POs/GRN/three-way-match/budgets for properties outside their scope — and these POST to the GL. <b>Verified by hand.</b></p>
+
+<h3><span class="tag high">HIGH-4 — Alerts page has NO permission gate at all (presented as owner-only)</span></h3>
+<p><code>supplierNotifyExtRoutes.php:45</code> runs only <code>SUPPLIER_OR_STAFF_AUTH</code> + <code>_notify_ext_ctx</code> (:24-40), and that resolver has <b>no permission check</b>. So ANY active staffer — even a zero-permission role — opens <code>/supplier/alerts</code> and reads the org notification inbox. The sidebar hides it behind <code>$isOwner</code> (<code>sidebar.php:219</code>), so "owner-only" is false. (The <code>supplier_can('finance','edit')</code> at :64 only toggles the config buttons.) <b>Verified by hand.</b></p>
+
+<h3><span class="tag high">HIGH-5 — Marketplace &amp; Executive-BI portfolio data readable by a property-restricted staffer</span></h3>
+<p><code>supplierMarketplaceRoutes.php:12</code> → <code>marketplace_performance($db,$owner)</code> (all stays' earnings/commission/quota). <code>supplierBiExtRoutes.php:36/:68/:100/:123</code> → <code>bi_ext_property_pl($db,$c['org_id'])</code> (GL-derived revenue/expense/net P&amp;L for EVERY property). Both gate on plain <code>reservations:view</code>, org-keyed, unnarrowed. A selected-scope clerk sees whole-portfolio financials. <b>Verified by hand.</b></p>
+
+<h3><span class="tag med">MEDIUM-6 — More org-admin screens admit a selected-scope staffer who holds the module permission</span></h3>
+<p>Same bug class, but requires the staffer to hold the org-admin permission (narrower than HIGH-1..5 which only need the near-ubiquitous <code>reservations:view</code>): <b>Stores</b> (<code>supplierStoresExtRoutes.php:27</code>, <code>procurement</code>), <b>Workflow task board</b> (<code>supplierWorkflowExtRoutes.php</code>, org-keyed <code>task_list($db,$orgId)</code>), <b>Platform-ops config/auth-events</b> (<code>supplierPlatformopsExtRoutes.php:60…</code>, <code>platformops</code>), <b>Notify rules/webhooks</b> (<code>supplierNotifyExtRoutes.php:132…</code>, <code>finance:edit</code>). All should use <code>_orgwide</code>.</p>
+
+<h3><span class="tag med">MEDIUM-7 — Access-control (RBAC) console admits a staffer; contradicts the documented owner-only intent</span></h3>
+<p><code>supplierRbacExtRoutes.php:42/:47/:89/:112/:194</code> use <code>SUPPLIER_OR_STAFF_AUTH</code> + <code>supplier_can('staff','view'/'edit')</code>. A staffer granted <code>staff</code> reaches departments, the staff audit log, and the approval-decide queue — while <code>functions.php:10590-10594</code> explicitly says <code>staff</code> grants are "INERT" because staff-mgmt is owner-only. Its siblings Staff/Roles correctly use <code>SUPPLIER_AUTH()</code>; RBAC is the inconsistent one. (Bounded: no role-editing / staff-invite is reachable here; decide re-checks <code>supplier_can_approve</code>.)</p>
+
+<h3><span class="tag med">MEDIUM-8 — 8 menu items say "owner-only" but the route admits a staffer (hidden-but-reachable by URL)</span></h3>
+<p>Sidebar hides these behind <code>$isOwner</code>, but typing the URL works for a permission-holding (sometimes any) staffer: <b>Alerts</b> (no perm — see HIGH-4), <b>Access control</b> (staff:view — MED-7), <b>Executive BI</b> &amp; <b>AI &amp; automation</b> (reservations:view), <b>Smart locks</b>, <b>Smart building</b>, <b>Apartments</b> (rooms:view), <b>Lease billing</b> (hotels:view). The owner's "this is locked to me" belief is false for all 8. Full list + file:line in the sidebar table.</p>
+
+<h3><span class="tag low">LOW — menu mismatches that annoy but don't leak</span></h3>
+<ul>
+  <li><b>Dead links for selected-scope staff (MISMATCH-A):</b> Guest CRM, Guest journey, Loyalty — sidebar shows them (plain <code>$can</code>), route denies them (<code>_orgwide</code>). They click, get bounced.</li>
+  <li><b>Hidden features (MISMATCH-B):</b> Maintenance, Engineering, Events, Night audit, POS, Edit-property — sidebar requires <code>edit</code>, route only needs <code>view</code>, so a view-delegated staffer never sees a link they're entitled to.</li>
+  <li><b>Wrong module:</b> <b>Vendors</b> route gates on <code>rooms</code> not <code>procurement</code> (<code>supplierVendorsExtRoutes.php:49</code>) — a vendor ledger behind the rooms permission; <b>POS</b> route gates on <code>rooms:view</code> while the sidebar uses <code>reservations:edit</code>.</li>
+  <li><b>Dormant parallel catalogue</b> (<code>functions.php:10752</code>, <code>'active'=&gt;false</code>) + <b>inert <code>staff</code> grant</b> — latent footguns, not live bugs.</li>
+</ul>
+
+<h2>The ONE fix pattern (already proven in this codebase)</h2>
+<p>Every HIGH/MEDIUM finding is the same swap: on an <strong>org-wide</strong> read/write, change <code>supplier_can($db,$m,$a)</code> → <code>supplier_can_orgwide($db,$m,$a)</code> — exactly what the finance files, <code>supplierGuestCrmExtRoutes</code>, and <code>supplierCommsExtRoutes</code> already do. For the 8 "owner-only" menu items, either demote the sidebar from <code>$isOwner</code> to the real permission, or raise the route to owner-only — pick per item based on whether you actually want to delegate it.</p>
+
+<h2>Priority order if you want these fixed</h2>
+<ol>
+  <li><b>HIGH-4 Alerts</b> (no gate — worst) → add an orgwide gate.</li>
+  <li><b>HIGH-1/2/3/5</b> (Contacts reads, Guests, Procurement-ext, Marketplace/BI) → <code>_orgwide</code>.</li>
+  <li><b>MED-6/7</b> (Stores/Workflow/Platformops/Notify/RBAC) → <code>_orgwide</code> / owner-only.</li>
+  <li><b>MED-8 + LOW</b> menu reconciliation (sidebar ↔ route parity).</li>
+</ol>
+<p class="foot">This is audit-only — no code changed. Every claim above is a <code>file:line</code> you can open. I re-verified the five HIGH findings by hand, not on an agent's word.</p>
+
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; color:#1f2937; max-width:1000px; margin:0 auto; padding:24px; line-height:1.55; }
+  h1 { font-size:1.6rem; margin-bottom:2px; } h2 { font-size:1.2rem; margin-top:30px; border-bottom:2px solid #eee; padding-bottom:4px; }
+  h3 { font-size:1.02rem; margin-top:20px; } .sub { color:#6b7280; margin-top:0; }
+  code { background:#f3f4f6; padding:1px 5px; border-radius:4px; font-size:0.85em; color:#7c3aed; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:0.72rem; font-weight:700; margin-right:5px; }
+  .crit { background:#fee2e2; color:#7f1d1d; } .high { background:#fef3c7; color:#92400e; } .med { background:#fef9c3; color:#854d0e; } .low { background:#e0e7ff; color:#3730a3; } .ok { background:#dcfce7; color:#166534; }
+  .legend { margin:8px 0 4px; } .good li { margin:5px 0; } ul,ol { margin:6px 0; }
+  .foot { color:#6b7280; font-size:0.85rem; margin-top:18px; }
+</style>

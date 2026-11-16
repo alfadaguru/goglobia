@@ -88,40 +88,53 @@ if ($activeStay > 0) {
     // ===== INSIDE A PROPERTY: that hotel's full PMS =====
     $sid = $activeStay;
     $q = '?stay_id=' . $sid;
+    // Order mirrors the Roles-page group sequence so the owner reads the same mental model
+    // in both places: Front desk & reservations → Guests & CRM → Rooms & operations →
+    // Rates & distribution → Property & tenancy (Step 6 of the permission redesign).
     $pmItems = [
         ['name' => 'Overview',      'icon' => 'dashboard',        'url' => 'supplier/stays/' . $sid, 'show' => true],
-        ['name' => 'Rooms & rates', 'icon' => 'bed',              'url' => 'supplier/stays/' . $sid . '/rooms', 'show' => $can('rooms', 'view', $sid)],
-        ['name' => 'Buildings',     'icon' => 'apartment',        'url' => 'supplier/stays/' . $sid . '/buildings', 'show' => $can('hotels', 'view', $sid)],
-        ['name' => 'Calendar',      'icon' => 'calendar_month',   'url' => 'supplier/calendar' . $q, 'show' => $can('rates', 'view', $sid)],
-        ['name' => 'Rate rules',    'icon' => 'tune',             'url' => 'supplier/stays/' . $sid . '/rate-rules', 'show' => $can('rates', 'view', $sid)],
-        ['name' => 'Channels',      'icon' => 'hub',              'url' => 'supplier/stays/' . $sid . '/channels', 'show' => $can('rates', 'view', $sid)],
-        ['name' => 'Revenue mgmt',  'icon' => 'trending_up',      'url' => 'supplier/stays/' . $sid . '/rms', 'show' => $can('rates', 'view', $sid)],
+
+        // --- Front desk & reservations ---
         ['name' => 'Front desk',    'icon' => 'concierge',        'url' => 'supplier/front-desk' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Reservations',  'icon' => 'receipt_long',     'url' => 'supplier/reservations' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Room rack',     'icon' => 'grid_view',        'url' => 'supplier/stays/' . $sid . '/tape-chart', 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Shift & wake-ups','icon' => 'alarm',           'url' => 'supplier/stays/' . $sid . '/shift', 'show' => $can('reservations', 'view', $sid)],
-        ['name' => 'Groups & blocks','icon' => 'groups_3',        'url' => 'supplier/groups' . $q, 'show' => $can('reservations', 'view', $sid)],
-        ['name' => 'Housekeeping',  'icon' => 'cleaning_services','url' => 'supplier/housekeeping' . $q, 'show' => $can('rooms', 'view', $sid)],
-        ['name' => 'Maintenance',   'icon' => 'build',            'url' => 'supplier/maintenance' . $q, 'show' => $can('rooms', 'edit', $sid)],
-        ['name' => 'Laundry',       'icon' => 'local_laundry_service','url' => 'supplier/laundry' . $q, 'show' => $can('rooms', 'view', $sid)],
-        ['name' => 'Minibar',       'icon' => 'liquor',           'url' => 'supplier/minibar' . $q, 'show' => $can('rooms', 'view', $sid)],
-        ['name' => 'Lost & found',  'icon' => 'inventory',        'url' => 'supplier/lost-found' . $q, 'show' => $can('rooms', 'view', $sid)],
-        ['name' => 'Assets',        'icon' => 'chair',            'url' => 'supplier/assets' . $q, 'show' => $can('rooms', 'view', $sid)],
-        ['name' => 'Leases',        'icon' => 'home_work',        'url' => 'supplier/leases' . $q, 'show' => $can('hotels', 'view', $sid)],
-        ['name' => 'Utilities',     'icon' => 'bolt',             'url' => 'supplier/utilities' . $q, 'show' => $can('hotels', 'view', $sid)],
-        ['name' => 'Packages',      'icon' => 'redeem',           'url' => 'supplier/packages' . $q, 'show' => $can('rates', 'view', $sid)],
-        ['name' => 'Safety & docs', 'icon' => 'health_and_safety','url' => 'supplier/safety' . $q, 'show' => $can('rooms', 'view', $sid)],
-        ['name' => 'F&B / POS',     'icon' => 'restaurant',       'url' => 'supplier/pos' . $q, 'show' => $can('reservations', 'edit', $sid)],
-        ['name' => 'Recipes',       'icon' => 'menu_book',        'url' => 'supplier/recipes' . $q, 'show' => $can('reservations', 'view', $sid)],
-        ['name' => 'Kitchen & food cost','icon' => 'soup_kitchen', 'url' => 'supplier/kitchen' . $q, 'show' => $can('reservations', 'view', $sid)],
-        ['name' => 'Services',      'icon' => 'spa',              'url' => 'supplier/ancillary-services' . $q, 'show' => $can('reservations', 'view', $sid)],
-        ['name' => 'Spa & wellness','icon' => 'self_improvement',  'url' => 'supplier/spa' . $q, 'show' => $can('reservations', 'view', $sid)],
-        ['name' => 'Resources',     'icon' => 'local_shipping',    'url' => 'supplier/resources' . $q, 'show' => $can('reservations', 'view', $sid)],
-        ['name' => 'Engineering',   'icon' => 'engineering',       'url' => 'supplier/maintenance/engineering' . $q, 'show' => $can('rooms', 'edit', $sid)],
-        ['name' => 'Events',        'icon' => 'celebration',      'url' => 'supplier/events' . $q, 'show' => $can('reservations', 'edit', $sid)],
-        ['name' => 'Night audit',   'icon' => 'nightlight',       'url' => 'supplier/night-audit' . $q, 'show' => $can('reservations', 'edit', $sid)],
-        ['name' => 'Reviews',       'icon' => 'reviews',          'url' => 'supplier/reviews' . $q, 'show' => $can('reservations', 'view', $sid)],
-        ['name' => 'Reputation',    'icon' => 'stars',            'url' => 'supplier/reputation' . $q, 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Groups & blocks','icon' => 'groups_3',        'url' => 'supplier/groups' . $q, 'show' => $can('groups', 'view', $sid)],
+        ['name' => 'Night audit',   'icon' => 'nightlight',       'url' => 'supplier/night-audit' . $q, 'show' => $can('nightaudit', 'view', $sid)],
+        ['name' => 'F&B / POS',     'icon' => 'restaurant',       'url' => 'supplier/pos' . $q, 'show' => $can('pos', 'view', $sid)],
+        ['name' => 'Recipes',       'icon' => 'menu_book',        'url' => 'supplier/recipes' . $q, 'show' => $can('recipes', 'view', $sid)],
+        ['name' => 'Kitchen & food cost','icon' => 'soup_kitchen', 'url' => 'supplier/kitchen' . $q, 'show' => $can('kitchen', 'view', $sid)],
+        ['name' => 'Spa & wellness','icon' => 'self_improvement',  'url' => 'supplier/spa' . $q, 'show' => $can('spa', 'view', $sid)],
+        ['name' => 'Services',      'icon' => 'spa',              'url' => 'supplier/ancillary-services' . $q, 'show' => $can('services', 'view', $sid)],
+        ['name' => 'Resources',     'icon' => 'local_shipping',    'url' => 'supplier/resources' . $q, 'show' => $can('resources', 'view', $sid)],
+        ['name' => 'Events',        'icon' => 'celebration',      'url' => 'supplier/events' . $q, 'show' => $can('events', 'view', $sid)],
+
+        // --- Guests & CRM (property-level reviews/reputation) ---
+        ['name' => 'Reviews',       'icon' => 'reviews',          'url' => 'supplier/reviews' . $q, 'show' => $can('reviews', 'view', $sid)],
+        ['name' => 'Reputation',    'icon' => 'stars',            'url' => 'supplier/reputation' . $q, 'show' => $can('reputation', 'view', $sid)],
+
+        // --- Rooms & operations ---
+        ['name' => 'Housekeeping',  'icon' => 'cleaning_services','url' => 'supplier/housekeeping' . $q, 'show' => $can('housekeeping', 'view', $sid)],
+        ['name' => 'Maintenance',   'icon' => 'build',            'url' => 'supplier/maintenance' . $q, 'show' => $can('maintenance', 'view', $sid)],
+        ['name' => 'Engineering',   'icon' => 'engineering',       'url' => 'supplier/maintenance/engineering' . $q, 'show' => $can('maintenance', 'edit', $sid)],
+        ['name' => 'Laundry',       'icon' => 'local_laundry_service','url' => 'supplier/laundry' . $q, 'show' => $can('laundry', 'view', $sid)],
+        ['name' => 'Minibar',       'icon' => 'liquor',           'url' => 'supplier/minibar' . $q, 'show' => $can('minibar', 'view', $sid)],
+        ['name' => 'Lost & found',  'icon' => 'inventory',        'url' => 'supplier/lost-found' . $q, 'show' => $can('lostfound', 'view', $sid)],
+        ['name' => 'Assets',        'icon' => 'chair',            'url' => 'supplier/assets' . $q, 'show' => $can('assets', 'view', $sid)],
+        ['name' => 'Safety & docs', 'icon' => 'health_and_safety','url' => 'supplier/safety' . $q, 'show' => $can('safety', 'view', $sid)],
+
+        // --- Rates & distribution ---
+        ['name' => 'Rooms & rates', 'icon' => 'bed',              'url' => 'supplier/stays/' . $sid . '/rooms', 'show' => $can('rooms', 'view', $sid)],
+        ['name' => 'Rate rules',    'icon' => 'tune',             'url' => 'supplier/stays/' . $sid . '/rate-rules', 'show' => $can('rates', 'view', $sid)],
+        ['name' => 'Calendar',      'icon' => 'calendar_month',   'url' => 'supplier/calendar' . $q, 'show' => $can('calendar', 'view', $sid)],
+        ['name' => 'Channels',      'icon' => 'hub',              'url' => 'supplier/stays/' . $sid . '/channels', 'show' => $can('channels', 'view', $sid)],
+        ['name' => 'Revenue mgmt',  'icon' => 'trending_up',      'url' => 'supplier/stays/' . $sid . '/rms', 'show' => $can('rms', 'view', $sid)],
+        ['name' => 'Packages',      'icon' => 'redeem',           'url' => 'supplier/packages' . $q, 'show' => $can('packages', 'view', $sid)],
+
+        // --- Property & tenancy ---
+        ['name' => 'Buildings',     'icon' => 'apartment',        'url' => 'supplier/stays/' . $sid . '/buildings', 'show' => $can('hotels', 'view', $sid)],
+        ['name' => 'Leases',        'icon' => 'home_work',        'url' => 'supplier/leases' . $q, 'show' => $can('leases', 'view', $sid)],
+        ['name' => 'Utilities',     'icon' => 'bolt',             'url' => 'supplier/utilities' . $q, 'show' => $can('leases', 'view', $sid)],
         ['name' => 'Site & domain', 'icon' => 'public',           'url' => 'supplier/stays/site/' . $sid, 'show' => $can('hotels', 'edit', $sid)],
         ['name' => 'Edit property', 'icon' => 'edit',             'url' => 'supplier/stays/edit/' . $sid, 'show' => $can('hotels', 'edit', $sid)],
     ];
@@ -133,9 +146,9 @@ if ($activeStay > 0) {
 
     $groups[] = ['label' => null, 'items' => [
         ['name' => 'Dashboard', 'icon' => 'dashboard', 'url' => 'supplier/dashboard', 'show' => true],
-        ['name' => 'Insights',  'icon' => 'insights',   'url' => 'supplier/insights',  'show' => $can('reservations', 'view')],
+        ['name' => 'Insights',  'icon' => 'insights',   'url' => 'supplier/insights',  'show' => $can('bi', 'view')],
         ['name' => 'Portfolio', 'icon' => 'domain',     'url' => 'supplier/chain', 'show' => $isOwner],
-        ['name' => 'Marketplace','icon' => 'storefront', 'url' => 'supplier/marketplace', 'show' => $can('reservations', 'view')],
+        ['name' => 'Marketplace','icon' => 'storefront', 'url' => 'supplier/marketplace', 'show' => $canOrg('marketplace', 'view')],
         ['name' => 'Activity',  'icon' => 'notifications', 'url' => 'supplier/activity', 'show' => true],
     ]];
 
@@ -156,75 +169,78 @@ if ($activeStay > 0) {
 
     // Guest CRM is org-wide (across properties) → stays top-level.
     $crmItems = [];
-    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Customers', 'icon' => 'contacts', 'url' => 'supplier/customers', 'show' => true]; }
-    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guests', 'icon' => 'groups', 'url' => 'supplier/guests', 'show' => true]; }
-    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guest CRM', 'icon' => 'insights', 'url' => 'supplier/guests-crm', 'show' => true]; }
-    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Service & complaints', 'icon' => 'support_agent', 'url' => 'supplier/service-tickets', 'show' => true]; }
-    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guest messages', 'icon' => 'forum', 'url' => 'supplier/guest-messages', 'show' => true]; }
-    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guest journey', 'icon' => 'waving_hand', 'url' => 'supplier/journey', 'show' => true]; }
-    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Loyalty', 'icon' => 'loyalty', 'url' => 'supplier/loyalty', 'show' => true]; }
-    if (!empty($crmItems)) { $groups[] = ['label' => 'CRM', 'items' => $crmItems]; }
+    if ($canOrg('customers', 'view')) { $crmItems[] = ['name' => 'Customers', 'icon' => 'contacts', 'url' => 'supplier/customers', 'show' => true]; }
+    if ($canOrg('guests', 'view')) { $crmItems[] = ['name' => 'Guests', 'icon' => 'groups', 'url' => 'supplier/guests', 'show' => true]; }
+    if ($canOrg('guestcrm', 'view')) { $crmItems[] = ['name' => 'Guest CRM', 'icon' => 'insights', 'url' => 'supplier/guests-crm', 'show' => true]; }
+    if ($can('guestservice', 'view')) { $crmItems[] = ['name' => 'Service & complaints', 'icon' => 'support_agent', 'url' => 'supplier/service-tickets', 'show' => true]; }
+    if ($can('guestservice', 'view')) { $crmItems[] = ['name' => 'Guest messages', 'icon' => 'forum', 'url' => 'supplier/guest-messages', 'show' => true]; }
+    if ($canOrg('journey', 'view')) { $crmItems[] = ['name' => 'Guest journey', 'icon' => 'waving_hand', 'url' => 'supplier/journey', 'show' => true]; }
+    if ($canOrg('loyalty', 'view')) { $crmItems[] = ['name' => 'Loyalty', 'icon' => 'loyalty', 'url' => 'supplier/loyalty', 'show' => true]; }
+    if (!empty($crmItems)) { $groups[] = ['label' => 'Guests & CRM', 'items' => $crmItems]; }
 
     // Back-office groups — now PERMISSION-gated, not owner-only, so a delegated staffer
     // (e.g. an Accountant with 'finance', a procurement officer, an HR role) sees the nav
     // they can actually use. Each item's `show` is its real permission; truly owner-only
     // money-out / admin items keep $isOwner. Empty groups are dropped below.
-    $canFin  = $canOrg('finance', 'view');
-    // GL + Treasury routes require finance:EDIT (not view) — gate their nav on edit so a
-    // view-only finance staffer isn't shown a link that bounces them (RBAC audit 2026-11-15).
-    $canFinEdit = $canOrg('finance', 'edit');
-    $canProc = $canOrg('procurement', 'view');
+    // Per-area nav gating — each item's `show` now mirrors the EXACT per-area key its
+    // route enforces (Step 5 of the permission redesign). A staffer granted a single
+    // area (e.g. 'ar:view') sees exactly that one menu item. Org-wide routes use
+    // $canOrg (denies 'selected'-scope staff, matching supplier_can_orgwide); property
+    // routes use $can. Truly owner-only money-OUT / credential items keep $isOwner.
     $canHr   = $canOrg('hr', 'view');
-    $canPlat = $canOrg('platformops', 'view');
     $backGroups = [
         ['label' => 'Finance & accounting', 'items' => [
-            ['name' => 'Finance',         'icon' => 'account_balance_wallet', 'url' => 'supplier/finance', 'show' => $canFin],
-            ['name' => 'General ledger',  'icon' => 'receipt_long',     'url' => 'supplier/finance/ledger', 'show' => $canFinEdit],
-            ['name' => 'Accounts receivable','icon' => 'request_quote', 'url' => 'supplier/ar', 'show' => $canFin],
-            ['name' => 'Accounts payable','icon' => 'payments',         'url' => 'supplier/ap', 'show' => $canFin],
-            ['name' => 'Treasury',        'icon' => 'account_balance',  'url' => 'supplier/treasury', 'show' => $canFinEdit],
-            ['name' => 'Tax & fiscal',    'icon' => 'percent',          'url' => 'supplier/tax', 'show' => $canFin],
-            ['name' => 'Payments & deposits','icon' => 'credit_card',   'url' => 'supplier/payments', 'show' => $canFin],
+            ['name' => 'Finance',         'icon' => 'account_balance_wallet', 'url' => 'supplier/finance', 'show' => $canOrg('gl', 'view')],
+            // GL + Treasury routes require EDIT (not view) — gate their nav on edit so a
+            // view-only staffer isn't shown a link that bounces (RBAC audit 2026-11-15).
+            ['name' => 'General ledger',  'icon' => 'receipt_long',     'url' => 'supplier/finance/ledger', 'show' => $canOrg('gl', 'edit')],
+            ['name' => 'Accounts receivable','icon' => 'request_quote', 'url' => 'supplier/ar', 'show' => $canOrg('ar', 'view')],
+            ['name' => 'Accounts payable','icon' => 'payments',         'url' => 'supplier/ap', 'show' => $canOrg('ap', 'view')],
+            ['name' => 'Treasury',        'icon' => 'account_balance',  'url' => 'supplier/treasury', 'show' => $canOrg('treasury', 'edit')],
+            ['name' => 'Tax & fiscal',    'icon' => 'percent',          'url' => 'supplier/tax', 'show' => $canOrg('tax', 'view')],
+            ['name' => 'Payments & deposits','icon' => 'credit_card',   'url' => 'supplier/payments', 'show' => $canOrg('payments', 'view')],
             // Cashier is a per-user till shift — a front-desk/reservations duty, not org finance.
-            ['name' => 'Cashier',         'icon' => 'point_of_sale',    'url' => 'supplier/cashier', 'show' => $can('reservations', 'view')],
+            ['name' => 'Cashier',         'icon' => 'point_of_sale',    'url' => 'supplier/cashier', 'show' => $can('cashier', 'view')],
             // Money-OUT stays owner-only.
             ['name' => 'Payouts & wallet','icon' => 'wallet',           'url' => 'supplier/payouts', 'show' => $isOwner],
-            ['name' => 'Settlement',      'icon' => 'account_balance',  'url' => 'supplier/settlement', 'show' => $canFin],
+            ['name' => 'Settlement',      'icon' => 'account_balance',  'url' => 'supplier/settlement', 'show' => $canOrg('settlement', 'view')],
         ]],
         ['label' => 'Procurement & stores', 'items' => [
-            ['name' => 'Procurement',     'icon' => 'inventory_2',      'url' => 'supplier/procurement', 'show' => $canProc],
-            ['name' => 'Stores & inventory','icon' => 'warehouse',      'url' => 'supplier/stores', 'show' => $canProc],
-            ['name' => 'Vendors',         'icon' => 'handshake',        'url' => 'supplier/vendors', 'show' => $canProc],
+            ['name' => 'Procurement',     'icon' => 'inventory_2',      'url' => 'supplier/procurement', 'show' => $canOrg('procurement', 'view')],
+            ['name' => 'Stores & inventory','icon' => 'warehouse',      'url' => 'supplier/stores', 'show' => $canOrg('stores', 'view')],
+            ['name' => 'Vendors',         'icon' => 'handshake',        'url' => 'supplier/vendors', 'show' => $canOrg('vendors', 'view')],
         ]],
         ['label' => 'Owners & tenancy', 'items' => [
-            ['name' => 'Corporate & agents','icon' => 'corporate_fare', 'url' => 'supplier/corporate', 'show' => $canFin],
-            ['name' => 'Property owners', 'icon' => 'real_estate_agent','url' => 'supplier/owners', 'show' => $isOwner],
-            ['name' => 'Owner accounting','icon' => 'account_balance_wallet','url' => 'supplier/owners/manage', 'show' => $canFin],
-            ['name' => 'Lease billing',   'icon' => 'home_work',        'url' => 'supplier/lease-billing', 'show' => $isOwner],
-            ['name' => 'Client-money trust','icon' => 'savings',        'url' => 'supplier/trust', 'show' => $canFin],
-            ['name' => 'Apartments',      'icon' => 'apartment',        'url' => 'supplier/apartment/manage', 'show' => $isOwner],
+            ['name' => 'Corporate & agents','icon' => 'corporate_fare', 'url' => 'supplier/corporate', 'show' => $canOrg('corporate', 'view')],
+            ['name' => 'Property owners', 'icon' => 'real_estate_agent','url' => 'supplier/owners', 'show' => $canOrg('owneracct', 'view')],
+            ['name' => 'Owner accounting','icon' => 'account_balance_wallet','url' => 'supplier/owners/manage', 'show' => $canOrg('owneracct', 'view')],
+            // Lease billing posts rent money → requires leases:edit (route gate).
+            ['name' => 'Lease billing',   'icon' => 'home_work',        'url' => 'supplier/lease-billing', 'show' => $can('leases', 'edit')],
+            // Trust/client-money is gated with the corporate key (shares _corp_org).
+            ['name' => 'Client-money trust','icon' => 'savings',        'url' => 'supplier/trust', 'show' => $canOrg('corporate', 'view')],
+            ['name' => 'Apartments',      'icon' => 'apartment',        'url' => 'supplier/apartment/manage', 'show' => $can('apartments', 'view')],
         ]],
-        ['label' => 'Team & workflow', 'items' => [
-            // Staff/Roles/Access-control stay owner-only (they manage the role system itself).
-            ['name' => 'Staff', 'icon' => 'group', 'url' => 'supplier/staff', 'show' => $isOwner],
-            ['name' => 'Roles', 'icon' => 'badge', 'url' => 'supplier/roles', 'show' => $isOwner],
-            ['name' => 'Access control', 'icon' => 'admin_panel_settings', 'url' => 'supplier/rbac', 'show' => $isOwner],
+        ['label' => 'People', 'items' => [
+            // Staff membership vs role/permission system are now distinct areas.
+            ['name' => 'Staff', 'icon' => 'group', 'url' => 'supplier/staff', 'show' => $canOrg('staff', 'view')],
+            ['name' => 'Roles', 'icon' => 'badge', 'url' => 'supplier/roles', 'show' => $canOrg('rbac', 'view')],
+            ['name' => 'Access control', 'icon' => 'admin_panel_settings', 'url' => 'supplier/rbac', 'show' => $canOrg('rbac', 'view')],
             ['name' => 'HR & workforce', 'icon' => 'badge', 'url' => 'supplier/hr', 'show' => $canHr],
-            // /supplier/workflow gates on supplier_can('reservations','view'), not finance.
-            ['name' => 'Tasks & workflow', 'icon' => 'checklist', 'url' => 'supplier/workflow', 'show' => $can('reservations', 'view')],
         ]],
         ['label' => 'Intelligence & platform', 'items' => [
-            ['name' => 'Executive BI',    'icon' => 'leaderboard',      'url' => 'supplier/insights/executive', 'show' => $isOwner],
-            ['name' => 'AI & automation',  'icon' => 'auto_awesome',    'url' => 'supplier/ai-ext', 'show' => $isOwner],
-            ['name' => 'Alerts',          'icon' => 'notifications_active','url' => 'supplier/alerts', 'show' => $isOwner],
-            // /supplier/compliance gates on supplier_can('rooms','view') (property-level docs), not platformops.
-            ['name' => 'Compliance',      'icon' => 'verified_user',    'url' => 'supplier/compliance', 'show' => $can('rooms', 'view')],
-            ['name' => 'Smart locks',     'icon' => 'lock',             'url' => 'supplier/access/locks', 'show' => $isOwner],
-            ['name' => 'Smart building',  'icon' => 'sensors',          'url' => 'supplier/iot', 'show' => $isOwner],
-            // API keys/webhook secrets are credential management → owner-only (not a finance delegation).
+            // Tasks & workflow sits here to match the Roles-page "Intelligence & platform" group.
+            ['name' => 'Tasks & workflow', 'icon' => 'checklist', 'url' => 'supplier/workflow', 'show' => $canOrg('workflow', 'view')],
+            ['name' => 'Executive BI',    'icon' => 'leaderboard',      'url' => 'supplier/insights/executive', 'show' => $canOrg('bi', 'view')],
+            ['name' => 'AI & automation',  'icon' => 'auto_awesome',    'url' => 'supplier/ai-ext', 'show' => $can('ai', 'view')],
+            ['name' => 'Alerts',          'icon' => 'notifications_active','url' => 'supplier/alerts', 'show' => $canOrg('alerts', 'view')],
+            ['name' => 'Compliance',      'icon' => 'verified_user',    'url' => 'supplier/compliance', 'show' => $can('compliance', 'view')],
+            ['name' => 'Smart locks',     'icon' => 'lock',             'url' => 'supplier/access/locks', 'show' => $can('locks', 'view')],
+            ['name' => 'Smart building',  'icon' => 'sensors',          'url' => 'supplier/iot', 'show' => $can('iot', 'view')],
+            // API keys/webhook secrets are credential management → owner-only (not a delegation).
             ['name' => 'API & webhooks',  'icon' => 'api',              'url' => 'supplier/api', 'show' => $isOwner],
+            // Data migration touches property + opening-balance imports → owner-only.
             ['name' => 'Data migration',  'icon' => 'upload_file',      'url' => 'supplier/migration', 'show' => $isOwner],
-            ['name' => 'Security & ops',  'icon' => 'security',         'url' => 'supplier/platform-ops', 'show' => $canPlat],
+            ['name' => 'Security & ops',  'icon' => 'security',         'url' => 'supplier/platform-ops', 'show' => $canOrg('platformops', 'view')],
             ['name' => 'Integrations', 'icon' => 'hub', 'url' => 'supplier/integrations', 'show' => $isOwner],
             ['name' => 'Growth & brands', 'icon' => 'domain', 'url' => 'supplier/growth', 'show' => $isOwner],
         ]],

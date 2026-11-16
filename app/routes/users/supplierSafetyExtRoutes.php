@@ -29,7 +29,7 @@ $router->get('/supplier/safety/ext', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'safety', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $incidents    = function_exists('incident_list') ? incident_list($db, $stayIds) : [];
@@ -40,7 +40,7 @@ $router->get('/supplier/safety/ext', function () use ($SECURE, $db) {
     $damage       = function_exists('sfx_damage_list') ? sfx_damage_list($db, $stayIds) : [];
 
     $propMap = _safetyext_props($db, $owner); $propList = $propMap;
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'safety', 'edit');
     $title = 'Safety console'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/safety-ext.php";
@@ -52,7 +52,7 @@ $router->post('/supplier/safety/evidence', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     // Optional image evidence — verify the REAL MIME + reject embedded PHP via the
     // hardened secureImageFileCheck() (never trust the client filename/type), then
@@ -91,7 +91,7 @@ $router->post('/supplier/safety/escalate', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('sfx_incident_escalate') && sfx_incident_escalate($db, (int) ($_POST['incident_id'] ?? 0), $stayId, (string) ($_POST['escalated_to'] ?? ''), (string) ($_POST['escalation_note'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Incident escalated.' : 'Could not escalate (recipient required).'];
     header('Location: ' . $back); exit;
@@ -101,7 +101,7 @@ $router->post('/supplier/safety/close', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('sfx_incident_close') && sfx_incident_close($db, (int) ($_POST['incident_id'] ?? 0), $stayId, (string) ($_POST['resolution'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Incident closed.' : 'Could not close (resolution note required; already closed?).'];
     header('Location: ' . $back); exit;
@@ -112,7 +112,7 @@ $router->post('/supplier/safety/shift/open', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('sfx_shift_open') ? sfx_shift_open($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Shift started.' : 'Could not start (officer required; one already open?).'];
     header('Location: ' . $back); exit;
@@ -122,7 +122,7 @@ $router->post('/supplier/safety/shift/close', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('sfx_shift_close') && sfx_shift_close($db, (int) ($_POST['id'] ?? 0), $stayId, (string) ($_POST['handover'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Shift ended; handover logged.' : 'Could not end (already closed?).'];
     header('Location: ' . $back); exit;
@@ -133,7 +133,7 @@ $router->post('/supplier/safety/procedure', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('sfx_procedure_add') ? sfx_procedure_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Procedure saved.' : 'Could not save (title required).'];
     header('Location: ' . $back); exit;
@@ -144,7 +144,7 @@ $router->post('/supplier/safety/inspection', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('sfx_inspection_add') ? sfx_inspection_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Inspection recorded.' : 'Could not record (property required).'];
     header('Location: ' . $back); exit;
@@ -155,7 +155,7 @@ $router->post('/supplier/safety/damage', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('sfx_damage_add') ? sfx_damage_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Damage claim logged.' : 'Could not log (item required).'];
     header('Location: ' . $back); exit;
@@ -165,7 +165,7 @@ $router->post('/supplier/safety/damage/status', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('sfx_damage_set_status') && sfx_damage_set_status($db, (int) ($_POST['id'] ?? 0), $stayId, strtolower(trim((string) ($_POST['status'] ?? ''))), (string) ($_POST['note'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Claim updated.' : 'Could not update.'];
     header('Location: ' . $back); exit;
@@ -176,7 +176,7 @@ $router->post('/supplier/safety/damage/bill', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/safety/ext';
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'safety', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     // Amount is supplier-entered then clamped/rounded inside the helper — never trusted as a total.
     $amount = (float) ($_POST['amount'] ?? 0);
     $res = function_exists('sfx_damage_bill_folio')

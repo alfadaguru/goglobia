@@ -23,7 +23,7 @@ if (!function_exists('_ap_ext_org')) {
     {
         $ctx = supplier_acting_context($db);
         if ($ctx === null || !empty($ctx['is_admin'])) { return 0; }
-        if (!supplier_can_orgwide($db, 'finance', $action === 'edit' ? 'edit' : 'view')) { return 0; }
+        if (!supplier_can_orgwide($db, 'ap', $action === 'edit' ? 'edit' : 'view')) { return 0; }
         return function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, (string) $ctx['owner']) : 0;
     }
 }

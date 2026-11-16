@@ -25,7 +25,7 @@ if (!function_exists('_glx_ctx')) {
         // Delegatable: owner always passes; a staffer needs 'finance' (e.g. an Accountant
         // role). Org-wide books → org-wide gate (a property-restricted staffer can't manage
         // whole-business GL). Managing the ledger requires the stronger 'edit'.
-        if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('You are not authorised to manage the ledger.'); }
+        if (!supplier_can_orgwide($db, 'gl', 'edit')) { _supplier_stays_deny('You are not authorised to manage the ledger.'); }
         $orgId = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, (string) $ctx['owner']) : 0;
         if ($orgId <= 0) { _supplier_stays_deny('No organisation books found.'); }
         if (function_exists('glx_ensure_schema')) { glx_ensure_schema($db); }

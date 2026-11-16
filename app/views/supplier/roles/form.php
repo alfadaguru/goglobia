@@ -36,47 +36,95 @@
              value="<?= htmlspecialchars($r['name'] ?? '') ?>">
     </div>
 
-    <!-- Permission matrix -->
+    <!-- Permission matrix — grouped by menu area (supplier_role_modules_groups()).
+         Every grantable key in $mods is rendered exactly once; the checkbox name/checked
+         logic is unchanged, so the save handler is untouched. One row renderer is reused for
+         every group (no duplicated markup). -->
     <div>
-      <h2 class="text-sm font-semibold text-gray-800 mb-2">Permissions</h2>
-      <div class="overflow-x-auto border border-gray-200 rounded-lg">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left text-gray-500 bg-gray-50 border-b border-gray-200">
-              <th class="px-3 py-2 font-medium">Area</th>
-              <th class="px-3 py-2 font-medium text-center">View</th>
-              <th class="px-3 py-2 font-medium text-center">Add</th>
-              <th class="px-3 py-2 font-medium text-center">Edit / create</th>
-              <th class="px-3 py-2 font-medium text-center">Delete</th>
-              <th class="px-3 py-2 font-medium text-center">Approve</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <?php foreach ($mods as $modKey => $modMeta): ?>
-              <?php $modPerm = $perms[$modKey] ?? []; ?>
-              <tr>
-                <td class="px-3 py-2 text-gray-800"><?= htmlspecialchars($modMeta['label']) ?></td>
-                <?php foreach (['view', 'add', 'edit', 'delete', 'approve'] as $act): ?>
-                  <td class="px-3 py-2 text-center">
-                    <?php if (in_array($act, $modMeta['actions'], true)): ?>
-                      <input type="checkbox"
-                             name="permissions[<?= htmlspecialchars($modKey) ?>][<?= $act ?>]"
-                             class="checkbox-input"
-                             <?= array_key_exists($act, $modPerm) ? 'checked' : '' ?>>
-                    <?php else: ?>
-                      <span class="text-gray-300">—</span>
-                    <?php endif; ?>
-                  </td>
-                <?php endforeach; ?>
-              </tr>
-            <?php endforeach; ?>
-          </tbody>
-        </table>
+      <h2 class="text-sm font-semibold text-gray-800 mb-1">Permissions</h2>
+      <p class="text-xs text-gray-500 mb-3">Tick exactly the areas this role may use. Each area below is a real menu screen — grant only what the staffer needs.</p>
+      <?php
+        // Row renderer — identical markup for every area, called per group below.
+        $__permRow = function (string $modKey, array $modMeta) use ($perms) {
+            $modPerm = $perms[$modKey] ?? [];
+            echo '<tr><td class="px-3 py-2 text-gray-800">' . htmlspecialchars($modMeta['label'] ?? $modKey) . '</td>';
+            foreach (['view', 'add', 'edit', 'delete', 'approve'] as $act) {
+                echo '<td class="px-3 py-2 text-center">';
+                if (in_array($act, ($modMeta['actions'] ?? []), true)) {
+                    echo '<input type="checkbox" name="permissions[' . htmlspecialchars($modKey) . '][' . $act . ']" class="checkbox-input"'
+                        . (array_key_exists($act, $modPerm) ? ' checked' : '') . '>';
+                } else {
+                    echo '<span class="text-gray-300">—</span>';
+                }
+                echo '</td>';
+            }
+            echo '</tr>';
+        };
+        // The grouping (keys → sections). Fall back to a single "All permissions" group if the
+        // grouping helper is unavailable, so nothing is ever hidden.
+        $__groups = function_exists('supplier_role_modules_groups') ? supplier_role_modules_groups() : [];
+        if (empty($__groups)) { $__groups = ['Permissions' => array_keys($mods)]; }
+        // Any catalogue key not named in a group still gets rendered (defensive — never drop a key).
+        $__shown = [];
+      ?>
+      <div class="space-y-5">
+        <?php foreach ($__groups as $__sectionLabel => $__keys): ?>
+          <?php
+            // Only render keys that actually exist in $mods (the live catalogue).
+            $__sectionKeys = array_values(array_filter($__keys, static fn($k) => isset($mods[$k])));
+            if (empty($__sectionKeys)) { continue; }
+          ?>
+          <div>
+            <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1"><?= htmlspecialchars($__sectionLabel) ?></h3>
+            <div class="overflow-x-auto border border-gray-200 rounded-lg">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-gray-500 bg-gray-50 border-b border-gray-200">
+                    <th class="px-3 py-2 font-medium">Area</th>
+                    <th class="px-3 py-2 font-medium text-center">View</th>
+                    <th class="px-3 py-2 font-medium text-center">Add</th>
+                    <th class="px-3 py-2 font-medium text-center">Edit / create</th>
+                    <th class="px-3 py-2 font-medium text-center">Delete</th>
+                    <th class="px-3 py-2 font-medium text-center">Approve</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  <?php foreach ($__sectionKeys as $__k): ?>
+                    <?php $__shown[$__k] = true; $__permRow($__k, $mods[$__k]); ?>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        <?php endforeach; ?>
+
+        <?php // Safety net: render any catalogue key the grouping didn't include, so no grantable area is ever hidden. ?>
+        <?php $__leftover = array_diff(array_keys($mods), array_keys($__shown)); ?>
+        <?php if (!empty($__leftover)): ?>
+          <div>
+            <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Other</h3>
+            <div class="overflow-x-auto border border-gray-200 rounded-lg">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-gray-500 bg-gray-50 border-b border-gray-200">
+                    <th class="px-3 py-2 font-medium">Area</th>
+                    <th class="px-3 py-2 font-medium text-center">View</th>
+                    <th class="px-3 py-2 font-medium text-center">Add</th>
+                    <th class="px-3 py-2 font-medium text-center">Edit / create</th>
+                    <th class="px-3 py-2 font-medium text-center">Delete</th>
+                    <th class="px-3 py-2 font-medium text-center">Approve</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  <?php foreach ($__leftover as $__k): ?><?php $__permRow($__k, $mods[$__k]); ?><?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        <?php endif; ?>
       </div>
       <p class="text-xs text-gray-500 mt-2">
-        For <span class="font-medium">Front desk &amp; reservations</span>, <span class="font-medium">Edit / create</span> is what lets staff
-        <span class="font-medium">create</span> walk-ins, guests and customers — not just edit existing ones. Grant both
-        <span class="font-medium">View</span> and <span class="font-medium">Edit / create</span> for a working front-desk clerk.
+        <span class="font-medium">Edit / create</span> is what lets staff <span class="font-medium">create</span> records (walk-ins, guests, customers, entries) — not just edit existing ones. Grant both <span class="font-medium">View</span> and <span class="font-medium">Edit / create</span> for a working role.
       </p>
     </div>
 

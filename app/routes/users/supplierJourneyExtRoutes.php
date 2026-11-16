@@ -102,7 +102,7 @@ $router->get('/supplier/journey', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'journey', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
 
@@ -122,7 +122,7 @@ $router->get('/supplier/journey', function () use ($SECURE, $db) {
     if (!empty($stayIds)) {
         try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
     }
-    $canEdit = supplier_can_orgwide($db, 'reservations', 'edit');
+    $canEdit = supplier_can_orgwide($db, 'journey', 'edit');
 
     $title = 'Guest journey'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -137,7 +137,7 @@ $router->post('/supplier/journey/directory', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/journey' . ($stayId > 0 ? ('?stay_id=' . $stayId) : '');
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _journey_flash(false, 'Not your property.'); header('Location: ' . $back); exit; }
+    if (!supplier_can($db, 'journey', 'edit', $stayId)) { _journey_flash(false, 'Not your property.'); header('Location: ' . $back); exit; }
 
     $res = function_exists('journey_directory_save')
         ? journey_directory_save($db, $stayId, $_POST, (string) ($_SESSION['user_id'] ?? ''))
@@ -153,7 +153,7 @@ $router->post('/supplier/journey/directory/delete', function () use ($SECURE, $d
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/journey' . ($stayId > 0 ? ('?stay_id=' . $stayId) : '');
-    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _journey_flash(false, 'Not your property.'); header('Location: ' . $back); exit; }
+    if (!supplier_can($db, 'journey', 'edit', $stayId)) { _journey_flash(false, 'Not your property.'); header('Location: ' . $back); exit; }
 
     $ok = function_exists('journey_directory_delete') && journey_directory_delete($db, $stayId, (int) ($_POST['id'] ?? 0));
     _journey_flash($ok, $ok ? 'Item deleted.' : 'Could not delete the item.');
@@ -166,7 +166,7 @@ $router->post('/supplier/journey/request/status', function () use ($SECURE, $db)
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $back = root . 'supplier/journey';
-    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'journey', 'edit')) { _supplier_stays_deny('Not authorised.'); }
 
     // The request's stay must be one the owner owns (lib does the final IDOR check).
     $ownedIds = supplier_owned_stay_ids($db, $owner);

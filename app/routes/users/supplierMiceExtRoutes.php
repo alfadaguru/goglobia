@@ -23,7 +23,7 @@ if (!function_exists('_mice_ext_post_ctx')) {
         $eventId = (int) ($_POST['event_id'] ?? 0);
         $frag = ($stayId > 0 ? '?stay_id=' . $stayId : '') . ($eventId > 0 ? (($stayId > 0 ? '&' : '?') . 'event_id=' . $eventId) : '');
         $back = root . 'supplier/events/manage' . $frag;
-        if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+        if (!supplier_can($db, 'events', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
         return [$stayId, $back];
     }
 }
@@ -36,7 +36,7 @@ $router->get('/supplier/events/manage', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'events', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayId  = (int) ($_GET['stay_id'] ?? 0);
@@ -58,7 +58,7 @@ $router->get('/supplier/events/manage', function () use ($SECURE, $db) {
     $assignEquip = function_exists('mice_assignments_for_event') ? mice_assignments_for_event($db, $eventId, $stayId, 'equipment') : [];
     $assignStaff = function_exists('mice_assignments_for_event') ? mice_assignments_for_event($db, $eventId, $stayId, 'staff') : [];
     $contracts = function_exists('mice_contracts_for_event') ? mice_contracts_for_event($db, $eventId, $stayId) : [];
-    $canEdit   = supplier_can($db, 'reservations', 'edit', $stayId);
+    $canEdit   = supplier_can($db, 'events', 'edit', $stayId);
 
     $title = 'Event — ' . ($event['title'] ?? 'Manage'); $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -74,7 +74,7 @@ $router->get('/supplier/events/beo', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'events', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayId  = (int) ($_GET['stay_id'] ?? 0);
     $eventId = (int) ($_GET['event_id'] ?? 0);
@@ -96,7 +96,7 @@ $router->get('/supplier/events/calendar', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'events', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayId  = (int) ($_GET['stay_id'] ?? 0);
     if ($stayId <= 0 || !in_array($stayId, $stayIds, true)) {

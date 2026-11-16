@@ -14,7 +14,7 @@ $router->get('/supplier/finance', function () use ($SECURE, $db) {
     // Finance is DELEGATABLE now: the owner always passes; a staffer needs the 'finance'
     // permission (e.g. an Accountant role). Org-wide money → use the org-wide gate so a
     // property-restricted ('selected') staffer can't read whole-business finances.
-    if (!supplier_can_orgwide($db, 'finance', 'view')) { _supplier_stays_deny('You are not authorised to view finances.'); }
+    if (!supplier_can_orgwide($db, 'gl', 'view')) { _supplier_stays_deny('You are not authorised to view finances.'); }
     $owner = (string) $ctx['owner'];
     $orgId = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
 

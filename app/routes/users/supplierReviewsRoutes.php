@@ -42,7 +42,7 @@ $router->get('/supplier/reviews', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'reviews', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     // Property drill-in (inc S35): a ?stay_id scopes the queue to one owned property.
@@ -56,7 +56,7 @@ $router->get('/supplier/reviews', function () use ($SECURE, $db) {
     if (!empty($stayIds)) {
         try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
     }
-    $canEdit = supplier_can($db, 'reservations', 'edit');
+    $canEdit = supplier_can($db, 'reviews', 'edit');
 
     $title = 'Reviews'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -71,13 +71,13 @@ $router->post('/supplier/reviews/status', function () use ($SECURE, $db) {
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $back = root . 'supplier/reviews';
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'reviews', 'edit')) { _supplier_stays_deny('Not authorised.'); }
 
     $reviewId = (int) ($_POST['review_id'] ?? 0);
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $to = strtolower(trim((string) ($_POST['to'] ?? '')));
     // The property must belong to this owner (defense in depth behind supplier_can).
-    if (!supplier_can($db, 'reservations', 'edit', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
+    if (!supplier_can($db, 'reviews', 'edit', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
         _supplier_stays_deny('Not your property.');
     }
     $ok = function_exists('review_set_status') && review_set_status($db, $reviewId, $stayId, $to);
@@ -94,7 +94,7 @@ $router->post('/supplier/reviews/reply', function () use ($SECURE, $db) {
     $back = root . 'supplier/reviews';
     $reviewId = (int) ($_POST['review_id'] ?? 0);
     $stayId = (int) ($_POST['stay_id'] ?? 0);
-    if (!supplier_can($db, 'reservations', 'edit', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
+    if (!supplier_can($db, 'reviews', 'edit', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
         _supplier_stays_deny('Not your property.');
     }
     $ok = function_exists('review_set_reply') && review_set_reply($db, $reviewId, $stayId, (string) ($_POST['reply'] ?? ''));

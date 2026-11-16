@@ -16,7 +16,7 @@ if (!function_exists('_cashier_ctx')) {
     {
         $ctx = supplier_acting_context($db);
         if ($ctx === null || !empty($ctx['is_admin'])) { return null; }
-        if (!supplier_can($db, 'reservations', $action === 'edit' ? 'edit' : 'view')) { return null; }
+        if (!supplier_can($db, 'cashier', $action === 'edit' ? 'edit' : 'view')) { return null; }
         $owner = (string) $ctx['owner'];
         $org = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
         return ['owner' => $owner, 'org' => (int) $org];

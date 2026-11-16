@@ -128,7 +128,7 @@ $router->get('/supplier/insights', function () use ($SECURE, $db) {
         exit;
     }
     $user_id = (string) $ctx['owner'];
-    if (!supplier_can($db, 'reservations', 'view')) {
+    if (!supplier_can($db, 'bi', 'view')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'You are not authorised to view insights.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
@@ -157,7 +157,7 @@ $router->get('/supplier/insights/export', function () use ($SECURE, $db) {
     $ctx = supplier_acting_context($db);
     if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
     $user_id = (string) $ctx['owner'];
-    if (!supplier_can($db, 'reservations', 'view')) {
+    if (!supplier_can($db, 'bi', 'view')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Not authorised.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }

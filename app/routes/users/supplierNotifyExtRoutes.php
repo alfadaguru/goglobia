@@ -31,7 +31,7 @@ if (!function_exists('_notify_ext_ctx')) {
         // this resolver had NO permission check, so ANY active staffer could open it. Require
         // org-wide 'platformops' view — owner/'all'-scope platform staff pass; a property-
         // restricted ('selected'-scope) staffer is denied outright (supplier_can_orgwide).
-        if (!supplier_can_orgwide($db, 'platformops', 'view')) { _supplier_stays_deny('You are not authorised to view alerts.'); }
+        if (!supplier_can_orgwide($db, 'alerts', 'view')) { _supplier_stays_deny('You are not authorised to view alerts.'); }
         $actor = (string) ($ctx['actor'] ?? $ctx['owner'] ?? '');
         $owner = (string) ($ctx['owner'] ?? '');
         if ($actor === '' || $owner === '') { _supplier_stays_deny('Not authorised.'); }
@@ -67,7 +67,7 @@ $router->get('/supplier/alerts', function () use ($SECURE, $db) {
     $eventCatalogue = function_exists('platform_event_catalogue') ? platform_event_catalogue() : [];
 
     // Only the org owner may author rules / webhooks (privileged config scope).
-    $canConfigure = supplier_can($db, 'finance', 'edit');
+    $canConfigure = supplier_can($db, 'alerts', 'edit');
 
     // Recipient picker (owner + active staff) for rule targeting.
     $recipients = [];
@@ -135,7 +135,7 @@ $router->post('/supplier/alerts/prefs', function () use ($SECURE, $db) {
 $router->post('/supplier/alerts/rule', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$actor, $owner, $orgId] = _notify_ext_ctx($db);
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Authoring alert rules requires finance edit rights.'); }
+    if (!supplier_can_orgwide($db, 'alerts', 'edit')) { _supplier_stays_deny('Authoring alert rules requires finance edit rights.'); }
     $back = root . 'supplier/alerts';
 
     // Validate a specific recipient belongs to the org (owner or active staff). 'all' is
@@ -157,7 +157,7 @@ $router->post('/supplier/alerts/rule', function () use ($SECURE, $db) {
 $router->post('/supplier/alerts/rule/toggle', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$actor, $owner, $orgId] = _notify_ext_ctx($db);
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'alerts', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/alerts';
     $ok = function_exists('notify_rule_set_active')
         && notify_rule_set_active($db, $orgId, (int) ($_POST['id'] ?? 0), !empty($_POST['active']));
@@ -169,7 +169,7 @@ $router->post('/supplier/alerts/rule/toggle', function () use ($SECURE, $db) {
 $router->post('/supplier/alerts/rule/delete', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$actor, $owner, $orgId] = _notify_ext_ctx($db);
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'alerts', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/alerts';
     $ok = function_exists('notify_rule_delete') && notify_rule_delete($db, $orgId, (int) ($_POST['id'] ?? 0));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Rule deleted.' : 'Could not delete rule.'];
@@ -181,7 +181,7 @@ $router->post('/supplier/alerts/rule/delete', function () use ($SECURE, $db) {
 $router->post('/supplier/alerts/webhook', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$actor, $owner, $orgId] = _notify_ext_ctx($db);
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'alerts', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/alerts';
     $id = function_exists('notify_webhook_save') ? notify_webhook_save($db, $orgId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Webhook endpoint saved (recorded, not yet sent — no dispatcher is wired).' : 'Could not save endpoint (a valid http(s) URL is required).'];
@@ -192,7 +192,7 @@ $router->post('/supplier/alerts/webhook', function () use ($SECURE, $db) {
 $router->post('/supplier/alerts/webhook/delete', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$actor, $owner, $orgId] = _notify_ext_ctx($db);
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'alerts', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/alerts';
     $ok = function_exists('notify_webhook_delete') && notify_webhook_delete($db, $orgId, (int) ($_POST['id'] ?? 0));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Endpoint deleted.' : 'Could not delete endpoint.'];
@@ -205,7 +205,7 @@ $router->post('/supplier/alerts/webhook/delete', function () use ($SECURE, $db) 
 $router->post('/supplier/alerts/tick', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     [$actor, $owner, $orgId] = _notify_ext_ctx($db);
-    if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'alerts', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $back = root . 'supplier/alerts';
     $res = function_exists('notify_tick') ? notify_tick($db, $orgId) : ['rules_fired' => 0];
     $_SESSION['message'] = ['type' => 'success', 'text' => 'Ran one alert pass — ' . (int) ($res['rules_fired'] ?? 0) . ' rule(s) fired.'];

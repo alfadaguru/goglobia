@@ -27,7 +27,7 @@ $router->get('/supplier/lease-billing', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _lease_ext_ctx($db);
     if ($ctx === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'hotels', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'leases', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = $ctx['stayIds'];
 
     $leases = function_exists('lease_list') ? lease_list($db, $stayIds) : [];
@@ -56,7 +56,7 @@ $router->get('/supplier/lease-billing', function () use ($SECURE, $db) {
         }
     }
 
-    $canEdit = supplier_can($db, 'hotels', 'edit');
+    $canEdit = supplier_can($db, 'leases', 'edit');
     $title = 'Lease billing'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/lease-ext.php";
@@ -71,7 +71,7 @@ $router->post('/supplier/lease-billing/run', function () use ($SECURE, $db) {
     $lease = function_exists('lease_ext_row') ? lease_ext_row($db, $leaseId, $ctx['stayIds']) : null;
     $back = root . 'supplier/lease-billing' . ($leaseId > 0 ? '?lease=' . $leaseId : '');
     if ($lease === null) { _supplier_stays_deny('Lease not found.'); }
-    if (!supplier_can($db, 'hotels', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'leases', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
     $orgId = lease_ext_org($db, $lease);
     if ($orgId <= 0) { _supplier_stays_deny('No ledger org for this property.'); }
     $r = function_exists('lease_ext_run_billing') ? lease_ext_run_billing($db, $orgId, $lease) : ['raised' => 0, 'skipped' => 0, 'errors' => ['Unavailable']];
@@ -88,7 +88,7 @@ $router->post('/supplier/lease-billing/charge', function () use ($SECURE, $db) {
     $lease = function_exists('lease_ext_row') ? lease_ext_row($db, $leaseId, $ctx['stayIds']) : null;
     $back = root . 'supplier/lease-billing' . ($leaseId > 0 ? '?lease=' . $leaseId : '');
     if ($lease === null) { _supplier_stays_deny('Lease not found.'); }
-    if (!supplier_can($db, 'hotels', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'leases', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
     $orgId = lease_ext_org($db, $lease);
     if ($orgId <= 0) { _supplier_stays_deny('No ledger org for this property.'); }
     $r = function_exists('lease_ext_raise_charge') ? lease_ext_raise_charge($db, $orgId, $lease, (string) ($_POST['period_start'] ?? '')) : ['ok' => false, 'message' => 'Unavailable'];
@@ -105,7 +105,7 @@ $router->post('/supplier/lease-billing/late-fee', function () use ($SECURE, $db)
     $lease = function_exists('lease_ext_row') ? lease_ext_row($db, $leaseId, $ctx['stayIds']) : null;
     $back = root . 'supplier/lease-billing' . ($leaseId > 0 ? '?lease=' . $leaseId : '');
     if ($lease === null) { _supplier_stays_deny('Lease not found.'); }
-    if (!supplier_can($db, 'hotels', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'leases', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
     $orgId = lease_ext_org($db, $lease);
     if ($orgId <= 0) { _supplier_stays_deny('No ledger org for this property.'); }
     $r = function_exists('lease_ext_apply_late_fee') ? lease_ext_apply_late_fee($db, $orgId, $lease) : ['ok' => false, 'message' => 'Unavailable'];
@@ -122,7 +122,7 @@ $router->post('/supplier/lease-billing/receive', function () use ($SECURE, $db) 
     $lease = function_exists('lease_ext_row') ? lease_ext_row($db, $leaseId, $ctx['stayIds']) : null;
     $back = root . 'supplier/lease-billing' . ($leaseId > 0 ? '?lease=' . $leaseId : '');
     if ($lease === null) { _supplier_stays_deny('Lease not found.'); }
-    if (!supplier_can($db, 'hotels', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'leases', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
     $orgId = lease_ext_org($db, $lease);
     if ($orgId <= 0) { _supplier_stays_deny('No ledger org for this property.'); }
     $r = function_exists('lease_ext_receive')
@@ -144,7 +144,7 @@ $router->post('/supplier/lease-billing/inspection', function () use ($SECURE, $d
     $lease = function_exists('lease_ext_row') ? lease_ext_row($db, $leaseId, $ctx['stayIds']) : null;
     $back = root . 'supplier/lease-billing' . ($leaseId > 0 ? '?lease=' . $leaseId : '');
     if ($lease === null) { _supplier_stays_deny('Lease not found.'); }
-    if (!supplier_can($db, 'hotels', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'leases', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
     $orgId = lease_ext_org($db, $lease);
     $id = function_exists('lease_ext_inspection_add') ? lease_ext_inspection_add($db, $orgId, $leaseId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Inspection recorded.' : 'Could not record inspection.'];
@@ -159,7 +159,7 @@ $router->post('/supplier/lease-billing/send-statement', function () use ($SECURE
     $lease = function_exists('lease_ext_row') ? lease_ext_row($db, $leaseId, $ctx['stayIds']) : null;
     $back = root . 'supplier/lease-billing' . ($leaseId > 0 ? '?lease=' . $leaseId : '');
     if ($lease === null) { _supplier_stays_deny('Lease not found.'); }
-    if (!supplier_can($db, 'hotels', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'leases', 'edit', (int) $lease['stay_id'])) { _supplier_stays_deny('Not your property.'); }
     $orgId = lease_ext_org($db, $lease);
     $r = function_exists('lease_ext_send_statement') ? lease_ext_send_statement($db, $orgId, $leaseId) : ['connected' => false, 'message' => 'Unavailable'];
     $_SESSION['message'] = ['type' => 'info', 'text' => (string) ($r['message'] ?? 'Not connected.')];

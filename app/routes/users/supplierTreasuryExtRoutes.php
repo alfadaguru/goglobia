@@ -21,7 +21,7 @@ if (!function_exists('_treasury_ctx_or_deny')) {
         $ctx = supplier_acting_context($db);
         if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
         // Delegatable: owner always passes; a staffer needs 'finance' (org-wide money).
-        if (!supplier_can_orgwide($db, 'finance', 'edit')) { _supplier_stays_deny('You are not authorised to manage treasury.'); }
+        if (!supplier_can_orgwide($db, 'treasury', 'edit')) { _supplier_stays_deny('You are not authorised to manage treasury.'); }
         $owner = (string) $ctx['owner'];
         $orgId = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
         if ($orgId <= 0 && function_exists('supplier_org_ensure')) { $orgId = supplier_org_ensure($db, $owner); }

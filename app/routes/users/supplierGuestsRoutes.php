@@ -24,7 +24,7 @@ $router->get('/supplier/guests', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $c = _guests_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'guests', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $c['owner']);
     $search = trim((string) ($_GET['q'] ?? ''));
@@ -78,7 +78,7 @@ $router->get('/supplier/guests/g/([0-9]+)', function ($id) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $c = _guests_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'guests', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $gid = (int) $id;
     $guest = ($c['org'] > 0) ? $db->get('stays_guests',
         ['id', 'display_name', 'phone', 'email', 'id_doc', 'nationality', 'contact_id', 'created_at'],
@@ -109,7 +109,7 @@ $router->get('/supplier/guests/search', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
     SUPPLIER_OR_STAFF_AUTH($db);
     $c = _guests_ctx($db);
-    if ($c === null || !supplier_can_orgwide($db, 'reservations', 'view')) { echo json_encode(['results' => []]); exit; }
+    if ($c === null || !supplier_can_orgwide($db, 'guests', 'view')) { echo json_encode(['results' => []]); exit; }
     $q = trim((string) ($_GET['q'] ?? ''));
     if ($q === '' || (int) $c['org'] <= 0) { echo json_encode(['results' => []]); exit; }
     $rows = function_exists('guests_stored_list') ? guests_stored_list($db, (int) $c['org'], ['q' => $q, 'limit' => 20]) : [];
@@ -136,7 +136,7 @@ $router->post('/supplier/guests/([0-9]+)/make-customer', function ($id) use ($SE
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
     $c = _guests_ctx($db);
-    if ($c === null || !supplier_can_orgwide($db, 'reservations', 'edit')) { echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit; }
+    if ($c === null || !supplier_can_orgwide($db, 'customers', 'edit')) { echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit; }
     $orgId = (int) $c['org'];
     $gid = (int) $id;
     $g = $orgId > 0 ? $db->get('stays_guests', ['id', 'display_name', 'phone', 'email', 'contact_id'], ['id' => $gid, 'org_id' => $orgId]) : null;
@@ -183,7 +183,7 @@ $router->get('/supplier/guests/([A-Za-z0-9_-]+)', function ($token) use ($SECURE
     SUPPLIER_OR_STAFF_AUTH($db);
     $c = _guests_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can_orgwide($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'guests', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $email = function_exists('guest_token_decode') ? guest_email_key(guest_token_decode($token)) : '';
     if ($email === '') { _supplier_stays_deny('Unknown guest.'); }
@@ -202,7 +202,7 @@ $router->get('/supplier/guests/([A-Za-z0-9_-]+)', function ($token) use ($SECURE
     if (!empty($stayIds)) {
         try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
     }
-    $canEdit = supplier_can_orgwide($db, 'reservations', 'edit');
+    $canEdit = supplier_can_orgwide($db, 'guests', 'edit');
 
     $title = 'Guest profile'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -216,7 +216,7 @@ $router->post('/supplier/guests/([A-Za-z0-9_-]+)/note', function ($token) use ($
     CSRF::guard();
     $c = _guests_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'guests', 'edit')) { _supplier_stays_deny('Not authorised.'); }
 
     $email = function_exists('guest_token_decode') ? guest_email_key(guest_token_decode($token)) : '';
     $back = root . 'supplier/guests/' . rawurlencode($token);
@@ -254,7 +254,7 @@ $router->post('/supplier/guests/([A-Za-z0-9_-]+)/loyalty', function ($token) use
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $c = _guests_ctx($db);
     if ($c === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can_orgwide($db, 'loyalty', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $email = function_exists('guest_token_decode') ? guest_email_key(guest_token_decode($token)) : '';
     $back = root . 'supplier/guests/' . rawurlencode($token);
     if ($email === '' || $c['org'] <= 0) { _supplier_stays_deny('Unknown guest / no org.'); }

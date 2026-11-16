@@ -15,7 +15,7 @@ if (!function_exists('_util_ext_ctx')) {
     {
         $owner = _supplier_stays_owner($db);
         if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-        if (!supplier_can($db, 'hotels', 'view')) { _supplier_stays_deny('Not authorised.'); }
+        if (!supplier_can($db, 'buildings', 'view')) { _supplier_stays_deny('Not authorised.'); }
         $stayIds = supplier_owned_stay_ids($db, $owner);
         $propMap = []; $propList = [];
         if (!empty($stayIds)) {
@@ -35,7 +35,7 @@ if (!function_exists('_util_ext_require_stay')) {
         if ($owner === null) { header('Location: ' . root . 'login'); exit; }
         $stayIds = supplier_owned_stay_ids($db, $owner);
         $stayId = (int) ($_POST['stay_id'] ?? 0);
-        if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+        if (!supplier_can($db, 'buildings', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
         if (!in_array($stayId, array_map('intval', $stayIds), true)) { _supplier_stays_deny('Not your property.'); }
         return [$stayIds, $stayId];
     }
@@ -52,7 +52,7 @@ $router->get('/supplier/utilities-ext', function () use ($SECURE, $db) {
     $charges   = function_exists('service_charge_list') ? service_charge_list($db, $stayIds) : [];
     $analytics = function_exists('util_analytics')      ? util_analytics($db, $stayIds)      : ['by_utility' => [], 'total_amount' => 0.0, 'total_consumption' => 0.0];
     $leases    = function_exists('lease_list')          ? lease_list($db, $stayIds)          : [];
-    $canEdit = supplier_can($db, 'hotels', 'edit');
+    $canEdit = supplier_can($db, 'buildings', 'edit');
     $title = 'Utilities & service charges'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/utilities-ext.php";

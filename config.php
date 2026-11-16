@@ -568,7 +568,10 @@ try {
         //      (only physical_room_id was guarded) + the runtime CREATE omitted them, so
         //      "Add guest" to a group failed with 1054 Unknown column 'phone'. CREATE fixed +
         //      all four columns now guarded. Re-run once to add the missing columns.
-        define('APP_SCHEMA_ENSURE_VERSION', 21);
+        // v22: per-area permission backfill (redesign 2026-11-16) — supplier_roles_backfill_per_area
+        //      expands every role holding an OLD broad module into the NEW per-area sub-keys at the
+        //      same action level, BEFORE routes re-gate onto those keys, so no staff loses access.
+        define('APP_SCHEMA_ENSURE_VERSION', 22);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
@@ -752,6 +755,15 @@ try {
                 supplier_seed_default_roles($db, (string) ($__sup['user_id'] ?? ''));
             }
         } catch (\Throwable $e) { error_log('supplier default-role backfill: ' . $e->getMessage()); }
+    }
+
+    // PER-AREA PERMISSION BACKFILL (redesign 2026-11-16): every existing supplier role that
+    // holds an OLD broad module (rooms/reservations/finance/…) is auto-granted the NEW per-area
+    // sub-keys it used to cover, at the same action level, BEFORE any route re-gates onto those
+    // keys — so no existing staff loses access. Add-only + idempotent (safe to re-run).
+    if (function_exists('supplier_roles_backfill_per_area')) {
+        try { supplier_roles_backfill_per_area($db); }
+        catch (\Throwable $e) { error_log('supplier per-area backfill: ' . $e->getMessage()); }
     }
 
         // All ensures completed this request → stamp the applied version so the

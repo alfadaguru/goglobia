@@ -21,7 +21,7 @@ $router->get('/supplier/ai-ext', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'ai', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayFilter = (int) ($_GET['stay_id'] ?? 0);
@@ -41,7 +41,7 @@ $router->get('/supplier/ai-ext', function () use ($SECURE, $db) {
     if (!empty($stayIds)) {
         try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
     }
-    $canEdit = supplier_can($db, 'reservations', 'edit');
+    $canEdit = supplier_can($db, 'ai', 'edit');
 
     $title = 'AI & automation'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -59,7 +59,7 @@ $router->post('/supplier/ai-ext/forecast', function () use ($SECURE, $db) {
 
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     // Property must belong to this owner (IDOR guard behind supplier_can).
-    if (!supplier_can($db, 'reservations', 'view', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
+    if (!supplier_can($db, 'ai', 'view', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
         echo json_encode(['ok' => false, 'message' => 'Not your property']); exit;
     }
     $horizon = (int) ($_POST['horizon'] ?? 14);
@@ -75,7 +75,7 @@ $router->post('/supplier/ai-ext/save-brief', function () use ($SECURE, $db) {
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $back = root . 'supplier/ai-ext';
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'ai', 'edit')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayFilter = (int) ($_POST['stay_id'] ?? 0);
@@ -107,7 +107,7 @@ $router->post('/supplier/ai-ext/concierge', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { echo json_encode(['ok' => false, 'message' => 'Unauthorised']); exit; }
-    if (!supplier_can($db, 'reservations', 'edit')) { echo json_encode(['ok' => false, 'message' => 'Not authorised']); exit; }
+    if (!supplier_can($db, 'ai', 'edit')) { echo json_encode(['ok' => false, 'message' => 'Not authorised']); exit; }
 
     $draft = function_exists('ai_ext_concierge_draft')
         ? ai_ext_concierge_draft($db, (string) ($_POST['intent'] ?? ''), (string) ($_POST['context'] ?? ''))

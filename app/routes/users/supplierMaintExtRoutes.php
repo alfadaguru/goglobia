@@ -11,7 +11,7 @@ $router->get('/supplier/maintenance/engineering', function () use ($SECURE, $db)
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'maintenance', 'view')) { _supplier_stays_deny('Not authorised.'); }
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayFilter = (int) ($_GET['stay_id'] ?? 0);
     if ($stayFilter > 0 && !in_array($stayFilter, $stayIds, true)) { $stayFilter = 0; }
@@ -38,7 +38,7 @@ $router->get('/supplier/maintenance/engineering', function () use ($SECURE, $db)
     $analytics = function_exists('maint_analytics') ? maint_analytics($db, $scope) : [];
     $propMap = [];
     if (!empty($stayIds)) { try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {} }
-    $canEdit = supplier_can($db, 'rooms', 'edit');
+    $canEdit = supplier_can($db, 'maintenance', 'edit');
 
     $title = 'Maintenance & engineering'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -53,7 +53,7 @@ if (!function_exists('_maint_ext_ctx')) {
         SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
         $owner = _supplier_stays_owner($db);
         if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-        if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+        if (!supplier_can($db, 'maintenance', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
         return true;
     }
 }
