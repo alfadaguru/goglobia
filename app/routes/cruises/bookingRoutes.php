@@ -96,6 +96,30 @@ $router->post('/api/cruise/booking/submit', function () use ($SECURE, $db) {
             }
         }
 
+        // TAX (audit HIGH) — the detail/listing DISPLAY price comes from
+        // calculateCompletePrice($base,'cruises',...) = MARKUP THEN calculateTax, so the
+        // quoted price is tax-inclusive. The booking previously hardcoded tax=0 and never
+        // called calculateTax, so a configured cruise tax was shown to the customer but
+        // never charged (undercharge + display-vs-charge mismatch, and the refund base
+        // price_markup was pre-tax). Compute tax on the marked-up sell price with the SAME
+        // module key the display uses ('cruises'), fold it into $sellTotal BEFORE discounts
+        // (matching the display order), and persist the real tax on the booking.
+        $cruiseTaxAmount = 0.0;
+        $cruiseTaxType   = 'percentage';
+        if (function_exists('calculateTax')) {
+            // Pass ($cruiseCurrency, $displayCurrency) — the SAME from/to the display's
+            // calculateCompletePrice() feeds calculateTax(markupResult['price'], 'cruises',
+            // $db, $from, $to) (functions.php:7922). $sellTotal here == that markup price
+            // (both MARKUP($netTotal, ..., $cruiseCurrency, $displayCurrency)), so the tax
+            // amount is byte-for-byte what the customer was quoted on the detail page.
+            $cruiseTaxInfo   = calculateTax($sellTotal, 'cruises', $db, $cruiseCurrency, $displayCurrency);
+            $cruiseTaxAmount = round((float) ($cruiseTaxInfo['tax_amount'] ?? 0), 2);
+            $cruiseTaxType   = (string) ($cruiseTaxInfo['tax_type'] ?? 'percentage');
+            if ($cruiseTaxAmount > 0) {
+                $sellTotal = round($sellTotal + $cruiseTaxAmount, 2);
+            }
+        }
+
         // Promo/discount (unified engine), server-side.
         if (function_exists('apply_booking_discounts')) {
             try {
@@ -150,8 +174,8 @@ $router->post('/api/cruise/booking/submit', function () use ($SECURE, $db) {
             'price_original'  => $baseConverted,          // net, display currency
             'price_markup'    => $sellTotal,              // sell (what the gateway charges)
             'currency_markup' => $displayCurrency,
-            'tax'             => 0,
-            'tax_type'        => 'percentage',
+            'tax'             => $cruiseTaxAmount,
+            'tax_type'        => $cruiseTaxType,
             'first_name'      => $firstName,
             'last_name'       => $lastName,
             'email'           => $email,
@@ -198,8 +222,10 @@ $router->post('/api/cruise/booking/submit', function () use ($SECURE, $db) {
             'redirect_url' => root . 'invoice/cruises/' . $invoiceId,
         ], JSON_UNESCAPED_SLASHES);
     } catch (Throwable $e) {
+        // Log the real error; return a safe message (audit LOW — don't leak DB/internals).
+        error_log('CRUISE_BOOKING_SUBMIT: ' . $e->getMessage());
         http_response_code(400);
-        echo json_encode(['status' => false, 'success' => false, 'message' => $e->getMessage()]);
+        echo json_encode(['status' => false, 'success' => false, 'message' => 'We could not complete your cruise booking. Please check your details and try again.']);
     }
 });
 
@@ -241,8 +267,9 @@ $router->post('/api/cruise/booking/request-cancellation', function () use ($SECU
         echo json_encode(['success' => true, 'message' => 'Cancellation request submitted']);
         exit(0);
     } catch (\Throwable $e) {
+        error_log('CRUISE_REQUEST_CANCELLATION: ' . $e->getMessage());
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'message' => 'Could not submit your cancellation request. Please try again.']);
         exit(0);
     }
 });
