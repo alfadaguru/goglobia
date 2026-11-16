@@ -1395,7 +1395,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
 
                             <button type="submit" class="btn w-full mt-6"
                                 :disabled="submitting || fareExpired || (priceChange && priceChange.direction === 'up')"
-                                :class="{ 'opacity-50 cursor-not-allowed': fareExpired || (priceChange && priceChange.direction === 'up') }"
+                                :class="{ 'opacity-50 cursor-not-allowed': fareExpired || (priceChange && priceChange.direction === 'up') }">
                                 <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                                 <span x-show="submitting"
                                     class="material-symbols-outlined animate-spin">progress_activity</span>

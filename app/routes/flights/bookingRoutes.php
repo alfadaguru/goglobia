@@ -1465,6 +1465,15 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         $bookingId = $db->id();
 
         if ($bookingId) {
+            // DELETE THE DRAFT (replay / double-booking guard). Without this, the same
+            // 16-char booking_hash can be POSTed repeatedly, each creating a NEW unpaid
+            // bookings row + invoice for one draft (inventory/notification spam + a
+            // double-booking vector). The mobile submit already deletes it
+            // (app/routes/api/flights/bookingRoutes.php:982); the web path did not.
+            // Delete once the booking row is confirmed created so a retry finds no draft.
+            if (!empty($input['booking_hash'])) {
+                $db->delete('logs_bookings', ['hash' => $input['booking_hash']]);
+            }
             // Record promo code usage (idempotent per invoice; bumps used_count +
             // writes the per-user ledger row that enforces per_user_limit).
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
