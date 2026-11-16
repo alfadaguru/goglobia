@@ -96,6 +96,48 @@
                      </button>
                      <p class="text-[11px] text-slate-400 basis-full">You'll be taken to a secure payment page. NGN is processed by Paystack; other currencies by Stripe.</p>
                   </form>
+
+                  <?php
+                     // TOP UP WITH A SAVED CARD — one-tap wallet funding from a card on
+                     // file. Only cards in the WALLET currency are offered (NGN card tops
+                     // up an NGN wallet via Paystack, USD via Stripe). POSTs the amount to
+                     // /api/cards/{id}/charge, which credits the wallet (handles 3-DS/SCA
+                     // via /charge/complete). Reuses the same `amount` the form above binds.
+                     $__walletCur = strtoupper(trim((string) ($dashboardData['display_currency'] ?? ''))) ?: strtoupper((string) $walletCur);
+                     $__topupCards = [];
+                     foreach (($dashboardData['saved_cards'] ?? []) as $__tc) {
+                        if (strtoupper((string) ($__tc['currency'] ?? '')) === $__walletCur && empty($__tc['expired'])) {
+                           $__topupCards[] = $__tc;
+                        }
+                     }
+                  ?>
+                  <?php if (!empty($__topupCards)): ?>
+                  <div class="mt-4 pt-4 border-t border-slate-100"
+                       x-data="walletCardTopup(<?= htmlspecialchars(json_encode($__topupCards), ENT_QUOTES) ?>)">
+                     <p class="text-xs font-medium text-slate-600 mb-2 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-base">credit_card</span> Or top up instantly with a saved card
+                     </p>
+                     <div class="flex flex-col gap-2">
+                        <template x-for="c in cards" :key="c.id">
+                           <button type="button"
+                                   class="w-full text-left border rounded-lg p-3 flex items-center justify-between hover:border-blue-500 hover:bg-slate-50 disabled:opacity-50"
+                                   :disabled="busy"
+                                   @click="charge(c.id)">
+                              <span class="flex items-center gap-2 text-sm text-slate-800">
+                                 <span class="material-symbols-outlined text-[18px] text-slate-500">credit_card</span>
+                                 <span x-text="(c.brand||'Card').toUpperCase() + ' ···· ' + (c.last4||'')"></span>
+                                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700" x-show="c.is_default">Default</span>
+                              </span>
+                              <span class="material-symbols-outlined text-[18px] text-blue-600" x-show="busy && busyId===c.id">progress_activity</span>
+                              <span class="material-symbols-outlined text-[18px] text-slate-400" x-show="!(busy && busyId===c.id)">arrow_forward</span>
+                           </button>
+                        </template>
+                     </div>
+                     <p class="text-[11px] text-red-500 mt-2" x-text="err" x-show="err"></p>
+                     <p class="text-[11px] text-slate-400 mt-1">Charges the amount above to your saved card and credits your wallet instantly.</p>
+                     <div id="wct-sca" style="display:none"></div>
+                  </div>
+                  <?php endif; ?>
                </div>
 
                <?php
@@ -269,6 +311,51 @@
                cancelAdd(){ try{this._card&&this._card.unmount();}catch(e){}; this.adding=false; this.busy=false; this.err=''; this._card=null; },
                async setDefault(id){ const d=await this._post('api/cards/'+id+'/default'); if(d.success) this.cards=d.cards; },
                async removeCard(id){ if(!confirm('Remove this card?'))return; const d=await this._post('api/cards/'+id+'/delete'); if(d.success) this.cards=d.cards; },
+            };
+         }
+
+         // WALLET TOP-UP WITH A SAVED CARD. Charges the amount from the top-up form's
+         // Amount field to a saved card via /api/cards/{id}/charge (credits the wallet).
+         // Handles Stripe 3-DS/SCA: on requires_action, confirm the PaymentIntent with
+         // Stripe.js then call /charge/complete. Paystack charges settle synchronously.
+         function walletCardTopup(initial){
+            const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            const ROOT = '<?= root ?>';
+            return {
+               cards: Array.isArray(initial) ? initial : [],
+               busy: false, busyId: null, err: '',
+               _amount(){
+                  const el = document.querySelector('form[action$="wallet/topup"] input[name="amount"]');
+                  return el ? Math.round((parseFloat(el.value)||0)*100)/100 : 0;
+               },
+               _post(url, body){
+                  return fetch(ROOT+url,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify(body||{})}).then(r=>r.json());
+               },
+               async charge(id){
+                  this.err='';
+                  const amount = this._amount();
+                  if (!amount || amount <= 0){ this.err='Enter an amount above first.'; return; }
+                  this.busy=true; this.busyId=id;
+                  // Stable per-attempt id so a double-tap never double-charges.
+                  const attempt = 'wct-'+id+'-'+amount+'-'+(window.__wctNonce=(window.__wctNonce||0)+1);
+                  try {
+                     const d = await this._post('api/cards/'+id+'/charge', { amount, attempt_id: attempt });
+                     if (d.success){ window.location.reload(); return; }
+                     // Stripe SCA: confirm then complete.
+                     if (d.requires_action && d.client_secret && d.publishable_key){
+                        if (typeof Stripe === 'undefined'){ this.err='Could not load the secure card check. Try online payment.'; this.busy=false; this.busyId=null; return; }
+                        const stripe = Stripe(d.publishable_key);
+                        const r = await stripe.confirmCardPayment(d.client_secret);
+                        if (r.error){ this.err=r.error.message||'Card authentication failed.'; this.busy=false; this.busyId=null; return; }
+                        const c = await this._post('api/cards/'+id+'/charge/complete', { payment_intent: r.paymentIntent.id });
+                        if (c.success){ window.location.reload(); return; }
+                        this.err = c.message || 'The card top-up could not be completed.';
+                     } else {
+                        this.err = d.message || 'The card could not be charged.';
+                     }
+                  } catch(e){ this.err='Network error. Please try again.'; }
+                  this.busy=false; this.busyId=null;
+               }
             };
          }
          </script>

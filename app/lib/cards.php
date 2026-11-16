@@ -420,10 +420,15 @@ if (!function_exists('cards_charge')) {
             $status = (string) ($j['status'] ?? '');
             $piId   = (string) ($j['id'] ?? '');
             if ($status === 'requires_action' || $status === 'requires_confirmation') {
-                // SCA needed — hand the browser a client_secret to complete 3-DS.
+                // SCA needed — hand the browser a client_secret + the account's
+                // browser-safe PUBLISHABLE key so Stripe.js can confirm 3-DS in-page,
+                // then the caller completes via /charge/complete. (Was missing the
+                // publishable key, so the wallet card top-up SCA path had no way to
+                // init Stripe.js — mirrors the pay-booking SCA response.)
                 return [
                     'ok' => false, 'requires_action' => true,
                     'client_secret' => (string) ($j['client_secret'] ?? ''),
+                    'publishable_key' => function_exists('cards_publishable_key') ? cards_publishable_key($gw) : '',
                     'payment_intent' => $piId,
                     'message' => 'This card needs extra verification.',
                 ];
