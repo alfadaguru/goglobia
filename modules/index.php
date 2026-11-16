@@ -234,9 +234,15 @@ $__mePath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '';
 // segments do NOT end in the words above — order / orderCancel / orderChange /
 // orderRefund / reissue all create/cancel/refund/move REAL bookings and money.
 // Add them explicitly (whole final segment match) so they are guarded too.
+// Also guard the SENSITIVE READ/RECONCILE routes (audit HIGH): bookinfo/bookinglist
+// (wanderbeds) query live supplier booking info by invoice/reference with no own
+// auth -> an anon caller could read ANY booking's status (IDOR/info disclosure);
+// reconcile/reconcile_pending (hotelbeds) make live supplier calls + can flip status;
+// cancel_simulate makes a live fee-preview call. Bring them under the same guard.
 $__meIsSupplierAction =
        preg_match('#/(issue|cancel|refund|void|creds|orders)/?$#i', (string) $__mePath)
-    || preg_match('#/(order|orderCancel|orderChange|orderRefund|reissue)/?$#i', (string) $__mePath);
+    || preg_match('#/(order|orderCancel|orderChange|orderRefund|reissue)/?$#i', (string) $__mePath)
+    || preg_match('#/(bookinfo|bookinglist|reconcile|reconcile_pending|cancel_simulate)/?$#i', (string) $__mePath);
 if ($__meIsSupplierAction
     && in_array(strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'), ['POST', 'PUT', 'DELETE'], true)) {
     if (function_exists('supplier_action_guard')) {

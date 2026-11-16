@@ -32,6 +32,19 @@ $updated = $db->update('bookings', [
 ], ['invoice_id' => $invoice_id]);
 
     if ($updated) {
+        // RELEASE THE AVAILABILITY HOLD + VOID THE SUPPLIER EARNING (audit HIGH).
+        // cancel.php and refund.php call stays_on_cancelled() to free the consumed
+        // room-night hold and void the unpaid earning; void.php did NOT, so voiding a
+        // paid own-inventory stay left the room-night PERMANENTLY reserved (lost
+        // inventory forever) and the earning un-voided. Mirror cancel.php. Idempotent;
+        // no-op for integration suppliers.
+        if (!function_exists('stays_on_cancelled')) {
+            $invLib = dirname(__DIR__, 4) . '/app/lib/stays_inventory.php';
+            if (is_file($invLib)) { require_once $invLib; }
+        }
+        if (function_exists('stays_on_cancelled')) {
+            stays_on_cancelled($db, (string) $invoice_id);
+        }
         echo json_encode(['status' => true, 'message' => 'Booking voided successfully']);
     } else {
         echo json_encode(['status' => false, 'message' => 'Failed to void booking']);
