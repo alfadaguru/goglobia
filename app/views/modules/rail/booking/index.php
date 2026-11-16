@@ -361,38 +361,31 @@ $dateSelectMonthClass = 'select w-[35%] !border-0 !rounded-none !bg-transparent 
                                     placeholder="<?= T::any ?? 'Any' ?> <?= T::special ?? 'special' ?> <?= T::requests ?? 'requests' ?>..."></textarea>
                             </div>
 
+                            <!-- Terms & Conditions — IMPLICIT CONSENT. The blocking
+                                 "tick-to-agree" checkbox was replaced with a continue-means-
+                                 consent notice near the action button: proceeding IS the
+                                 agreement, so the customer is not stopped by an extra tick.
+                                 Links stay so the customer can still read the terms. -->
                             <div class="pt-6 border-t border-gray-200 dark:border-gray-700">
-                                <div class="checkbox-item">
-                                    <div class="checkbox-container">
-                                        <input type="checkbox" id="terms_accepted" x-model="formData.terms_accepted" class="checkbox-input" required>
-                                        <div class="checkbox-custom">
-                                            <span class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
-                                        </div>
-                                    </div>
-                                    <label for="terms_accepted" class="cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                                        <?= T::i_agree_to_the ?>
-                                        <a href="<?= root ?>page/terms-of-use" target="_blank" class="text-blue-600 hover:underline"><?= T::terms ?> & <?= T::conditions ?></a>
-                                        <?= T::and ?>
-                                        <a href="<?= root ?>page/privacy-policy" target="_blank" class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>
-                                    </label>
-                                </div>
+                                <p class="text-sm text-gray-600 dark:text-gray-400">
+                                    <?= T::by_continuing_you_agree ?? 'By continuing, you agree to our' ?>
+                                    <a href="<?= root ?>page/terms-of-use" target="_blank" class="text-blue-600 hover:underline"><?= T::terms ?> & <?= T::conditions ?></a>
+                                    <?= T::and ?>
+                                    <a href="<?= root ?>page/privacy-policy" target="_blank" class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>.
+                                </p>
                             </div>
 
                             <?= CSRF::tokenField() ?>
 
-                            <button type="submit" class="btn w-full mt-6 flex items-center justify-center gap-2" :disabled="booking || !formData.terms_accepted" :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted }">
+                            <button type="submit" class="btn w-full mt-6 flex items-center justify-center gap-2" :disabled="booking" :class="{ 'opacity-50 cursor-not-allowed': booking }">
                                 <span x-show="!booking" class="material-symbols-outlined">lock</span>
                                 <span x-show="booking" class="material-symbols-outlined animate-spin">progress_activity</span>
                                 <span x-show="!booking"><?= T::confirm ?> <?= T::booking ?></span>
                                 <span x-show="booking"><?= T::processing ?>...</span>
                             </button>
 
-                            <div x-show="!formData.terms_accepted" class="mt-2">
-                                <p class="text-sm text-red-600 dark:text-red-400 text-center">
-                                    <span class="material-symbols-outlined !text-[16px]">info</span>
-                                    <?= T::please_accept_terms_to_proceed ?>
-                                </p>
-                            </div>
+                            <!-- (Removed the "please accept terms" blocker — consent is now
+                                 implicit via the "By continuing you agree…" notice above.) -->
                         </div>
                     </div>
                 </form>
@@ -594,7 +587,9 @@ function railBookingData() {
         formData: {
             passengers: [],
             special_requests: '',
-            terms_accepted: false,
+            // Implicit consent: proceeding is the agreement (see the "By continuing
+            // you agree…" notice). Default true so nothing is gated on a tick.
+            terms_accepted: true,
             selected_payment: '<?= $defaultGatewayId ?>',
         },
 
@@ -963,10 +958,7 @@ function railBookingData() {
             this.booking = true;
             this.showAlert = false;
 
-            if (!this.formData.terms_accepted) {
-                this.showError(<?= json_encode(T::please_accept_terms_to_proceed) ?>);
-                return;
-            }
+            // Terms consent is now implicit (continue-means-consent) — no blocking guard.
 
             this.syncAllPassengerTypes();
             const clientError = this.validatePassengersClient();

@@ -112,43 +112,34 @@ for ($i = 0; $i < $children; $i++) $paxSlots[] = ['type' => 'child',   'label' =
                                 placeholder="<?= T::any ?? 'Any' ?> <?= T::special ?? 'special' ?> <?= T::requests ?? 'requests' ?> <?= T::or ?? 'or' ?> <?= T::notes ?? 'notes' ?>..."></textarea>
                         </div>
 
-                        <!-- Terms & Conditions -->
+                        <!-- Terms & Conditions — IMPLICIT CONSENT. The blocking
+                             "tick-to-agree" checkbox was replaced with a continue-means-
+                             consent notice near the action button: proceeding IS the
+                             agreement, so the customer is not stopped by an extra tick.
+                             Links stay so the customer can still read the terms. -->
                         <div class="pt-6 border-t border-gray-200">
-                            <div class="checkbox-item">
-                                <div class="checkbox-container">
-                                    <input type="checkbox" id="terms_accepted" x-model="formData.terms_accepted" class="checkbox-input" required>
-                                    <div class="checkbox-custom">
-                                        <span class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
-                                    </div>
-                                </div>
-                                <label for="terms_accepted" class="cursor-pointer text-sm text-gray-700">
-                                    <?= T::i_agree_to_the ?? 'I agree to the' ?>
-                                    <a href="<?= root ?>page/terms-of-use" target="_blank" class="text-blue-600 hover:underline"><?= T::terms ?? 'Terms' ?> & <?= T::conditions ?? 'Conditions' ?></a>
-                                    <?= T::and ?? 'and' ?>
-                                    <a href="<?= root ?>page/privacy-policy" target="_blank" class="text-blue-600 hover:underline"><?= T::privacy ?? 'Privacy' ?> <?= T::policy ?? 'Policy' ?></a>
-                                </label>
-                            </div>
+                            <p class="text-sm text-gray-600 dark:text-gray-400">
+                                <?= T::by_continuing_you_agree ?? 'By continuing, you agree to our' ?>
+                                <a href="<?= root ?>page/terms-of-use" target="_blank" class="text-blue-600 hover:underline"><?= T::terms ?? 'Terms' ?> & <?= T::conditions ?? 'Conditions' ?></a>
+                                <?= T::and ?? 'and' ?>
+                                <a href="<?= root ?>page/privacy-policy" target="_blank" class="text-blue-600 hover:underline"><?= T::privacy ?? 'Privacy' ?> <?= T::policy ?? 'Policy' ?></a>.
+                            </p>
                         </div>
 
                         <div x-show="error" class="alert-error mt-4"><span class="material-symbols-outlined">error</span><p x-text="error"></p></div>
 
                         <!-- Submit Button -->
                         <button type="button" @click="submit()" class="btn w-full mt-6"
-                            :disabled="submitting || !formData.terms_accepted"
-                            :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted }">
+                            :disabled="submitting"
+                            :class="{ 'opacity-50 cursor-not-allowed': submitting }">
                             <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                             <span x-show="submitting" class="material-symbols-outlined animate-spin">progress_activity</span>
                             <span x-show="!submitting"><?= T::confirm ?? 'Confirm' ?> <?= T::booking ?? 'Booking' ?></span>
                             <span x-show="submitting"><?= T::processing ?? 'Processing' ?>...</span>
                         </button>
 
-                        <!-- Terms validation message -->
-                        <div x-show="!formData.terms_accepted" class="mt-2">
-                            <p class="text-sm text-red-600 text-center">
-                                <span class="material-symbols-outlined !text-[16px]">info</span>
-                                <?= T::please_accept_terms_to_proceed ?? 'Please accept the terms to proceed' ?>
-                            </p>
-                        </div>
+                        <!-- (Removed the "please accept terms" blocker — consent is now
+                             implicit via the "By continuing you agree…" notice above.) -->
                     </div>
                 </div>
             </div>
@@ -255,7 +246,7 @@ function busBookingForm() {
         showBookingLoader: false,
         error: '',
         sameAsGuest: true,
-        formData: { selected_payment: '<?= htmlspecialchars($defaultGatewayId ?? '', ENT_QUOTES) ?>', special_requests: '', terms_accepted: false },
+        formData: { selected_payment: '<?= htmlspecialchars($defaultGatewayId ?? '', ENT_QUOTES) ?>', special_requests: '', terms_accepted: true },
         guest: { title: '', first_name: '', last_name: '', email: '', phone: '', country_code: '' },
         passengers: <?= json_encode(array_map(fn($p) => ['type' => $p['type'], 'first_name' => '', 'last_name' => ''], $paxSlots)) ?>,
         init() {},
@@ -275,7 +266,7 @@ function busBookingForm() {
             }
         },
         submit() {
-            if (this.submitting || !this.formData.terms_accepted) return;
+            if (this.submitting) return;
             if (!this.guest.first_name || !this.guest.email) { this.error = '<?= T::fill_required_fields ?? 'Please fill the required fields' ?>'; window.scrollTo({top:0,behavior:'smooth'}); return; }
             if (this.passengers.some(passenger => !String(passenger.first_name || '').trim())) { this.error = 'Please enter the first name of every passenger'; return; }
             if (!this.formData.selected_payment) { this.error = '<?= T::select_payment_method ?? 'Please select a payment method' ?>'; return; }

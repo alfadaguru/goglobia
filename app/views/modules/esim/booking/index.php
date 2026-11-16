@@ -255,33 +255,28 @@ if (!empty($paymentGateways)) {
                                         placeholder="Enter any special requests or notes..."></textarea>
                                 </div>
 
+                                <!-- Terms & Conditions — IMPLICIT CONSENT. The blocking
+                                     "tick-to-agree" checkbox was replaced with a continue-means-
+                                     consent notice near the action button: proceeding IS the
+                                     agreement, so the customer is not stopped by an extra tick.
+                                     The package-selection gate (!selectedPackage) is preserved.
+                                     Links stay so the customer can still read the terms. -->
                                 <div class="pt-6 border-t border-gray-200 dark:border-gray-700">
-                                    <div class="checkbox-item">
-                                        <div class="checkbox-container">
-                                            <input type="checkbox" id="terms_accepted" x-model="formData.terms_accepted"
-                                                class="checkbox-input" required>
-                                            <div class="checkbox-custom">
-                                                <span
-                                                    class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
-                                            </div>
-                                        </div>
-                                        <label for="terms_accepted"
-                                            class="cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                                            I agree to the
-                                            <a href="<?= root ?>page/terms-of-use" target="_blank"
-                                                class="text-blue-600 hover:underline">Terms & Conditions</a>
-                                            and
-                                            <a href="<?= root ?>page/privacy-policy" target="_blank"
-                                                class="text-blue-600 hover:underline">Privacy Policy</a>
-                                        </label>
-                                    </div>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        By continuing, you agree to our
+                                        <a href="<?= root ?>page/terms-of-use" target="_blank"
+                                            class="text-blue-600 hover:underline">Terms & Conditions</a>
+                                        and
+                                        <a href="<?= root ?>page/privacy-policy" target="_blank"
+                                            class="text-blue-600 hover:underline">Privacy Policy</a>.
+                                    </p>
                                 </div>
 
                                 <?= CSRF::tokenField() ?>
 
                                 <button type="submit" class="btn w-full mt-6"
-                                    :disabled="submitting || !selectedPackage || !formData.terms_accepted"
-                                    :class="{ 'opacity-50 cursor-not-allowed': !selectedPackage || !formData.terms_accepted }">
+                                    :disabled="submitting || !selectedPackage"
+                                    :class="{ 'opacity-50 cursor-not-allowed': !selectedPackage }">
                                     <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                                     <span x-show="submitting"
                                         class="material-symbols-outlined animate-spin">progress_activity</span>
@@ -465,7 +460,10 @@ if (!empty($paymentGateways)) {
                 },
                 selected_payment: '<?= htmlspecialchars($defaultPaymentId, ENT_QUOTES, 'UTF-8') ?>',
                 special_requests: '',
-                terms_accepted: false,
+                // Implicit consent: proceeding is the agreement (see the "By continuing
+                // you agree…" notice). Default true so nothing is gated on a tick; kept
+                // as a field because the submit payload still sends it.
+                terms_accepted: true,
             },
 
             get filteredPackages() {
@@ -698,10 +696,7 @@ if (!empty($paymentGateways)) {
                     this.showToast('Please select a package first.');
                     return;
                 }
-                if (!this.formData.terms_accepted) {
-                    this.showToast('Please accept terms and conditions to proceed.');
-                    return;
-                }
+                // Terms consent is now implicit (continue-means-consent) — no blocking guard.
 
                 if (this.formData.airalo_order.type === 'topup' && !String(this.formData.airalo_order.topup_target || '').trim()) {
                     this.showToast('Please enter the topup target number or ID.');

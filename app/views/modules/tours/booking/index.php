@@ -423,27 +423,20 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                     placeholder="<?= T::any ?> <?= T::special ?> <?= T::requests ?> <?= T::or ?> <?= T::notes ?>..."></textarea>
                             </div>
 
-                            <!-- Terms & Conditions -->
+                            <!-- Terms & Conditions — IMPLICIT CONSENT. The blocking
+                                 "tick-to-agree" checkbox was replaced with a continue-means-
+                                 consent notice near the action button: proceeding IS the
+                                 agreement, so the customer is not stopped by an extra tick.
+                                 Links stay so the customer can still read the terms. -->
                             <div class="pt-6 border-t border-gray-200 dark:border-gray-700">
-                                <div class="checkbox-item">
-                                    <div class="checkbox-container">
-                                        <input type="checkbox" id="terms_accepted" x-model="formData.terms_accepted"
-                                            class="checkbox-input" required>
-                                        <div class="checkbox-custom">
-                                            <span
-                                                class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
-                                        </div>
-                                    </div>
-                                    <label for="terms_accepted"
-                                        class="cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                                        <?= T::i_agree_to_the ?>
-                                        <a href="<?= root ?>page/terms-of-use" target="_blank"
-                                            class="text-blue-600 hover:underline"><?= T::terms ?> & <?= T::conditions ?></a>
-                                        <?= T::and ?>
-                                        <a href="<?= root ?>page/privacy-policy" target="_blank"
-                                            class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>
-                                    </label>
-                                </div>
+                                <p class="text-sm text-gray-600 dark:text-gray-400">
+                                    <?= T::by_continuing_you_agree ?? 'By continuing, you agree to our' ?>
+                                    <a href="<?= root ?>page/terms-of-use" target="_blank"
+                                        class="text-blue-600 hover:underline"><?= T::terms ?> & <?= T::conditions ?></a>
+                                    <?= T::and ?>
+                                    <a href="<?= root ?>page/privacy-policy" target="_blank"
+                                        class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>.
+                                </p>
                             </div>
 
                             <!-- CSRF Token -->
@@ -451,8 +444,8 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
 
                             <!-- Submit Button -->
                             <button type="submit" class="btn w-full mt-6"
-                                :disabled="submitting || !formData.terms_accepted"
-                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted }">
+                                :disabled="submitting"
+                                :class="{ 'opacity-50 cursor-not-allowed': submitting }">
                                 <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                                 <span x-show="submitting"
                                     class="material-symbols-outlined animate-spin">progress_activity</span>
@@ -460,13 +453,8 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 <span x-show="submitting"><?= T::processing ?>...</span>
                             </button>
 
-                            <!-- Terms validation message -->
-                            <div x-show="!formData.terms_accepted" class="mt-2">
-                                <p class="text-sm text-red-600 dark:text-red-400 text-center">
-                                    <span class="material-symbols-outlined !text-[16px]">info</span>
-                                    <?= T::please_accept_terms_to_proceed ?? 'Please accept the terms and conditions to proceed' ?>
-                                </p>
-                            </div>
+                            <!-- (Removed the "please accept terms" blocker — consent is now
+                                 implicit via the "By continuing you agree…" notice above.) -->
                         </div>
                     </div>
                 </form>
@@ -747,7 +735,10 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                 travelers: {},
                 selected_payment: '<?= $defaultGatewayId ?>',
         special_requests: '',
-            terms_accepted: false
+            // Implicit consent: proceeding is the agreement (see the "By continuing
+            // you agree…" notice). Default true so nothing is gated on a tick; kept
+            // as a field in case any downstream code still reads it.
+            terms_accepted: true
     },
 
     // Quick login function
@@ -1050,11 +1041,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
             return;
         }
 
-        // Validate terms & conditions
-        if (!this.formData.terms_accepted) {
-            this.showError('<?= T::please ?> <?= T::accept ?> <?= T::terms ?> & <?= T::conditions ?>');
-            return;
-        }
+        // Terms consent is now implicit (continue-means-consent) — no blocking guard.
 
         // Validate guest details from the auth component
         if (!guestComponent.primary_guest.first_name || !guestComponent.primary_guest.last_name || !guestComponent.primary_guest.email) {

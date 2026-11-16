@@ -117,10 +117,8 @@ $ccyFmt   = function ($amt, $ccy) {
             <span class="text-gray-600">Total</span>
             <span class="font-semibold" x-text="totalLabel()"></span>
           </div>
-          <label class="flex items-start gap-2 text-xs text-gray-600">
-            <input type="checkbox" x-model="form.terms_accepted" required class="mt-0.5">
-            <span>I accept the terms and conditions and confirm the traveller details are correct.</span>
-          </label>
+          <!-- Implicit consent: continuing is the agreement (no blocking tick). -->
+          <p class="text-xs text-gray-600">By continuing, you agree to our terms and conditions and confirm the traveller details are correct.</p>
           <p x-show="error" x-text="error" class="text-sm text-red-600"></p>
           <button type="submit" class="btn cyan w-full" :disabled="busy" x-text="busy ? 'Please wait…' : 'Continue to payment'"></button>
         </form>
@@ -149,7 +147,7 @@ function insuranceStore(cfg) {
     selected: null,
     busy: false,
     error: '',
-    form: { first_name: '', last_name: '', email: '', phone: '', country: '', travellers: 1, terms_accepted: false },
+    form: { first_name: '', last_name: '', email: '', phone: '', country: '', travellers: 1, terms_accepted: true },
     choose(id) {
       this.selected = this.plans.find(p => p.id === id) || null;
       this.error = '';

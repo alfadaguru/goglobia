@@ -575,27 +575,18 @@ if ($isUserLoggedIn) {
                 <?php endif; ?>
 
                 <!-- TERMS AND CONDITIONS -->
+                <!-- IMPLICIT CONSENT: continuing is the agreement (no blocking tick). -->
                 <div class="card mb-6">
-                    <div class="checkbox-item flex items-center gap-2">
-                        <div class="checkbox-container">
-                            <input type="checkbox" id="terms_accepted" x-model="termsAccepted" class="checkbox-input" value="">
-                            <div class="checkbox-custom">
-                                <span class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
-                            </div>
-                        </div>
-                        <label for="terms_accepted" class="checkbox-label leading-3">
-                            <span class="text-sm font-medium">
-                                <?= T::i_agree_to_the ?? 'I agree to the' ?>
-                                <a href="<?= root ?>page/terms-of-use" target="_blank" class="text-blue-600 hover:underline"><?= T::terms_and_conditions ?? 'Terms and Conditions' ?></a>
-                            </span>
-                        </label>
-                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                        <?= T::by_continuing_you_agree ?? 'By continuing, you agree to our' ?>
+                        <a href="<?= root ?>page/terms-of-use" target="_blank" class="text-blue-600 hover:underline"><?= T::terms_and_conditions ?? 'Terms and Conditions' ?></a>.
+                    </p>
                 </div>
 
                 <!-- SUBMIT BUTTON -->
-                <button @click="submitBooking()" :disabled="isSubmitting || !termsAccepted"
+                <button @click="submitBooking()" :disabled="isSubmitting"
                         class="btn w-full"
-                        :class="{ 'opacity-50 cursor-not-allowed': isSubmitting || !termsAccepted }">
+                        :class="{ 'opacity-50 cursor-not-allowed': isSubmitting }">
                     <span x-show="!isSubmitting" class="flex items-center justify-center gap-2">
                         <span class="material-symbols-outlined">lock</span>
                         <span><?= T::submit_application ?? 'Submit Application' ?></span>
@@ -743,7 +734,7 @@ function visaBookingForm() {
     return {
         travelers: [],
         specialRequests: '',
-        termsAccepted: false,
+        termsAccepted: true,
         isSubmitting: false,
         isSubmitted: false,
         cartAdding: false,
@@ -871,8 +862,9 @@ function visaBookingForm() {
         async submitBooking() {
             if (this.isSubmitting) return;
 
-            // Validation
-            if (!this.termsAccepted) {
+            // Validation (terms consent is now implicit — continuing is the agreement,
+            // so the old "please accept terms" blocker is removed).
+            if (false) {
                 this.showError('<?= T::please_accept_terms ?? 'Please accept the terms and conditions' ?>');
                 return;
             }

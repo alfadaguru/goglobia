@@ -727,28 +727,23 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 </template>
                             </div>
 
-                            <!-- Terms & Conditions -->
+                            <!-- Terms & Conditions — IMPLICIT CONSENT. The blocking
+                                 "tick-to-agree" checkbox was replaced with a continue-means-
+                                 consent notice near the action button: proceeding IS the
+                                 agreement, so the customer is not stopped by an extra tick.
+                                 Links stay so the customer can still read the terms.
+                                 NOTE: the SUPPLIER acknowledgement (tbo_terms_accepted, above)
+                                 is a different, supplier-required gate and is untouched. -->
                             <div class="pt-6 border-t border-gray-200 dark:border-gray-700">
-                                <div class="checkbox-item">
-                                    <div class="checkbox-container">
-                                        <input type="checkbox" id="terms_accepted" x-model="formData.terms_accepted"
-                                            class="checkbox-input" required>
-                                        <div class="checkbox-custom">
-                                            <span
-                                                class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
-                                        </div>
-                                    </div>
-                                    <label for="terms_accepted"
-                                        class="cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                                        <?= T::i_agree_to_the ?>
-                                        <a href="<?= root ?>page/terms-of-use" target="_blank"
-                                            class="text-blue-600 hover:underline"><?= T::terms ?> &
-                                            <?= T::conditions ?></a>
-                                        <?= T::and ?>
-                                        <a href="<?= root ?>page/privacy-policy" target="_blank"
-                                            class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>
-                                    </label>
-                                </div>
+                                <p class="text-sm text-gray-600 dark:text-gray-400">
+                                    <?= T::by_continuing_you_agree ?? 'By continuing, you agree to our' ?>
+                                    <a href="<?= root ?>page/terms-of-use" target="_blank"
+                                        class="text-blue-600 hover:underline"><?= T::terms ?> &
+                                        <?= T::conditions ?></a>
+                                    <?= T::and ?>
+                                    <a href="<?= root ?>page/privacy-policy" target="_blank"
+                                        class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>.
+                                </p>
                             </div>
 
                             <!-- CSRF Token -->
@@ -756,8 +751,8 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
 
                             <!-- Submit Button -->
                             <button type="submit" class="btn w-full mt-6"
-                                :disabled="submitting || !formData.terms_accepted || (supplier === 'tbo-holidays' && (!prebookReady || !formData.tbo_terms_accepted)) || (supplier === 'wanderbeds' && (!prebookReady || !wbRequiredFieldsOk()))"
-                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted || (supplier === 'tbo-holidays' && (!prebookReady || !formData.tbo_terms_accepted)) || (supplier === 'wanderbeds' && (!prebookReady || !wbRequiredFieldsOk())) }">
+                                :disabled="submitting || (supplier === 'tbo-holidays' && (!prebookReady || !formData.tbo_terms_accepted)) || (supplier === 'wanderbeds' && (!prebookReady || !wbRequiredFieldsOk()))"
+                                :class="{ 'opacity-50 cursor-not-allowed': (supplier === 'tbo-holidays' && (!prebookReady || !formData.tbo_terms_accepted)) || (supplier === 'wanderbeds' && (!prebookReady || !wbRequiredFieldsOk())) }">
                                 <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                                 <span x-show="submitting"
                                     class="material-symbols-outlined animate-spin">progress_activity</span>
@@ -765,13 +760,9 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 <span x-show="submitting"><?= T::processing ?>...</span>
                             </button>
 
-                            <!-- Terms validation message -->
-                            <div x-show="!formData.terms_accepted" class="mt-2">
-                                <p class="text-sm text-red-600 dark:text-red-400 text-center">
-                                    <span class="material-symbols-outlined !text-[16px]">info</span>
-                                    <?= T::please_accept_terms_to_proceed ?>
-                                </p>
-                            </div>
+                            <!-- (Removed the generic "please accept terms" blocker — customer
+                                 consent is now implicit via the "By continuing you agree…"
+                                 notice above. Supplier tbo/wanderbeds gates are unchanged.) -->
                         </div>
                     </div>
                 </form>
@@ -1178,7 +1169,11 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                 travelers: {},
                 selected_payment: '<?= $defaultGatewayId ?>',
                 special_requests: '',
-                terms_accepted: false,
+                // Implicit consent: proceeding is the agreement (see the "By continuing
+                // you agree…" notice). Default true so nothing is gated on a tick.
+                // NOTE: tbo_terms_accepted below is the SEPARATE supplier acknowledgement
+                // and MUST stay default-false (it is a real supplier-required gate).
+                terms_accepted: true,
                 tbo_terms_accepted: false,
                 tbo_prebook_snapshot: null,
                 wanderbeds_prebook_snapshot: null,
@@ -2195,11 +2190,8 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
             },
 
             async submitBooking() {
-                // STEP 1: VALIDATE TERMS & CONDITIONS CHECKBOX
-                if (!this.formData.terms_accepted) {
-                    this.showError('<?= T::please ?> <?= T::accept ?> <?= T::terms ?> & <?= T::conditions ?>');
-                    return;
-                }
+                // Customer terms consent is now implicit (continue-means-consent) — no
+                // blocking guard. The SUPPLIER gates below (tbo/wanderbeds) are unchanged.
                 if (this.supplier === 'tbo-holidays' && (!this.prebookReady || !this.formData.tbo_terms_accepted)) {
                     this.showError(this.prebookError || 'Please verify and accept the final TBO booking conditions.');
                     return;

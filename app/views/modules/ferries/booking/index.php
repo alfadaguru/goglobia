@@ -551,26 +551,23 @@ $hasTax = $taxAmountBase > 0;
                                 <textarea x-model="formData.special_requests" class="input" rows="3"></textarea>
                             </div>
 
+                            <!-- Terms & Conditions — IMPLICIT CONSENT. The blocking
+                                 "tick-to-agree" checkbox was replaced with a continue-means-
+                                 consent notice near the action button: proceeding IS the
+                                 agreement, so the customer is not stopped by an extra tick.
+                                 Links stay so the customer can still read the terms. -->
                             <div class="pt-6 border-t border-gray-200 dark:border-gray-700">
-                                <div class="checkbox-item">
-                                    <div class="checkbox-container">
-                                        <input type="checkbox" id="terms_accepted" x-model="formData.terms_accepted" class="checkbox-input" required>
-                                        <div class="checkbox-custom">
-                                            <span class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
-                                        </div>
-                                    </div>
-                                    <label for="terms_accepted" class="cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                                        <?= T::i_agree_to_the ?>
-                                        <a href="<?= root ?>page/terms-of-use" target="_blank" class="text-blue-600 hover:underline"><?= T::terms ?> & <?= T::conditions ?></a>
-                                        <?= T::and ?>
-                                        <a href="<?= root ?>page/privacy-policy" target="_blank" class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>
-                                    </label>
-                                </div>
+                                <p class="text-sm text-gray-600 dark:text-gray-400">
+                                    <?= T::by_continuing_you_agree ?? 'By continuing, you agree to our' ?>
+                                    <a href="<?= root ?>page/terms-of-use" target="_blank" class="text-blue-600 hover:underline"><?= T::terms ?> & <?= T::conditions ?></a>
+                                    <?= T::and ?>
+                                    <a href="<?= root ?>page/privacy-policy" target="_blank" class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>.
+                                </p>
                             </div>
 
                             <?= CSRF::tokenField() ?>
 
-                            <button type="submit" class="btn w-full mt-6" :disabled="submitting || !formData.terms_accepted" :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted }">
+                            <button type="submit" class="btn w-full mt-6" :disabled="submitting" :class="{ 'opacity-50 cursor-not-allowed': submitting }">
                                 <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                                 <span x-show="submitting" class="material-symbols-outlined animate-spin">progress_activity</span>
                                 <span x-show="!submitting"><?= T::confirm ?> <?= T::booking ?></span>
@@ -731,7 +728,9 @@ function bookingForm() {
             vehicles: [],
             pets: [],
             special_requests: '',
-            terms_accepted: false,
+            // Implicit consent: proceeding is the agreement (see the "By continuing
+            // you agree…" notice). Default true so nothing is gated on a tick.
+            terms_accepted: true,
             selected_payment: '<?= $defaultGatewayId ?>',
         },
         subtotalDisplay: <?= number_format($subtotalDisplay, 2, '.', '') ?>,
@@ -966,10 +965,7 @@ function bookingForm() {
         },
 
         async submitBooking() {
-            if (!this.formData.terms_accepted) {
-                this.showError('Please accept terms and conditions');
-                return;
-            }
+            // Terms consent is now implicit (continue-means-consent) — no blocking guard.
 
             this.submitting = true;
             this.showBookingLoader = true;

@@ -145,10 +145,8 @@ $list = function ($text) {
             <div class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm">
               <span class="text-gray-600">Total</span><span class="font-semibold" x-text="totalLabel()"></span>
             </div>
-            <label class="flex items-start gap-2 text-xs text-gray-600">
-              <input type="checkbox" x-model="form.terms_accepted" required class="mt-0.5">
-              <span>I agree to the <a href="<?= root ?>terms-and-conditions" class="text-blue-600 hover:underline" target="_blank">Terms &amp; Conditions</a>.</span>
-            </label>
+            <!-- Implicit consent: continuing is the agreement (no blocking tick). -->
+            <p class="text-xs text-gray-600">By continuing, you agree to our <a href="<?= root ?>terms-and-conditions" class="text-blue-600 hover:underline" target="_blank">Terms &amp; Conditions</a>.</p>
             <p x-show="error" x-text="error" class="text-xs text-red-600"></p>
             <div class="flex gap-2">
               <button type="button" class="btn ghost text-sm flex-1" @click="open = false" :disabled="busy">Back</button>
@@ -177,7 +175,7 @@ function cruiseBooking(cfg) {
     cruiseId: cfg.cruiseId, ccy: cfg.ccy, adultP: cfg.adultP, childP: cfg.childP,
     maxGuests: cfg.maxGuests, csrf: cfg.csrf, submitUrl: cfg.submitUrl,
     adults: 1, children: 0,
-    form: { first_name: '', last_name: '', email: '', phone: '', country: '', terms_accepted: false },
+    form: { first_name: '', last_name: '', email: '', phone: '', country: '', terms_accepted: true },
     total() {
       // Keep children within capacity if adults grows.
       if (this.adults + this.children > this.maxGuests) { this.children = Math.max(0, this.maxGuests - this.adults); }
@@ -191,7 +189,7 @@ function cruiseBooking(cfg) {
       if (this.busy) return;
       this.error = '';
       if (!this.form.first_name || !this.form.last_name || !this.form.email) { this.error = 'Please fill in your name and email.'; return; }
-      if (!this.form.terms_accepted) { this.error = 'Please accept the terms and conditions.'; return; }
+      /* Terms consent is now implicit (continuing is the agreement) — no blocker. */
       this.busy = true;
       try {
         const res = await fetch(this.submitUrl, {
