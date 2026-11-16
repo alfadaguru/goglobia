@@ -6471,8 +6471,17 @@ function calculateTax($totalAmount, $moduleName, $db, $fromCurrency = null, $toC
         $taxPercentage = $taxValue;
     }
 
-    // Convert tax amount to target currency if needed
-    if ($fromCurrency && $toCurrency && $fromCurrency !== $toCurrency && $taxAmount > 0) {
+    // Currency conversion of the tax amount (audit — double-conversion fix).
+    //
+    // PERCENTAGE tax is computed as $totalAmount * pct. Callers like
+    // calculateCompletePrice() pass a $totalAmount that is ALREADY in $toCurrency
+    // (MARKUP() converts the price before calculateTax() sees it), so the resulting
+    // percentage tax is likewise already in $toCurrency — converting it from->to AGAIN
+    // double-counts the FX rate and produces a wrong (tiny/large) tax on cross-currency
+    // quotes. Only a FIXED tax is a standalone amount denominated in the module's base
+    // currency, so only a FIXED tax needs the from->to conversion.
+    if ($taxType === 'fixed'
+        && $fromCurrency && $toCurrency && $fromCurrency !== $toCurrency && $taxAmount > 0) {
         $fromRate = $db->get('currencies', 'rate', ['name' => $fromCurrency, 'status' => '1']);
         $toRate = $db->get('currencies', 'rate', ['name' => $toCurrency, 'status' => '1']);
 
