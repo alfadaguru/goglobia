@@ -164,8 +164,23 @@ if (!function_exists('tiqwa_complete_from_booking_details')) {
         $booking = null;
         if ($invoiceId) $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
         if (!$booking) {
-            // Find by stored supplier_ref inside booking_data (LIKE on the reference).
-            $booking = $db->get('bookings', '*', ['booking_data[~]' => $reference, 'module' => 'tiqwa']);
+            // (a) The direct supplier booking (admin Booking Manager / web flights):
+            //     module='tiqwa', ref stored at booking_data.supplier_ref.
+            // Wrap %..% ourselves: a Tiqwa ref (e.g. "TW-4BNXJSQG40") has no `_`/special
+            // chars so Medoo [~] auto-wraps it, but wrapping explicitly is safe + future-proof.
+            $booking = $db->get('bookings', '*', ['booking_data[~]' => '%' . $reference . '%', 'module' => 'tiqwa']);
+        }
+        if (!$booking) {
+            // (b) A GIA chat flight. GIA inserts module/module_type='ai_trip' (never
+            //     'tiqwa'), and ai_trip/issue copies the child's booking_data (incl.
+            //     supplier_ref/tiqwa_reference) onto the PARENT at
+            //     booking_data.items[].supplier_booking_data — then DELETES the child.
+            //     So the async Tiqwa ticket.issued webhook (invoice unknown, ref only)
+            //     could never find the GIA parent and the PNR was dropped, leaving the
+            //     paid+ticketed booking stranded 'pending' forever. Match the ai_trip
+            //     parent by the SAME reference LIKE, scoped to ai_trip so we never hit
+            //     an unrelated supplier's row. (Fix: GIA async Tiqwa confirm.)
+            $booking = $db->get('bookings', '*', ['booking_data[~]' => '%' . $reference . '%', 'module_type' => 'ai_trip']);
         }
         if (!$booking) return ['status' => false, 'message' => 'No local booking matches reference ' . $reference];
 
@@ -190,11 +205,32 @@ if (!function_exists('tiqwa_complete_from_booking_details')) {
             elseif (!empty($ticketNumbers)) { $write['pnr'] = $ticketNumbers[0]; }
             $db->update('bookings', $write, ['invoice_id' => $booking['invoice_id']]);
 
-            // Notify the customer now that the ticket exists (idempotent).
-            if (function_exists('bm_notify_paid')) {
-                try { bm_notify_paid($db, (string) $booking['invoice_id']); }
-                catch (\Throwable $e) { error_log('tiqwa complete notify: ' . $e->getMessage()); }
+            // Notify the customer now that the ticket exists (idempotent). GIA chat
+            // bookings (module_type='ai_trip') MUST use GIA's own sender — it emails the
+            // no-price ticket AND sends the WhatsApp/channel confirmation the customer is
+            // waiting on, and reconciles the gia_booking_payments ledger. bm_notify_paid
+            // is the admin-Booking-Manager path and would not reach the GIA channel.
+            $isGiaBooking = strtolower((string) ($booking['module_type'] ?? '')) === 'ai_trip';
+            // The webhook path loads this module's utilities but NOT the GIA lib, so
+            // load it on demand for a GIA booking (else gia_bp_send_confirmation is
+            // undefined and the WhatsApp/channel confirmation would be skipped).
+            if ($isGiaBooking && !function_exists('gia_bp_send_confirmation')) {
+                $giaLib = dirname(__DIR__, 3) . '/app/lib/ai/gia_booking_payment.php';
+                if (is_file($giaLib)) { require_once $giaLib; }
             }
+            try {
+                if ($isGiaBooking && function_exists('gia_bp_send_confirmation')) {
+                    // Re-read the row so the sender sees booking_status='confirmed' + the PNR
+                    // we just wrote (its own guard requires 'confirmed' before sending).
+                    gia_bp_send_confirmation($db, (string) $booking['invoice_id']);
+                } elseif (!$isGiaBooking && function_exists('bm_notify_paid')) {
+                    bm_notify_paid($db, (string) $booking['invoice_id']);
+                } elseif (function_exists('bm_notify_paid')) {
+                    // Fallback: GIA sender unavailable (lib not loaded on this path) — at
+                    // least fire the generic notifier so the ticket email still sends.
+                    bm_notify_paid($db, (string) $booking['invoice_id']);
+                }
+            } catch (\Throwable $e) { error_log('tiqwa complete notify: ' . $e->getMessage()); }
             return ['status' => true, 'pnr' => $write['pnr'] ?? '', 'booking_status' => 'confirmed', 'message' => 'Ticket completed.'];
         }
 
