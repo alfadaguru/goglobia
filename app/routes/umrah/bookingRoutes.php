@@ -141,10 +141,12 @@ $router->post('/api/umrah/booking/resend-invoice', function () use ($SECURE, $db
         ]);
 
     } catch (Exception $e) {
+        // Don't leak SMTP/PDF/DB internals to the client (audit LOW — info disclosure).
+        error_log('UMRAH_RESEND_INVOICE: ' . $e->getMessage());
         http_response_code(400);
         echo json_encode([
             'status' => false,
-            'message' => $e->getMessage()
+            'message' => 'Could not resend the invoice. Please try again.'
         ]);
     }
     exit;
