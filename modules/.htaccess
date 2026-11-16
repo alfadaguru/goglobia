@@ -6,10 +6,14 @@ RewriteEngine on
 # bypassing the gateway + supplier_action_guard. Those logs can contain PII and
 # even a valid loopback _internal_token (HMAC per invoice) that passes the action
 # guard — i.e. token disclosure -> unauthenticated issue/cancel/refund/void.
-# Deny any path containing a /logs/ segment, and any .log/.json/.sql/.sqlite/.env
-# file, regardless of where it sits under modules/.
+# Deny any path containing a /logs/ segment, and any debug/credential/doc file that
+# is never meant to be fetched over HTTP (read server-side only), regardless of where
+# it sits under modules/. [NC] = case-insensitive (a .TXT token dump was being served
+# because the rule was case-sensitive). Covers supplier request/response dumps (.txt),
+# vendor API-spec docs (.doc/.docx/.pdf/.rtf), data exports (.csv), and the config/
+# log/db types. A real ToursBMS merchant token was found in a served REQ-RES-LOG.TXT.
 RewriteRule (^|/)logs/ - [F,L]
-RewriteRule \.(log|json|sql|sqlite|sqlite3|env|ini|lock|bak)$ - [F,L]
+RewriteRule \.(log|json|sql|sqlite|sqlite3|env|ini|lock|bak|txt|doc|docx|pdf|rtf|csv|md|yml|yaml)$ - [F,NC,L]
 
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 RewriteCond %{REQUEST_FILENAME} !-f
