@@ -74,13 +74,36 @@ if (!function_exists('busModuleAction')) {
                         $routeId = (int)($journey['route_id'] ?? 0);
                         $travelDate = DateTime::createFromFormat('d-m-Y', (string)($journey['date'] ?? ''));
                         if (!$routeId || !$travelDate) throw new Exception('Invalid bus journey details');
+                        // Fast-fail pre-check for a clean message; the authoritative guard is the
+                        // atomic conditional UPDATE below (audit MED — oversell race).
                         $calendar = $db->get('bus_routes_calendar', ['id', 'seats_available'], ['route_id' => $routeId, 'date' => $travelDate->format('Y-m-d')]);
                         if (!$calendar || (int)$calendar['seats_available'] < $pax) throw new Exception('One of the selected buses no longer has enough seats');
-                        $calendarRows[] = $calendar;
+                        $calendarRows[] = ['id' => (int)$calendar['id']];
                     }
                     $pnr = 'PNR' . strtoupper(substr(md5($invoiceId . time()), 0, 6));
+                    // ATOMIC decrement: only succeeds while enough seats remain, so two
+                    // concurrent issues that both passed the pre-check above cannot both
+                    // push a calendar row below zero. A 0-row update means a racing issue
+                    // took the last seats -> abort and surface the same sold-out message.
+                    $__decremented = [];
                     foreach ($calendarRows as $calendar) {
-                        $db->update('bus_routes_calendar', ['seats_available' => (int)$calendar['seats_available'] - $pax], ['id' => $calendar['id']]);
+                        $stmt = $db->query(
+                            "UPDATE bus_routes_calendar
+                                SET seats_available = seats_available - :pax
+                              WHERE id = :cid AND seats_available >= :pax2",
+                            [':pax' => $pax, ':cid' => $calendar['id'], ':pax2' => $pax]
+                        );
+                        if (!$stmt || $stmt->rowCount() < 1) {
+                            // Roll back the seats we already took on this attempt.
+                            foreach ($__decremented as $doneId) {
+                                $db->query(
+                                    "UPDATE bus_routes_calendar SET seats_available = seats_available + :pax WHERE id = :cid",
+                                    [':pax' => $pax, ':cid' => $doneId]
+                                );
+                            }
+                            throw new Exception('One of the selected buses no longer has enough seats');
+                        }
+                        $__decremented[] = $calendar['id'];
                     }
                     $db->update('bookings', [
                         'pnr' => $pnr, 'booking_status' => 'confirmed', 'error_response' => null, 'booking_payment_issue' => null,

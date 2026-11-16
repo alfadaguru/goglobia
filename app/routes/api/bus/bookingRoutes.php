@@ -308,8 +308,10 @@ $router->post('/api/bus/booking/draft', function () use ($SECURE, $db) {
         ]);
         exit(0);
     } catch (\Throwable $e) {
+        // Generic message to the client; real error to the log (audit LOW — info disclosure).
+        error_log('BUS_API_SAVE_DRAFT: ' . $e->getMessage());
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'message' => 'Could not save your booking draft. Please try again.']);
         exit(0);
     }
 });
@@ -400,8 +402,10 @@ $router->get('/api/bus/booking/draft/([a-f0-9]{16})', function ($hash) use ($SEC
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         exit(0);
     } catch (\Throwable $e) {
+        // Generic message to the client; real error to the log (audit LOW — info disclosure).
+        error_log('BUS_API_FETCH_DRAFT: ' . $e->getMessage());
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'message' => 'Could not load your booking draft.']);
         exit(0);
     }
 });
@@ -457,41 +461,11 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
             $moduleCurrency
         );
 
-        // PROMO CODE (OPTIONAL) — recompute the discount SERVER-SIDE (never trust the
-        // client's promo_discount). Enforces module/targeting/usage/per-user.
-        $promoCodeStr  = trim((string)($input['promo_code'] ?? ''));
-        $promoDiscount = 0.0;
-        $promoCodeJson = null;
-        $promoData     = null;
-        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
-            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotal, 'bus', (string) $baseCurrency, [
-                'item_id'    => (int) ($input['route_id'] ?? $draft['route_id'] ?? 0),
-                'user_id'    => $userId ?? ($_SESSION['user_id'] ?? null),
-                'user_email' => $email ?? null,
-            ]);
-            $promoDiscount = (float) $pr['discount'];
-            $promoData     = $pr['promo'];
-            $promoCodeJson = $pr['json'];
-        }
-        if ($promoDiscount > 0 && $promoData) {
-            $finalTotal = round($finalTotal - $promoDiscount, 2);
-        }
-        $displayCurrency = requireAppDisplayCurrency($db, $input);
-        $conversionRate = getCurrencyConversionRate($db, $baseCurrency, $displayCurrency);
-        $displayFinalTotal = convertCurrencyAmount($db, $finalTotal, $baseCurrency, $displayCurrency);
-        $currency = $baseCurrency;
-        $draft['base_currency'] = $baseCurrency;
-        $draft['display_currency'] = $displayCurrency;
-        $draft['conversion_rate'] = $conversionRate;
-        $draft['final_total_display'] = $displayFinalTotal;
-        $draft['total'] = $markupTotal;
-        $draft['final_total'] = $finalTotal;
-        $draft['tax_amount'] = $taxAmount;
-        $draft['total_display'] = convertCurrencyAmount($db, $markupTotal, $baseCurrency, $displayCurrency);
-        $draft['tax_amount_display'] = convertCurrencyAmount($db, $taxAmount, $baseCurrency, $displayCurrency);
-
         // USER RESOLUTION — WEB SESSION OR MOBILE "Authorization: Bearer <jwt>", ELSE MATCH BY
-        // EMAIL, ELSE AUTO-CREATE A GUEST ACCOUNT (SAME PATTERN AS api/cars/bookingRoutes.php)
+        // EMAIL, ELSE AUTO-CREATE A GUEST ACCOUNT (SAME PATTERN AS api/cars/bookingRoutes.php).
+        // MUST run BEFORE the promo block (audit MED — use-before-def): the promo per-user
+        // enforcement at :user_id read $userId before it was assigned, so it silently fell
+        // back to the raw session and ignored the JWT / email-matched / auto-created user.
         $userId = $_SESSION['user_id'] ?? null;
         if (!$userId) {
             require_once 'app/lib/jwt.php';
@@ -536,6 +510,39 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
         }
         $isAgent      = !empty($userData['role']) && $userData['role'] === 'agent';
         $agentEarning = $isAgent ? $commission : 0;
+
+        // PROMO CODE (OPTIONAL) — recompute the discount SERVER-SIDE (never trust the
+        // client's promo_discount). Enforces module/targeting/usage/per-user.
+        $promoCodeStr  = trim((string)($input['promo_code'] ?? ''));
+        $promoDiscount = 0.0;
+        $promoCodeJson = null;
+        $promoData     = null;
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotal, 'bus', (string) $baseCurrency, [
+                'item_id'    => (int) ($input['route_id'] ?? $draft['route_id'] ?? 0),
+                'user_id'    => $userId ?? ($_SESSION['user_id'] ?? null),
+                'user_email' => $email ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
+        }
+        if ($promoDiscount > 0 && $promoData) {
+            $finalTotal = round($finalTotal - $promoDiscount, 2);
+        }
+        $displayCurrency = requireAppDisplayCurrency($db, $input);
+        $conversionRate = getCurrencyConversionRate($db, $baseCurrency, $displayCurrency);
+        $displayFinalTotal = convertCurrencyAmount($db, $finalTotal, $baseCurrency, $displayCurrency);
+        $currency = $baseCurrency;
+        $draft['base_currency'] = $baseCurrency;
+        $draft['display_currency'] = $displayCurrency;
+        $draft['conversion_rate'] = $conversionRate;
+        $draft['final_total_display'] = $displayFinalTotal;
+        $draft['total'] = $markupTotal;
+        $draft['final_total'] = $finalTotal;
+        $draft['tax_amount'] = $taxAmount;
+        $draft['total_display'] = convertCurrencyAmount($db, $markupTotal, $baseCurrency, $displayCurrency);
+        $draft['tax_amount_display'] = convertCurrencyAmount($db, $taxAmount, $baseCurrency, $displayCurrency);
 
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
 

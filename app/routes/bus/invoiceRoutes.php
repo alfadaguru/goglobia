@@ -72,13 +72,19 @@ $router->get('/invoice/bus/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE, 
                     $routeId = (int)($journey['route_id'] ?? 0);
                     $travelDate = DateTime::createFromFormat('d-m-Y', (string)($journey['date'] ?? ''));
                     if (!$routeId || !$travelDate) continue;
-                    $calRow = $db->get('bus_routes_calendar', ['id', 'seats_available'], [
-                        'route_id' => $routeId, 'date' => $travelDate->format('Y-m-d'),
-                    ]);
-                    if ($calRow) {
-                        $db->update('bus_routes_calendar', [
-                            'seats_available' => max(0, (int)$calRow['seats_available'] - $paxCount),
-                        ], ['id' => $calRow['id']]);
+                    // ATOMIC seat decrement (audit MED — oversell race). The old
+                    // read-then-write (get seats_available -> update max(0, seats-pax))
+                    // let two concurrent paid callbacks for the last seats both read the
+                    // pre-decrement value and both succeed -> oversell. Decrement in ONE
+                    // conditional UPDATE that only fires while enough seats remain, so a
+                    // racing second callback updates 0 rows and cannot push below zero.
+                    if ($paxCount > 0) {
+                        $db->query(
+                            "UPDATE bus_routes_calendar
+                                SET seats_available = seats_available - :pax
+                              WHERE route_id = :rid AND date = :dt AND seats_available >= :pax2",
+                            [':pax' => $paxCount, ':rid' => $routeId, ':dt' => $travelDate->format('Y-m-d'), ':pax2' => $paxCount]
+                        );
                     }
                 }
             }

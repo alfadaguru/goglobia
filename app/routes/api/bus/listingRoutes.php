@@ -197,7 +197,7 @@ $router->post('/api/bus/listing', function () use ($SECURE, $db) {
         exit(0);
     } catch (\Throwable $e) {
         error_log('BUS_LISTING_API ERROR: ' . $e->getMessage());
-        echo json_encode(['success' => false, 'error' => $e->getMessage(), 'trips' => []]);
+        echo json_encode(['success' => false, 'error' => 'Could not load bus trips.', 'trips' => []]);
         exit(0);
     }
 });

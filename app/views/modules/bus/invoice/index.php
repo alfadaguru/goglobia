@@ -6,6 +6,12 @@
 $t = $bookingData['trip'] ?? [];
 $journeys = $bookingData['journeys'] ?? [['type' => 'outbound', 'route_id' => $bookingData['route_id'] ?? 0, 'date' => $bookingData['date'] ?? '', 'trip' => $t]];
 $travellers = json_decode($booking['travellers'] ?? '[]', true) ?: [];
+// OUTPUT ESCAPING (audit MED): $invoiceId and pnr were echoed raw into HTML text
+// AND into JS string literals. Pre-escape once: HTML-safe for markup, JSON-encoded
+// for the inline <script> so a crafted value can't break out of the string.
+$invoiceIdHtml = htmlspecialchars((string) $invoiceId, ENT_QUOTES, 'UTF-8');
+$invoiceIdJs   = json_encode((string) $invoiceId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$pnrHtml       = htmlspecialchars((string) ($booking['pnr'] ?? ''), ENT_QUOTES, 'UTF-8');
 ?>
 
 <div class="bg-gray-100 dark:bg-gray-900 min-h-screen py-6">
@@ -17,7 +23,7 @@ $travellers = json_decode($booking['travellers'] ?? '[]', true) ?: [];
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
                 <path fill="currentColor" d="m13.292 12l-4.6-4.6l.708-.708L14.708 12L9.4 17.308l-.708-.708z"/>
             </svg>
-            <span class="text-gray-700 text-[13px] font-medium"><?= T::invoice ?? 'Invoice' ?> #<?= $invoiceId ?></span>
+            <span class="text-gray-700 text-[13px] font-medium"><?= T::invoice ?? 'Invoice' ?> #<?= $invoiceIdHtml ?></span>
         </div>
 
         <?php if (!empty($_SESSION['payment_notice'])): ?>
@@ -44,7 +50,7 @@ $travellers = json_decode($booking['travellers'] ?? '[]', true) ?: [];
             <span class="material-symbols-outlined">check_circle</span>
             <div>
                 <p class="font-semibold"><?= T::booking_confirmed ?? 'Booking Confirmed' ?>!</p>
-                <p class="text-sm"><?= T::invoice ?? 'Invoice' ?> ID: <strong><?= $invoiceId ?></strong></p>
+                <p class="text-sm"><?= T::invoice ?? 'Invoice' ?> ID: <strong><?= $invoiceIdHtml ?></strong></p>
             </div>
         </div>
 
@@ -68,7 +74,7 @@ $travellers = json_decode($booking['travellers'] ?? '[]', true) ?: [];
                                 <div class="space-y-2 text-sm">
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::invoice ?? 'Invoice' ?> ID:</span>
-                                        <span class="font-medium">#<?= $invoiceId ?></span>
+                                        <span class="font-medium">#<?= $invoiceIdHtml ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::booking ?? 'Booking' ?> <?= T::date ?? 'Date' ?>:</span>
@@ -77,7 +83,7 @@ $travellers = json_decode($booking['travellers'] ?? '[]', true) ?: [];
                                     <?php if (!empty($booking['pnr'])): ?>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::booking ?? 'Booking' ?> <?= T::reference ?? 'Reference' ?>:</span>
-                                        <span class="font-medium"><?= $booking['pnr'] ?></span>
+                                        <span class="font-medium"><?= $pnrHtml ?></span>
                                     </div>
                                     <?php endif; ?>
                                 </div>
@@ -190,7 +196,7 @@ $travellers = json_decode($booking['travellers'] ?? '[]', true) ?: [];
 <script>
 // STANDARD INVOICE FUNCTIONS (required by shared includes/invoice/summary.php)
 function downloadInvoice() {
-    window.location.href = '<?= root ?>api/bus/booking/download-invoice/<?= $invoiceId ?>';
+    window.location.href = '<?= root ?>api/bus/booking/download-invoice/' + encodeURIComponent(<?= $invoiceIdJs ?>);
 }
 
 function processPayment() {
@@ -219,7 +225,7 @@ function processPayment() {
     const invoiceInput = document.createElement('input');
     invoiceInput.type = 'hidden';
     invoiceInput.name = 'invoice_id';
-    invoiceInput.value = '<?= $invoiceId ?>';
+    invoiceInput.value = <?= $invoiceIdJs ?>;
 
     const gatewayInput = document.createElement('input');
     gatewayInput.type = 'hidden';
@@ -239,7 +245,7 @@ function requestCancellation() {
     fetch('<?= root ?>api/bus/booking/request-cancellation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: '<?= $invoiceId ?>' })
+        body: JSON.stringify({ invoice_id: <?= $invoiceIdJs ?> })
     })
     .then(r => r.json())
     .then(data => {

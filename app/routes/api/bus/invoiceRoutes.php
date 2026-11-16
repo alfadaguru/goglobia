@@ -40,7 +40,8 @@ $router->get('/api/bus/invoice/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
         echo json_encode(['success' => true, 'data' => $booking], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
     } catch (Throwable $e) {
+        error_log('BUS_API_INVOICE: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'message' => 'Could not load the invoice.']);
     }
 });

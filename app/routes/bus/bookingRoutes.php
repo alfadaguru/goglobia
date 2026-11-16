@@ -35,7 +35,7 @@ $router->post('/api/bus/booking/save-draft', function () use ($SECURE, $db) {
     } catch (\Throwable $e) {
         error_log('BUS_BOOKING_SAVE_DRAFT: ' . $e->getMessage());
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'message' => 'Could not save your booking draft. Please try again.']);
         exit(0);
     }
 });
@@ -109,8 +109,9 @@ $router->post('/api/bus/booking/request-cancellation', function () use ($SECURE,
         echo json_encode(['success' => true, 'message' => 'Cancellation request submitted']);
         exit(0);
     } catch (\Throwable $e) {
+        error_log('BUS_BOOKING_REQUEST_CANCELLATION: ' . $e->getMessage());
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'message' => 'Could not submit your cancellation request. Please try again.']);
         exit(0);
     }
 });
@@ -243,7 +244,14 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
         $baseTotal = round($baseTotal, 2);
         $markupTotal = round($markupTotal, 2);
         $commission = max(0, round($markupTotal - $baseTotal, 2));
-        $finalTotal = $markupTotal;
+        // TAX (audit HIGH): the WEB submit charged NO tax while the mobile app-submit
+        // (api/bus/bookingRoutes.php) adds calculateTax() — so the same bus trip was
+        // cheaper on the website than in the app and the invoice showed tax=0. Compute
+        // the module-configured tax server-side and include it, mirroring the mobile path.
+        $busTaxInfo = function_exists('calculateTax') ? calculateTax($markupTotal, 'bus', $db) : ['tax_amount' => 0, 'tax_type' => 'percentage'];
+        $busTaxAmount = round((float) ($busTaxInfo['tax_amount'] ?? 0), 2);
+        $busTaxType   = (string) ($busTaxInfo['tax_type'] ?? 'percentage');
+        $finalTotal = round($markupTotal + $busTaxAmount, 2);
 
         $baseCurrency = resolveBaseCurrency($db,
             $draft['base_currency'] ?? null,
@@ -301,6 +309,8 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
             'payment_status'  => 'unpaid',
             'price_original'  => $baseTotal,
             'price_markup'    => $finalTotal,
+            'tax'             => $busTaxAmount,
+            'tax_type'        => $busTaxType,
             'commission'      => $commission,
             'agent_earning'   => $agentEarning,
             'first_name'      => $guest['first_name'] ?? '',
