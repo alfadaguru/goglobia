@@ -60,11 +60,10 @@ $router->get('/api/tours/invoice', function () use ($SECURE, $db) {
 
     if ($authorization !== '' && preg_match('/Bearer\s+(\S+)/i', $authorization, $matches)) {
         try {
+            // Only a FULLY-VERIFIED token gates access to this booking's PII (audit HIGH):
+            // the old JWT::decode($matches[1], false) fallback skipped signature + expiry,
+            // so a forged/expired token could pass as owner/admin and read the invoice.
             $tokenData = JWT::verify($matches[1]);
-            if (!$tokenData && method_exists('JWT', 'decode')) {
-                $tokenData = JWT::decode($matches[1], false);
-            }
-
             if (is_array($tokenData) && !empty($tokenData['user_id'])) {
                 $sessionUserId = (string)$tokenData['user_id'];
                 $sessionRole = strtolower((string)($tokenData['role'] ?? ''));
