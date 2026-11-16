@@ -1350,6 +1350,77 @@ function ensureInsurancePlansSchema($db): void
 }
 
 /**
+ * Own-inventory CRUISES schema (admin-managed, mirrors tours/insurance). Phase 1:
+ * search -> results -> detail. Idempotent CREATE TABLE IF NOT EXISTS + a seeded
+ * `modules` row so currency/markup resolve when booking is wired later. Failures are
+ * swallowed with error_log (e.g. a DB user without CREATE/ALTER rights).
+ */
+function ensureCruisesSchema($db): void
+{
+    try {
+        $db->query("CREATE TABLE IF NOT EXISTS `cruises` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `name` varchar(191) NOT NULL,
+            `slug` varchar(191) NOT NULL,
+            `cruise_line` varchar(120) NOT NULL DEFAULT '',
+            `ship_name` varchar(120) NOT NULL DEFAULT '',
+            `description` text DEFAULT NULL,
+            `destination` varchar(120) NOT NULL DEFAULT '',
+            `departure_port` varchar(120) NOT NULL DEFAULT '',
+            `itinerary` text DEFAULT NULL,
+            `nights` int(11) NOT NULL DEFAULT 7,
+            `departure_date` date DEFAULT NULL,
+            `room_type` varchar(60) NOT NULL DEFAULT 'balcony',
+            `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+            `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+            `child_price` decimal(14,2) NOT NULL DEFAULT 0.00,
+            `max_guests` int(11) NOT NULL DEFAULT 4,
+            `stars` tinyint(1) NOT NULL DEFAULT 0,
+            `img` longtext DEFAULT NULL,
+            `inclusions` text DEFAULT NULL,
+            `exclusions` text DEFAULT NULL,
+            `cancellation_policy` text DEFAULT NULL,
+            `refundable` tinyint(1) NOT NULL DEFAULT 1,
+            `featured` tinyint(1) NOT NULL DEFAULT 0,
+            `status` tinyint(1) NOT NULL DEFAULT 1,
+            `order` int(11) NOT NULL DEFAULT 0,
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+            `updated_at` datetime DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_cruise_slug` (`slug`),
+            KEY `idx_status` (`status`),
+            KEY `idx_featured` (`featured`),
+            KEY `idx_destination` (`destination`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    } catch (\Throwable $e) {
+        error_log('ensureCruisesSchema: create cruises failed: ' . $e->getMessage());
+    }
+
+    // Seed the own-inventory cruises module row (mirrors tours/insurance) so
+    // MARKUP()/currency resolve once booking is wired. Only when absent.
+    try {
+        $has = $db->get('modules', ['id'], ['type' => 'cruises', 'name' => 'goglobia']);
+        if (!$has) {
+            $db->insert('modules', [
+                'name'            => 'goglobia',
+                'type'            => 'cruises',
+                'status'          => 1,
+                'active'          => 1,
+                'dev_mode'        => 0,
+                'booking_class'   => 'real',
+                'markup_type_b2c' => 'percentage',
+                'markup_b2c'      => 0,
+                'markup_type_b2b' => 'percentage',
+                'markup_b2b'      => 0,
+                'currency'        => (string) ($GLOBALS['app']['default_currency'] ?? 'NGN'),
+            ]);
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureCruisesSchema: seed goglobia module failed: ' . $e->getMessage());
+    }
+}
+
+/**
  * Phase 0 schema groundwork for phone-at-signup, email-OR-phone login and
  * OTP-over-WhatsApp (see docs/research/gia-identity-personalization-audit.md).
  *

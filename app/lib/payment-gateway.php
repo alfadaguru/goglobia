@@ -570,6 +570,12 @@ function process_payment($invoiceId)
             case 'bus':
                 $invoiceBaseUrl = root . 'invoice/bus/';
                 break;
+            case 'cruises':
+                $invoiceBaseUrl = root . 'invoice/cruises/';
+                break;
+            case 'insurance':
+                $invoiceBaseUrl = root . 'invoice/insurance/';
+                break;
             case 'ai_trip':
                 $invoiceBaseUrl = root . 'invoice/ai_trip/';
                 break;
@@ -1782,6 +1788,12 @@ function handle_payment_callback($token, $action, $data = [])
                 case 'rail':
                     $invoiceUrl = root . 'invoice/rail/';
                     break;
+                case 'cruises':
+                    $invoiceUrl = root . 'invoice/cruises/';
+                    break;
+                case 'insurance':
+                    $invoiceUrl = root . 'invoice/insurance/';
+                    break;
                 case 'ai_trip':
                     $invoiceUrl = root . 'invoice/ai_trip/';
                     break;
@@ -1850,6 +1862,12 @@ function handle_payment_callback($token, $action, $data = [])
                 break;
             case 'esim':
                 $invoiceUrl = root . 'invoice/esim/';
+                break;
+            case 'cruises':
+                $invoiceUrl = root . 'invoice/cruises/';
+                break;
+            case 'insurance':
+                $invoiceUrl = root . 'invoice/insurance/';
                 break;
             case 'ai_trip':
                 $invoiceUrl = root . 'invoice/ai_trip/';

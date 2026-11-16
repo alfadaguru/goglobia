@@ -298,6 +298,22 @@ if ($insurance_count > 0) {
     ];
 }
 
+// Own-inventory cruises (Phase 1): show whenever the cruises module is active OR any
+// cruise exists, so the owner can manage listings.
+$cruises_count = $db->count('modules', ['type' => 'cruises', 'status' => 1, 'active' => 1]);
+try { $cruises_count += (int) $db->count('cruises'); } catch (\Throwable $e) { /* table may not exist yet */ }
+if ($cruises_count > 0) {
+    $adminMenu[] = [
+        'icon' => 'directions_boat',
+        'name' => 'Cruises',
+        'url' => root.admin.'/cruises',
+        'submenu' => [
+            ['name' => 'Cruises', 'icon' => 'directions_boat', 'url' => root.admin.'/cruises'],
+            ['name' => 'Add Cruise', 'icon' => 'add', 'url' => root.admin.'/cruises/add'],
+        ]
+    ];
+}
+
 // ADD CARS MENU ONLY IF MODULE IS ACTIVE
 if ($cars > 0) {
     $adminMenu[] = [

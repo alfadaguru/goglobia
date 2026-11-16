@@ -192,6 +192,13 @@ require_once 'app/routes/tours/listingRoutes.php';
 require_once 'app/routes/tours/detailRoutes.php';
 require_once 'app/routes/tours/destinationSuggestionRoutes.php';
 
+// CRUISES ROUTES (own-inventory). Phase 1: search -> results -> detail.
+// Phase 2: booking (POST /api/cruise/booking/submit) + invoice/pay (/invoice/cruises/{id}).
+require_once 'app/routes/cruises/listingRoutes.php';
+require_once 'app/routes/cruises/detailRoutes.php';
+require_once 'app/routes/cruises/bookingRoutes.php';
+require_once 'app/routes/cruises/invoiceRoutes.php';
+
 // Umrah Routes (v2). The legacy v1 homeRoutes/detailRoutes were inert
 // (registered nothing / return;-disabled) and were removed in the v1→v2 cleanup.
 require_once 'app/routes/umrah/umrahV2Routes.php'; // v2 redesign — must precede any legacy so /umrah, /umrah/packages/*, /umrah/detail redirect win
@@ -282,6 +289,7 @@ require_once 'app/routes/admin/carsRoutes.php';
 require_once 'app/routes/admin/busRoutes.php';
 require_once 'app/routes/admin/visaRoutes.php';
 require_once 'app/routes/admin/insuranceRoutes.php'; // own-inventory paid insurance plans (customer-flow #12)
+require_once 'app/routes/admin/cruisesRoutes.php'; // own-inventory cruises (Phase 1: admin CRUD + customer search/results/detail)
 require_once 'app/routes/admin/bookingsRoutes.php';
 require_once 'app/routes/admin/bookingManagerRoutes.php'; // staff book walk-ins (flights+hotels; live/manual; DVA/manual-transfer)
 require_once 'app/routes/admin/gatewaysRoutes.php';
