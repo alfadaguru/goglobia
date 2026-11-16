@@ -73,6 +73,15 @@ PERFORMANCE:
      */
     function renderHotelCard(h, idx) {
 
+        // XSS GUARD: this whole card is injected via x-html, so EVERY supplier-supplied
+        // string interpolated as HTML text (hotel name, location, amenities, zone/chain,
+        // supplier) must be HTML-escaped. normalizeHotels() stores these raw from the
+        // supplier search JSON, so a name like "<img src=x onerror=...>" would execute.
+        // Attributes were already escaped (alt/data-*); the visible text was not.
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
         // Build hotel detail URL (opaque supplier token, not the raw name)
         const hotelUrl = buildHotelUrl(h, this.searchParams, this.roomsData, this.supplierTokens);
 
@@ -197,7 +206,7 @@ PERFORMANCE:
                     <!-- Supplier Badge (admin-only). Shifted below the favourite heart (top-3 right-3) to avoid overlap. -->
                     <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] == 'admin') { ?>
                         <div class="absolute top-14 right-2 bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold uppercase">
-                            ${h.supplier}
+                            ${esc(h.supplier)}
                         </div>
                     <?php } ?>
                 </div>
@@ -208,13 +217,13 @@ PERFORMANCE:
                     <!-- Hotel Name & Location -->
                     <div>
                         <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100 mb-0.5 line-clamp-1">
-                            ${h.name}
+                            ${esc(h.name)}
                         </h3>
 
                         <div class="flex items-start gap-1.5 mb-2">
                             <span class="material-symbols-outlined text-gray-500 dark:text-gray-400" style="font-size: 16px;">location_on</span>
                             <span class="text-xs text-gray-600 dark:text-gray-400 line-clamp-1">
-                                ${locationText}
+                                ${esc(locationText)}
                             </span>
                         </div>
 
@@ -231,7 +240,7 @@ PERFORMANCE:
                             ${h.original_data && h.original_data.amenities && h.original_data.amenities.length > 0 ?
                                 h.original_data.amenities.slice(0, 3).map(amenity => `
                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
-                                        ${typeof amenity === 'string' ? amenity : (amenity?.name || amenity?.label || '')}
+                                        ${esc(typeof amenity === 'string' ? amenity : (amenity?.name || amenity?.label || ''))}
                                     </span>
                                 `).join('') : ''
                             }
@@ -247,8 +256,8 @@ PERFORMANCE:
                                 </span>
                             ` : ''}
                             ${(String(h.supplier || h.original_data?.supplier || '').toLowerCase() === 'hotelbeds' && (h.original_data?.zone_name || h.original_data?.chain_name)) ? `
-                                ${h.original_data.zone_name ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${h.original_data.zone_name}</span>` : ''}
-                                ${h.original_data.chain_name ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${h.original_data.chain_name}</span>` : ''}
+                                ${h.original_data.zone_name ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${esc(h.original_data.zone_name)}</span>` : ''}
+                                ${h.original_data.chain_name ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${esc(h.original_data.chain_name)}</span>` : ''}
                             ` : ''}
                             ${h.original_data && h.original_data.discount && h.original_data.discount > 0 ? `
                                 <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300">
@@ -313,7 +322,7 @@ PERFORMANCE:
             <div class="border-t border-gray-200 dark:border-gray-700 px-4 py-2 bg-gray-50 dark:bg-gray-900">
                 <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                     <span class="material-symbols-outlined" style="font-size: 14px;">business</span>
-                    <span><?= T::powered ?> <?= T::by ?> ${h.supplier}</span>
+                    <span><?= T::powered ?> <?= T::by ?> ${esc(h.supplier)}</span>
                     <span class="w-1 h-1 bg-gray-400 rounded-full"></span>
                     <span>${h.currency}</span>
                 </div>
@@ -424,7 +433,7 @@ PERFORMANCE:
                                                 <div class="flex flex-wrap gap-0.5 max-w-xs">
                                                     ${room.amenities.slice(0, 2).map(amenity => `
                                                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
-                                                            ${typeof amenity === 'string' ? amenity : (amenity?.name || amenity?.label || '<?= T::amenity ?>')}
+                                                            ${esc(typeof amenity === "string" ? amenity : (amenity?.name || amenity?.label || "<?= T::amenity ?>"))}
                                                         </span>
                                                     `).join('')}
                                                     ${room.amenities.length > 2 ? `
@@ -480,7 +489,7 @@ PERFORMANCE:
                         </span>
                         <span class="flex items-center gap-1">
                             <span class="material-symbols-outlined" style="font-size: 14px;">verified</span>
-                            <span><?= T::verified ?> <?= T::by ?> ${h.supplier}</span>
+                            <span><?= T::verified ?> <?= T::by ?> ${esc(h.supplier)}</span>
                         </span>
                     </div>
                 </div>
@@ -490,7 +499,7 @@ PERFORMANCE:
                 <div class="flex justify-between items-center">
                     <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                         <span class="material-symbols-outlined" style="font-size: 14px;">business</span>
-                        <span>${h.supplier}</span>
+                        <span>${esc(h.supplier)}</span>
                         <span class="w-1 h-1 bg-gray-400 rounded-full"></span>
                         <span>${h.currency}</span>
                     </div>
