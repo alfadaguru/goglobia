@@ -47,7 +47,8 @@ $router->post('insurance/travelsure/refund', function () use ($db) {
                 : 'Processed. ' . ($gwRefund['message'] ?? ''),
         ], JSON_UNESCAPED_SLASHES);
     } catch (Throwable $e) {
-        echo json_encode(['status' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES);
+        error_log('TRAVELSURE REFUND ERROR | ' . $e->getMessage());
+        echo json_encode(['status' => false, 'message' => 'Refund could not be processed.'], JSON_UNESCAPED_SLASHES);
     }
     exit;
 });

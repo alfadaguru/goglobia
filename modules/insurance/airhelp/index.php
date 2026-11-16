@@ -148,6 +148,21 @@ if (!function_exists('airhelp_register_claim')) {
             return ['status' => false, 'message' => 'Booking not found: ' . $invoiceId, 'reference' => null, 'pending' => false];
         }
 
+        // IDEMPOTENCY (audit HIGH): the public `insurance/airhelp/issue` retry route
+        // (and any admin retry) calls this with a client-supplied invoice_id and NO
+        // guard, so a claim could be POSTed to AirHelp again and again — registering
+        // the SAME passenger+flight multiple times. Mirror travelsure/issue.php: once
+        // the claim is confirmed with a reference (pnr), return it without re-calling.
+        if (!empty($booking['pnr']) && strtolower((string) ($booking['booking_status'] ?? '')) === 'confirmed') {
+            return [
+                'status'         => true,
+                'message'        => 'Claim already registered',
+                'reference'      => (string) $booking['pnr'],
+                'pending'        => false,
+                'already_issued' => true,
+            ];
+        }
+
         $module = $db->get('modules', '*', ['name' => 'airhelp', 'type' => 'insurance']);
         if (!$module) {
             return ['status' => false, 'message' => 'AirHelp module not configured in DB', 'reference' => null, 'pending' => true];
@@ -267,6 +282,21 @@ $router->post('insurance/airhelp/issue', function () use ($db) {
         echo json_encode(['status' => false, 'message' => 'Missing invoice_id']);
         return;
     }
+
+    // AUTH (audit MED — IDOR/CSRF): this file is required by app/routes/insurance/
+    // bookingRoutes.php, so the route is ALSO registered on the MAIN app router where
+    // the modules-gateway supplier_action_guard does NOT run (the /modules/ copy IS
+    // guarded — anon POST there = 403). Without this check an anonymous caller could
+    // drive AirHelp registration for an arbitrary invoice_id (enumeration + forced
+    // third-party claim). Restrict to the booking owner / creating session / admin;
+    // enforceInvoiceAccess self-responds 403 JSON on an /api/-style call otherwise.
+    $__ahBooking = $db->get('bookings', '*', ['invoice_id' => (string) $invoiceId, 'module' => 'airhelp']);
+    if (!$__ahBooking || (function_exists('enforceInvoiceAccess') && !enforceInvoiceAccess($db, $__ahBooking, null))) {
+        http_response_code(403);
+        echo json_encode(['status' => false, 'message' => 'Not authorised for this booking.']);
+        return;
+    }
+
     $result = airhelp_register_claim($db, $invoiceId);
     echo json_encode($result, JSON_UNESCAPED_SLASHES);
 });

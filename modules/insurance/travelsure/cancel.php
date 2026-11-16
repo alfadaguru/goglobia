@@ -33,7 +33,8 @@ $router->post('insurance/travelsure/cancel', function () use ($db) {
             'message' => 'Policy marked cancelled. If a policy was issued with a provider, cancel it there too.',
         ], JSON_UNESCAPED_SLASHES);
     } catch (Throwable $e) {
-        echo json_encode(['status' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES);
+        error_log('TRAVELSURE CANCEL ERROR | ' . $e->getMessage());
+        echo json_encode(['status' => false, 'message' => 'Policy could not be cancelled.'], JSON_UNESCAPED_SLASHES);
     }
     exit;
 });

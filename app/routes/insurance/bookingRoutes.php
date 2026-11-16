@@ -142,7 +142,8 @@ $router->post('/insurance/claim/submit', function () use ($SECURE, $db) {
                 : 'Your flight compensation claim has been registered.',
         ], JSON_UNESCAPED_SLASHES);
     } catch (Throwable $e) {
-        echo json_encode(['status' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES);
+        error_log('INSURANCE_CLAIM_SUBMIT: ' . $e->getMessage());
+        echo json_encode(['status' => false, 'message' => 'We could not submit your claim. Please check your details and try again.'], JSON_UNESCAPED_SLASHES);
     }
 });
 
@@ -334,8 +335,9 @@ $router->post('/api/insurance/booking/submit', function () use ($SECURE, $db) {
             'redirect_url' => root . 'invoice/insurance/' . $invoiceId,
         ], JSON_UNESCAPED_SLASHES);
     } catch (Throwable $e) {
+        error_log('INSURANCE_BOOKING_SUBMIT: ' . $e->getMessage());
         http_response_code(400);
-        echo json_encode(['status' => false, 'success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES);
+        echo json_encode(['status' => false, 'success' => false, 'message' => 'We could not complete your insurance booking. Please check your details and try again.'], JSON_UNESCAPED_SLASHES);
     }
 });
 
@@ -374,8 +376,9 @@ $router->post('/api/insurance/booking/request-cancellation', function () use ($S
         echo json_encode(['success' => true, 'message' => 'Cancellation request submitted']);
         exit(0);
     } catch (\Throwable $e) {
+        error_log('INSURANCE_REQUEST_CANCELLATION: ' . $e->getMessage());
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'message' => 'Could not submit your cancellation request. Please try again.']);
         exit(0);
     }
 });

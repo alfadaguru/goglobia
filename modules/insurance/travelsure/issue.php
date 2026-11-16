@@ -98,8 +98,8 @@ $router->post('insurance/travelsure/issue', function () use ($db) {
         error_log('TRAVELSURE ISSUE ERROR | Invoice: ' . ($_POST['invoice_id'] ?? 'N/A') . ' | ' . $e->getMessage());
         echo json_encode([
             'status'         => false,
-            'message'        => $e->getMessage(),
-            'response_error' => $e->getMessage(),
+            'message'        => 'Insurance policy could not be issued.',
+            'response_error' => 'issue_failed',
         ], JSON_UNESCAPED_SLASHES);
     }
     exit;
