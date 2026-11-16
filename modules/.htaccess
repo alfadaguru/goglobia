@@ -1,4 +1,16 @@
 RewriteEngine on
+
+# SECURITY: block direct access to supplier log/debug artifacts. The catch-all
+# below only rewrites requests that are NOT real files (!-f), so any real file
+# under modules/ (e.g. a supplier logs/ dump) would otherwise be served RAW,
+# bypassing the gateway + supplier_action_guard. Those logs can contain PII and
+# even a valid loopback _internal_token (HMAC per invoice) that passes the action
+# guard — i.e. token disclosure -> unauthenticated issue/cancel/refund/void.
+# Deny any path containing a /logs/ segment, and any .log/.json/.sql/.sqlite/.env
+# file, regardless of where it sits under modules/.
+RewriteRule (^|/)logs/ - [F,L]
+RewriteRule \.(log|json|sql|sqlite|sqlite3|env|ini|lock|bak)$ - [F,L]
+
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
