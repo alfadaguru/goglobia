@@ -621,9 +621,22 @@ class giaAgent
         }
 
         // 2) Pull every monetary figure the MODEL stated. Match "NGN 1,617,250.67",
-        //    "₦58,400", "$500", "150000 USD", etc. — a currency marker adjacent to a
-        //    number. Bare numbers (dates, counts, "2 adults") are ignored.
-        $curr = '(?:NGN|USD|GHS|KES|ZAR|GBP|EUR|₦|\$|£|€)';
+        //    "₦58,400", "$500", "150000 USD", "SAR 2,800", etc. — a currency marker
+        //    adjacent to a number. Bare numbers (dates, counts, "2 adults") are ignored.
+        //    The code list MUST cover every currency the platform can quote: a code we
+        //    don't recognise carries no marker here, so a hallucinated price in it would
+        //    slip through UNCHECKED. It previously omitted SAR/EGP/INR — a real hole for
+        //    UMRAH (Saudi, SAR). Include all supported `currencies` rows (EGP/EUR/GBP/INR/
+        //    NGN/SAR/USD) plus common travel codes so a future-added currency can't
+        //    silently re-open the gap. Widening is strictly SAFER — it only ever makes
+        //    MORE quoted amounts get verified against real tool data, never fewer.
+        // Codes are 3-letter uppercase and only match when ADJACENT to a number, so
+        // they won't hit ordinary prose. We deliberately EXCLUDE 'TRY' (collides with the
+        // English word "try N") — Turkish Lira isn't in the supported set, and the
+        // collision could neutralise a benign reply. Covered: all supported `currencies`
+        // rows (EGP/EUR/GBP/INR/NGN/SAR/USD) + the GCC/Maghreb codes an umrah/Saudi quote
+        // could use (AED/QAR/MAD) + legacy GHS/GHC/KES/ZAR, and the common symbols.
+        $curr = '(?:NGN|USD|EUR|GBP|SAR|AED|QAR|EGP|INR|GHS|GHC|KES|ZAR|MAD|₦|\$|£|€|₹|﷼)';
         $num  = '\d[\d,]*(?:\.\d+)?';
         $pattern = '/(?:' . $curr . '\s?' . $num . ')|(?:' . $num . '\s?' . $curr . ')/u';
         if (!preg_match_all($pattern, $reply, $m) || empty($m[0])) {
