@@ -49,6 +49,14 @@ function carPayOptions(price, currency) {
  * @returns {String} HTML markup for car card
  */
 function renderCarCard(car) {
+    // XSS GUARD: this card is injected via x-html, so every supplier-supplied string
+    // interpolated as HTML text (car name, type, supplier, pickup/dropoff location)
+    // must be HTML-escaped. These come raw from the supplier search JSON — a value like
+    // "<img src=x onerror=...>" would execute. (Same bug fixed in stays + tours cards.)
+    const esc = (s) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
     // ============================================================================
     // SAFELY EXTRACT CAR DATA WITH FALLBACKS
     // ============================================================================
@@ -191,13 +199,13 @@ function renderCarCard(car) {
 
                     <!-- CAR TYPE BADGE -->
                     <div class="absolute top-2 left-2 bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold capitalize">
-                        ${carType}
+                        ${esc(carType)}
                     </div>
 
                     <!-- SUPPLIER BADGE (Mozio label only for admin) -->
                     ${showSupplierBadge ? `
                     <div class="absolute top-2 right-2 text-white px-2 py-0.5 rounded text-xs font-bold capitalize" style="background-color: ${supplierColor};">
-                        ${supplier}
+                        ${esc(supplier)}
                     </div>
                     ` : ''}
                 </div>
@@ -210,7 +218,7 @@ function renderCarCard(car) {
                     <!-- CAR NAME & CATEGORY -->
                     <div class="flex-1">
                         <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">
-                            ${carName}
+                            ${esc(carName)}
                         </h3>
 
                         <!-- SPECIFICATIONS ROW -->
@@ -318,7 +326,7 @@ function renderCarCard(car) {
                 <div class="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
                     <div class="flex items-center gap-2">
                         <span class="material-symbols-outlined" style="font-size: 14px;">location_on</span>
-                        <span><?=T::pickup?>: ${pickup_location}</span>
+                        <span><?=T::pickup?>: ${esc(pickup_location)}</span>
                     </div>
                     ${car.service_type === 'hourly' && car.hourly_duration ? `
                         <div class="flex items-center gap-2">
@@ -328,7 +336,7 @@ function renderCarCard(car) {
                     ` : (dropoff_location && dropoff_location !== pickup_location ? `
                         <div class="flex items-center gap-2">
                             <span class="material-symbols-outlined" style="font-size: 14px;">location_on</span>
-                            <span><?=T::dropoff?>: ${dropoff_location}</span>
+                            <span><?=T::dropoff?>: ${esc(dropoff_location)}</span>
                         </div>
                     ` : '')}
                 </div>
