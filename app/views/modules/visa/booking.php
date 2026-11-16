@@ -429,7 +429,7 @@ if ($isUserLoggedIn) {
                                              x-transition:enter-start="opacity-0 transform scale-95"
                                              x-transition:enter-end="opacity-100 transform scale-100"
                                              class="mt-3 h-48 border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-                                            <img :src="'<?= root ?>' + traveler.national_id_front_copy"
+                                            <img :src="traveler.national_id_front_copy ? '<?= root ?>' + traveler.national_id_front_copy : ''"
                                                  alt="National ID Front Preview"
                                                  class="w-full h-full object-contain">
                                         </div>
@@ -465,7 +465,7 @@ if ($isUserLoggedIn) {
                                              x-transition:enter-start="opacity-0 transform scale-95"
                                              x-transition:enter-end="opacity-100 transform scale-100"
                                              class="mt-3 h-48 border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-                                            <img :src="'<?= root ?>' + traveler.national_id_back_copy"
+                                            <img :src="traveler.national_id_back_copy ? '<?= root ?>' + traveler.national_id_back_copy : ''"
                                                  alt="National ID Back Preview"
                                                  class="w-full h-full object-contain">
                                         </div>
@@ -501,7 +501,7 @@ if ($isUserLoggedIn) {
                                              x-transition:enter-start="opacity-0 transform scale-95"
                                              x-transition:enter-end="opacity-100 transform scale-100"
                                              class="mt-3 h-48 border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-                                            <img :src="'<?= root ?>' + traveler.passport_copy"
+                                            <img :src="traveler.passport_copy ? '<?= root ?>' + traveler.passport_copy : ''"
                                                  alt="Passport Preview"
                                                  class="w-full h-full object-contain">
                                         </div>
