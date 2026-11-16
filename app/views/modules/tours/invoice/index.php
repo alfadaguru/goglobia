@@ -138,7 +138,7 @@ foreach ($session_keys as $key) {
                     <div class="card-body">
                         <div class="flex items-start gap-4 pb-4 mb-4 border-b border-gray-200 dark:border-gray-700">
                             <div class="w-20 h-20 flex-shrink-0">
-                                <img src="<?= !empty($bookingData['tour_image']) ? $bookingData['tour_image'] : root . 'uploads/no_img.jpg' ?>"
+                                <img src="<?= htmlspecialchars((string)(!empty($bookingData['tour_image']) ? $bookingData['tour_image'] : root . 'uploads/no_img.jpg'), ENT_QUOTES) ?>"
                                      class="w-full h-full object-cover rounded-xl border border-gray-200 dark:border-gray-700"
                                      alt="<?= htmlspecialchars((string)($bookingData['tour_name'] ?? '')) ?>"
                                      onerror="this.src='<?= root ?>uploads/no_img.jpg'">
