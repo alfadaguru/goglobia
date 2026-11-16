@@ -243,9 +243,16 @@ $router->get('/api/stay/booking/download-invoice/([A-Z0-9]{8})', function ($invo
         // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
         // admin / owner / creating session / valid payment token. Was
         // previously unauthenticated. enforceInvoiceAccess() exits on denial.
-        if (function_exists('enforceInvoiceAccess')) {
-            enforceInvoiceAccess($db, $booking);
+        // FAIL-CLOSED (audit MED): the old `if (function_exists(...))` wrapper silently
+        // SKIPPED the ownership check if the helper wasn't loaded — serving the
+        // PDF/resend/cancel unauthenticated. Deny when the guard is unavailable, matching
+        // the hardened API path (app/routes/api/stays/bookingRoutes.php:961).
+        if (!function_exists('enforceInvoiceAccess')) {
+            http_response_code(500);
+            echo 'Access control unavailable.';
+            exit;
         }
+        enforceInvoiceAccess($db, $booking);
 
         // Always generate/refresh PDF before download
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
@@ -301,9 +308,16 @@ $router->post('/api/stay/booking/resend-invoice', function () use ($SECURE, $db)
 
         // IDOR (customer-journey audit #8): without an ownership check an attacker
         // could enumerate invoice ids and force a ticket-PDF email to any customer.
-        if (function_exists('enforceInvoiceAccess')) {
-            enforceInvoiceAccess($db, $booking);
+        // FAIL-CLOSED (audit MED): the old `if (function_exists(...))` wrapper silently
+        // SKIPPED the ownership check if the helper wasn't loaded — serving the
+        // PDF/resend/cancel unauthenticated. Deny when the guard is unavailable, matching
+        // the hardened API path (app/routes/api/stays/bookingRoutes.php:961).
+        if (!function_exists('enforceInvoiceAccess')) {
+            http_response_code(500);
+            echo 'Access control unavailable.';
+            exit;
         }
+        enforceInvoiceAccess($db, $booking);
 
         // Fetch payment gateway name
         $paymentGatewayName = $booking['payment_gateway'];
@@ -379,9 +393,16 @@ $router->post('/api/stay/booking/request-cancellation', function () use ($SECURE
         // OWNERSHIP GUARD: only the invoice owner / creating session / admin may
         // request cancellation. Was unauthenticated. enforceInvoiceAccess
         // auto-responds 403 JSON on an /api/ route and exits for a non-owner.
-        if (function_exists('enforceInvoiceAccess')) {
-            enforceInvoiceAccess($db, $booking);
+        // FAIL-CLOSED (audit MED): the old `if (function_exists(...))` wrapper silently
+        // SKIPPED the ownership check if the helper wasn't loaded — serving the
+        // PDF/resend/cancel unauthenticated. Deny when the guard is unavailable, matching
+        // the hardened API path (app/routes/api/stays/bookingRoutes.php:961).
+        if (!function_exists('enforceInvoiceAccess')) {
+            http_response_code(500);
+            echo 'Access control unavailable.';
+            exit;
         }
+        enforceInvoiceAccess($db, $booking);
 
         if ($booking['cancellation_request'] == 1) {
             throw new Exception('Cancellation already requested');
