@@ -16,6 +16,9 @@ if (empty($invoice_id)) {
     exit;
 }
 
+// IN-HANDLER ACTION GUARD (audit HIGH — defense-in-depth parity with adivaha).
+if (function_exists('supplier_action_guard') && !supplier_action_guard($invoice_id)) { return; }
+
 // Fetch booking
 $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
 

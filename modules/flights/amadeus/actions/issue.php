@@ -107,6 +107,37 @@ $router->post('flights/amadeus/issue', function() use ($db) {
             exit;
         }
 
+        // CONCURRENCY CLAIM (audit HIGH — amadeus lacked this; mirrors duffel/adivaha).
+        // The sequential pnr-check above only stops a REPLAY. Two TRULY concurrent payment
+        // callbacks could both read pnr='' and both POST Flight Create Orders -> duplicate
+        // PNR + double supplier-balance debit (Amadeus Create Orders has no Idempotency-Key).
+        // Claim on a dedicated nullable issue_claimed_at timestamp (NOT booking_status, an
+        // ENUM). Succeeds only when un-issued AND the claim is free or STALE (>10 min, so a
+        // crashed attempt self-recovers). A racing duplicate updates 0 rows and is rejected.
+        try { $db->query("ALTER TABLE `bookings` ADD COLUMN `issue_claimed_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
+        $claim = $db->query(
+            "UPDATE bookings SET issue_claimed_at = NOW()
+             WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
+               AND booking_status NOT IN ('confirmed','cancelled')
+               AND (issue_claimed_at IS NULL OR issue_claimed_at < (NOW() - INTERVAL 10 MINUTE))",
+            [':inv' => $invoice_id]
+        );
+        if (!$claim || $claim->rowCount() < 1) {
+            ob_clean();
+            echo json_encode(['status' => false, 'message' => 'This booking is already being issued or has been issued.']);
+            exit;
+        }
+        // Release the claim on any failure/exit path so a legitimate retry isn't blocked
+        // for 10 min; only clear while still un-issued (no PNR).
+        register_shutdown_function(function () use ($db, $invoice_id) {
+            try {
+                $b = $db->get('bookings', ['pnr'], ['invoice_id' => $invoice_id]);
+                if ($b && empty($b['pnr'])) {
+                    $db->query("UPDATE bookings SET issue_claimed_at = NULL WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')", [':inv' => $invoice_id]);
+                }
+            } catch (\Throwable $e) { error_log('amadeus issue claim-release: ' . $e->getMessage()); }
+        });
+
         // ========================================
         // STEP 2: GET MODULE CREDENTIALS
         // ========================================

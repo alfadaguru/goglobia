@@ -55,6 +55,34 @@ $router->post('flights/tbo/issue', function () use ($db) {
             exit;
         }
 
+        // CONCURRENCY CLAIM (audit HIGH — tbo lacked this; mirrors duffel/adivaha).
+        // The sequential pnr-check above stops only a REPLAY. Two TRULY concurrent payment
+        // callbacks could both read pnr='' and both Book/Ticket -> duplicate PNR / double
+        // commit (for LCC, money commits at Ticket immediately). Claim on a dedicated
+        // nullable issue_claimed_at timestamp (NOT booking_status, an ENUM). Succeeds only
+        // when un-issued AND the claim is free or STALE (>10 min). A racing duplicate
+        // updates 0 rows and is rejected.
+        try { $db->query("ALTER TABLE `bookings` ADD COLUMN `issue_claimed_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
+        $claim = $db->query(
+            "UPDATE bookings SET issue_claimed_at = NOW()
+             WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
+               AND booking_status NOT IN ('confirmed','cancelled')
+               AND (issue_claimed_at IS NULL OR issue_claimed_at < (NOW() - INTERVAL 10 MINUTE))",
+            [':inv' => $invoiceId]
+        );
+        if (!$claim || $claim->rowCount() < 1) {
+            echo json_encode(['status' => false, 'Prn' => '', 'message' => 'This booking is already being issued or has been issued.', 'response_error' => 'issue in progress']);
+            exit;
+        }
+        register_shutdown_function(function () use ($db, $invoiceId) {
+            try {
+                $b = $db->get('bookings', ['pnr'], ['invoice_id' => $invoiceId]);
+                if ($b && empty($b['pnr'])) {
+                    $db->query("UPDATE bookings SET issue_claimed_at = NULL WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')", [':inv' => $invoiceId]);
+                }
+            } catch (\Throwable $e) { error_log('tbo issue claim-release: ' . $e->getMessage()); }
+        });
+
         // ------------------------------------------------------------------
         // Load credentials
         // ------------------------------------------------------------------

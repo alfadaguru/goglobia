@@ -16,6 +16,13 @@ $router->post('/flights/duffel/cancel', function() use ($db) {
             exit;
         }
 
+        // IN-HANDLER ACTION GUARD (audit HIGH — defense-in-depth parity with adivaha/
+        // tiqwa, which guard in-handler too). cancel/void/refund previously relied
+        // SOLELY on the central dispatcher regex; this adds the same signed-token check
+        // adivaha uses so these money actions cannot be invoked if the dispatcher ever
+        // misses an edge path.
+        if (function_exists('supplier_action_guard') && !supplier_action_guard($invoice_id)) { return; }
+
         // Fetch booking
         $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
 
