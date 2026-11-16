@@ -223,13 +223,16 @@
                      <div class="flex items-center gap-3 min-w-0">
                         <span class="material-symbols-outlined text-slate-400">credit_card</span>
                         <div class="min-w-0">
-                           <div class="text-sm font-medium text-slate-800 tabular-nums">
-                              <span x-text="(c.brand||'card').toUpperCase()"></span> ···· <span x-text="c.last4"></span>
-                              <span class="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 ml-1" x-show="c.is_default">Default</span>
-                              <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 ml-1" x-show="c.expired">Expired</span>
+                           <div class="text-sm font-medium text-slate-800 tabular-nums flex items-center flex-wrap gap-1">
+                              <span><span x-text="(c.brand||'card').toUpperCase()"></span> ···· <span x-text="c.last4"></span></span>
+                              <!-- Currency chip: which currency this card pays. NGN cards (Paystack)
+                                   pay Naira bookings; USD/other (Stripe) pay those bookings. -->
+                              <span class="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold" x-text="(c.currency||'').toUpperCase()"></span>
+                              <span class="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600" x-show="c.is_default">Default</span>
+                              <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600" x-show="c.expired">Expired</span>
                            </div>
                            <div class="text-xs text-slate-400">
-                              <span x-text="c.currency"></span> · expires <span x-text="c.exp || '—'"></span>
+                              <span x-text="'Pays ' + (c.currency||'').toUpperCase() + ' bookings'"></span> · expires <span x-text="c.exp || '—'"></span>
                            </div>
                         </div>
                      </div>
