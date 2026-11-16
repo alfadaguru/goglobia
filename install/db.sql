@@ -27566,6 +27566,21 @@ CREATE TABLE IF NOT EXISTS `gia_offer_cache` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
+-- GIA pre/post-flight travel reminders (idempotency ledger; one row per
+-- (invoice, milestone) = sent-once guard). Self-healing ensure-fn in
+-- app/lib/ai/gia_travel_reminders.php; sweep = GET /gia_travel_sweep.
+CREATE TABLE IF NOT EXISTS `gia_travel_reminders` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `invoice_id` varchar(64) NOT NULL,
+  `milestone` varchar(16) NOT NULL,
+  `depart_ts` datetime DEFAULT NULL,
+  `sent_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_inv_milestone` (`invoice_id`,`milestone`),
+  KEY `idx_depart` (`depart_ts`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
 -- GIA channel identity links (chat <-> account, verified via one-time code)
 CREATE TABLE IF NOT EXISTS `gia_channel_links` (
   `id` int(11) NOT NULL AUTO_INCREMENT,

@@ -477,6 +477,7 @@ require_once 'app/routes/crons/refundRetryRoutes.php'; // retry failed auto-refu
 require_once 'app/routes/crons/abandonedBookingSweepRoutes.php'; // generic expiry for abandoned unpaid card-checkout bookings (Part 1 MEDIUM) — /abandoned_booking_sweep
 require_once 'app/routes/crons/giaPaymentsRoutes.php'; // GIA per-booking payment reminders + expiry sweep
 require_once 'app/routes/crons/giaNurtureRoutes.php'; // GIA quiet-lead nurture (ad campaigns) — /gia_nurture_sweep
+require_once 'app/routes/crons/giaTravelRoutes.php'; // GIA pre/post-flight travel reminders — /gia_travel_sweep
 require_once 'app/routes/crons/flightRemindersRoutes.php'; // flight travel reminders (3 pre + 1 post) email+WhatsApp
 require_once 'app/routes/crons/serviceCommsRoutes.php'; // pre/post service comms: stays/umrah/tours/cars/ferries/rail/bus (2 pre + 1 post) + visa/esim (post-only) email+WhatsApp
 require_once 'app/routes/crons/supportShiftNudgeRoutes.php'; // GIA WhatsApps staff not clocked in at shift start, every 15m, capped at 3
