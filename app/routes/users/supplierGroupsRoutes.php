@@ -60,6 +60,22 @@ $router->get('/supplier/groups', function () use ($SECURE, $db) {
     // field is hidden in the view AND ignored on the server (the block route re-checks).
     $canSetRate = supplier_can($db, 'rates', 'edit', $stayId);
 
+    // Per-property payment methods (money-IN) the group master folio may collect with —
+    // the same configured manual tenders + optional GoGlobia gateway the single desk uses.
+    $paymentMethods = function_exists('stays_payment_methods_list') ? stays_payment_methods_list($db, $stayId, true) : [];
+    // Whether to show the discount field on the master folio: owner/admin always, or a
+    // staffer whose role has a discount cap configured (server re-checks % on submit).
+    $canDiscount = false;
+    if (function_exists('supplier_acting_context')) {
+        $__ctx = supplier_acting_context($db);
+        if (is_array($__ctx) && (!empty($__ctx['is_owner']) || !empty($__ctx['is_admin']))) {
+            $canDiscount = true;
+        } elseif (is_array($__ctx) && !empty($__ctx['role_id']) && function_exists('supplier_role_limit')) {
+            $__dl = supplier_role_limit($db, (int) $__ctx['role_id'], 'discount_percent');
+            $canDiscount = !empty($__dl['configured']);
+        }
+    }
+
     $title = 'Groups — ' . ($stay['name'] ?? ''); $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/groups.php";
@@ -78,6 +94,9 @@ $router->post('/supplier/groups/create', function () use ($SECURE, $db) {
         'name' => $_POST['name'] ?? '', 'company' => $_POST['company'] ?? '', 'contact_name' => $_POST['contact_name'] ?? '',
         'contact_email' => $_POST['contact_email'] ?? '', 'arrival' => $_POST['arrival'] ?? '', 'departure' => $_POST['departure'] ?? '',
         'currency' => $_POST['currency'] ?? ($db->get('stays', ['currency'], ['id' => $stayId])['currency'] ?? 'USD'),
+        // Link the group to a CUSTOMER (payer/account) the desk searched/created. group_create
+        // stores it as stays_groups.customer_id; 0/blank leaves it NULL.
+        'customer_id' => (int) ($_POST['customer_id'] ?? 0),
     ]) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Group created.' : 'Could not create group (name required?).'];
     header('Location: ' . $back); exit;
@@ -163,9 +182,108 @@ $router->post('/supplier/groups/folio', function () use ($SECURE, $db) {
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
     if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    // SECURITY: a 'credit_note' is a DISCOUNT and must go through /groups/discount, which
+    // enforces the per-role cap (desk_resolve_discount). Reject it here so a crafted POST
+    // can't add an uncapped discount via the generic line form. (payment stays allowed —
+    // the take-payment form uses /groups/payment but a plain payment line is also fine.)
+    $ltype = strtolower(trim((string) ($_POST['ltype'] ?? '')));
+    if ($ltype === 'credit_note') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Use the Discount form — discounts are role-capped.'];
+        header('Location: ' . $back); exit;
+    }
     $ok = function_exists('group_folio_add') && group_folio_add($db, (int) ($_POST['group_id'] ?? 0), $stayId,
-        strtolower(trim((string) ($_POST['ltype'] ?? ''))), (float) ($_POST['amount'] ?? 0), (string) ($_POST['description'] ?? ''));
+        $ltype, (float) ($_POST['amount'] ?? 0), (string) ($_POST['description'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Folio line added.' : 'Could not add line.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/groups/payment — take a payment on the group master folio via a configured
+// property method (manual tender -> a real folio 'payment' line). The GoGlobia gateway/DVA is
+// a PER-BOOKING concept (gia_bp_* keys on a bookings invoice); a group master folio has no
+// such row, so DVA is directed to the individual member booking instead — we do NOT fake it.
+$router->post('/supplier/groups/payment', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId  = (int) ($_POST['stay_id'] ?? 0);
+    $groupId = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups?stay_id=' . $stayId;
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+
+    // Resolve + validate the chosen property method against THIS property (never trust the id).
+    $methodId = (int) ($_POST['payment_method_id'] ?? 0);
+    $method = function_exists('stays_payment_method_get') ? stays_payment_method_get($db, $methodId, $stayId, true) : null;
+    if (!$method) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Pick a valid payment method for this property.'];
+        header('Location: ' . $back); exit;
+    }
+    if (($method['kind'] ?? '') === 'goglobia_gateway') {
+        // Honest: no fake DVA on a group master folio. Direct the operator to collect the
+        // bank transfer per member booking (where the per-booking DVA actually settles).
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'The GoGlobia gateway (bank transfer / DVA) is collected per guest booking, not on the group master. Book a rooming-list member, then take the DVA on that booking. Use a manual method (cash/transfer) here for a master-folio payment.'];
+        header('Location: ' . $back); exit;
+    }
+    $amount = round((float) ($_POST['amount'] ?? 0), 2);
+    if ($amount <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Enter a payment amount.'];
+        header('Location: ' . $back); exit;
+    }
+    $label = (string) $method['label'];
+    $ok = function_exists('group_folio_add') && group_folio_add($db, $groupId, $stayId, 'payment', $amount, 'Payment — ' . $label);
+    // Feed the cash drawer when the method is cash (same proven helper the single desk uses).
+    if ($ok && strtolower(trim($label)) === 'cash' && function_exists('desk_cash_to_shift')) {
+        $orgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+        desk_cash_to_shift($db, $orgId, (string) ($_SESSION['user_id'] ?? ''), $amount, 'GRP:' . $groupId);
+    }
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? ('Payment recorded (' . $label . ').') : 'Could not record the payment.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/groups/discount — apply a role-capped discount to the group master folio.
+// Resolves amount|percent against the group's CURRENT charges, re-caps per role (the SAME
+// desk_resolve_discount the single desk uses), and posts a folio credit_note (reduces
+// charges via group_totals). Over-cap is refused server-side (never applied).
+$router->post('/supplier/groups/discount', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId  = (int) ($_POST['stay_id'] ?? 0);
+    $groupId = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups?stay_id=' . $stayId;
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+
+    // The discount base = the group's current CHARGES (what a % applies to). An amount is
+    // clamped to it, a percent converted — both re-capped per role by desk_resolve_discount.
+    $charges = 0.0;
+    if (function_exists('group_totals')) { $charges = round((float) (group_totals($db, $groupId)['charges'] ?? 0), 2); }
+    $val  = (float) ($_POST['discount_value'] ?? 0);
+    $type = ($_POST['discount_type'] ?? 'amount') === 'percent' ? 'percent' : 'amount';
+    if ($val <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Enter a discount value.'];
+        header('Location: ' . $back); exit;
+    }
+    if ($charges <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Add the group’s charges first, then apply a discount.'];
+        header('Location: ' . $back); exit;
+    }
+    if (!function_exists('desk_resolve_discount')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Discount engine unavailable.'];
+        header('Location: ' . $back); exit;
+    }
+    $dres = desk_resolve_discount($db, $charges, $val, $type, $stayId, !empty($_POST['discount_override']), 'GRP:' . $groupId);
+    if (empty($dres['allowed'])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => $dres['message'] ?? 'That discount exceeds your limit.'];
+        header('Location: ' . $back); exit;
+    }
+    $amt = round((float) $dres['amount'], 2);
+    if ($amt <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'That discount works out to nothing.'];
+        header('Location: ' . $back); exit;
+    }
+    $ok = function_exists('group_folio_add') && group_folio_add($db, $groupId, $stayId, 'credit_note', $amt,
+        'Discount (' . rtrim(rtrim(number_format((float) $dres['pct'], 2), '0'), '.') . '%)');
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error',
+        'text' => $ok ? ('Discount applied: ' . $amt . ' off.') : 'Could not apply the discount.'];
     header('Location: ' . $back); exit;
 });
 

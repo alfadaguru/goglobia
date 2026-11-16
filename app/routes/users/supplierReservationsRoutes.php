@@ -1134,6 +1134,21 @@ $router->get('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($S
     $roomPicker = _supplier_resv_room_picker($db, $stayId);
     $physRoomsByType = _supplier_resv_physrooms_by_type($db, $stayId); // UX#1/#5: assignable rooms per type
     $sources = function_exists('resv_booking_sources') ? resv_booking_sources() : [];
+    // Per-property payment methods (money-IN) the desk may collect with — the active ones
+    // the owner/admin configured (manual tenders + an optional GoGlobia gateway/DVA).
+    $paymentMethods = function_exists('stays_payment_methods_list') ? stays_payment_methods_list($db, $stayId, true) : [];
+    // Whether to show the discount field: the owner always, or a staffer whose role has a
+    // discount cap configured (the server re-checks the exact % against the cap on submit).
+    $canDiscount = false;
+    if (function_exists('supplier_acting_context')) {
+        $__ctx = supplier_acting_context($db);
+        if (is_array($__ctx) && (!empty($__ctx['is_owner']) || !empty($__ctx['is_admin']))) {
+            $canDiscount = true;
+        } elseif (is_array($__ctx) && !empty($__ctx['role_id']) && function_exists('supplier_role_limit')) {
+            $__dl = supplier_role_limit($db, (int) $__ctx['role_id'], 'discount_percent');
+            $canDiscount = !empty($__dl['configured']);
+        }
+    }
     // "Click a vacant room on the front desk to reserve it" passes ?physical_room_id —
     // carry it to the form (shown + posted) so the created booking is assigned to THAT
     // physical room. Validate it belongs to this property + is active before trusting it.
@@ -1223,6 +1238,11 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         header('Location: ' . $back); exit;
     }
 
+    // Which button was pressed: 'reserve' (hold only) or 'reserve_checkin' (also check in
+    // after the room is assigned below). Legacy posts without the field default to reserve.
+    $submitAction = (string) ($_POST['submit_action'] ?? 'reserve');
+    $wantCheckin  = ($submitAction === 'reserve_checkin');
+
     $res = resv_create_walkin($db, $stayId, [
         'room_id'    => (int) ($_POST['room_id'] ?? 0),
         'option_id'  => (int) ($_POST['option_id'] ?? 0),
@@ -1236,12 +1256,30 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         'adults'     => (int) ($_POST['adults'] ?? 1),
         'children'   => (int) ($_POST['children'] ?? 0),
         'source'     => (string) ($_POST['source'] ?? 'walk_in'),
-        'mark_paid'  => !empty($_POST['mark_paid']),
         'notes'      => (string) ($_POST['notes'] ?? ''),
         // C3: a customer picked from the search box (the engine re-validates it
         // is in-org and falls back to identity dedupe if it isn't). Blank => the
         // engine auto-materialises the guest as an individual customer.
         'customer_id' => (int) ($_POST['customer_id'] ?? 0),
+        // A guest picked from the guest search box (prefills + links the stored guest).
+        'guest_id'    => (int) ($_POST['guest_id'] ?? 0),
+
+        // ── DESK SETTLEMENT (resolved server-side in resv_apply_desk_settlement) ──
+        // DISCOUNT: amount|percent, re-capped by the acting role (desk_resolve_discount →
+        // supplier_can_approve). The client cannot bypass the cap — the engine recomputes it.
+        'discount_value' => (float) ($_POST['discount_value'] ?? 0),
+        'discount_type'  => ($_POST['discount_type'] ?? 'amount') === 'percent' ? 'percent' : 'amount',
+        'discount_override' => !empty($_POST['discount_override']),
+        // PAYMENT: a configured property method id (re-validated against THIS property), or a
+        // legacy tender string. pay_type full|partial|percent drives how much to collect now.
+        'payment_method_id' => (int) ($_POST['payment_method_id'] ?? 0),
+        'tender'            => (string) ($_POST['tender'] ?? ''),
+        'pay_type'          => (string) ($_POST['pay_type'] ?? ''),
+        'pay_amount'        => (float) ($_POST['pay_amount'] ?? 0),
+        'pay_percent'       => (float) ($_POST['pay_percent'] ?? 0),
+        // Legacy "mark as paid" tick still honoured for old callers (ignored when a
+        // pay_type is given, which the new form always sends).
+        'mark_paid'  => !empty($_POST['mark_paid']),
     ]);
     $assignNote = '';
     // Assign the booking to the (already-validated) physical room via the canonical
@@ -1250,13 +1288,25 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
     // validated above (compulsory), so the only way this fails now is a race (the room
     // got taken between validation and here) — surface that honestly rather than claim a
     // clean success; the operator can reassign a free room at check-in.
+    $assignedOk = false;
     if (!empty($res['ok']) && !empty($res['invoice_id']) && function_exists('hk_assign_room_to_booking')) {
-        $assigned = hk_assign_room_to_booking($db, (string) $res['invoice_id'], $prid, $stayId);
-        $assignNote = $assigned
+        $assignedOk = hk_assign_room_to_booking($db, (string) $res['invoice_id'], $prid, $stayId);
+        $assignNote = $assignedOk
             ? ' Room assigned.'
             : ' — but that room was just taken; please assign another room from the booking.';
     }
-    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => ($res['message'] ?? 'Could not create the reservation.') . $assignNote];
+    // CHECK-IN happens HERE — AFTER the room is assigned — when the operator pressed
+    // "Reserve & check in". A guest can't be checked in without a room, so we only check
+    // in once the assignment succeeded; otherwise we leave it reserved for the desk to
+    // assign + check in manually.
+    $checkinNote = '';
+    if ($wantCheckin && $assignedOk && !empty($res['invoice_id']) && function_exists('folio_checkin')) {
+        $ci = folio_checkin($db, (string) $res['invoice_id']);
+        $checkinNote = $ci ? ' Checked in.' : ' (reserved — check in from the booking).';
+    } elseif ($wantCheckin && !$assignedOk) {
+        $checkinNote = ' (reserved — assign a room then check in).';
+    }
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => ($res['message'] ?? 'Could not create the reservation.') . $assignNote . $checkinNote];
     if (!empty($res['ok']) && !empty($res['invoice_id'])) {
         // Booking succeeded → NOW record the nonce so a double-click/retry of THIS exact
         // render is refused. A failed attempt above never reaches here, so the clerk can

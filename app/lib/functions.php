@@ -12953,6 +12953,7 @@ function ensureSupplierStaysSchema($db): void
             `company` VARCHAR(191) DEFAULT NULL,
             `contact_name` VARCHAR(120) DEFAULT NULL,
             `contact_email` VARCHAR(191) DEFAULT NULL,
+            `customer_id` INT(11) DEFAULT NULL,
             `arrival` DATE DEFAULT NULL,
             `departure` DATE DEFAULT NULL,
             `currency` CHAR(3) NOT NULL DEFAULT 'USD',
@@ -12965,6 +12966,11 @@ function ensureSupplierStaysSchema($db): void
             UNIQUE KEY `uq_reference` (`reference`),
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Link a group to a CUSTOMER (payer/account) — the group-desk equivalent of a
+        // single booking's customer_id. Idempotent ADD for installs predating this column.
+        if (!$db->query("SHOW COLUMNS FROM `stays_groups` LIKE 'customer_id'")->fetch()) {
+            $db->query("ALTER TABLE `stays_groups` ADD COLUMN `customer_id` INT(11) DEFAULT NULL AFTER `contact_email`");
+        }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_group_blocks` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
@@ -13032,13 +13038,22 @@ function ensureSupplierStaysSchema($db): void
         $db->query("CREATE TABLE IF NOT EXISTS `stays_group_items` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
             `group_id` INT(11) NOT NULL,
-            `type` ENUM('room','charge','extra','payment','refund') NOT NULL,
+            `type` ENUM('room','charge','extra','payment','refund','credit_note') NOT NULL,
             `description` VARCHAR(191) DEFAULT NULL,
             `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
             KEY `idx_group` (`group_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Widen the group-folio line type ENUM to include 'credit_note' (a discount) for
+        // installs predating it — else group_folio_add's credit_note silently stores '' and
+        // group_totals mis-counts it as a charge. Idempotent: only MODIFY when it's absent.
+        try {
+            $__gitype = $db->query("SHOW COLUMNS FROM `stays_group_items` LIKE 'type'")->fetch();
+            if ($__gitype && stripos((string) ($__gitype['Type'] ?? ''), "'credit_note'") === false) {
+                $db->query("ALTER TABLE `stays_group_items` MODIFY COLUMN `type` ENUM('room','charge','extra','payment','refund','credit_note') NOT NULL");
+            }
+        } catch (\Throwable $e) { error_log('stays_group_items credit_note enum: ' . $e->getMessage()); }
 
         // --- events / MICE (inc S33): function spaces + event bookings + folio ------
         // Completion posts event charges to the GL (DR 1200 / CR 4000). supplier_mice.php.
@@ -14952,6 +14967,34 @@ CREATE TABLE IF NOT EXISTS `supplier_webhook_endpoints` (
         if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'retain_until'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `retain_until` DATE DEFAULT NULL"); }
         if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'reviewed_at'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `reviewed_at` DATETIME DEFAULT NULL"); }
 
+
+        // --- stays_payment_methods -------------------------------------------------
+        // How a GUEST pays the property at the desk (money-IN). DISTINCT from
+        // supplier_bank_accounts (money-OUT payouts, has recipient_code/verified) and from
+        // payment_gateways / payment_gateway_scopes (GLOBAL admin gateways). Owner/admin
+        // configures these per property; the front-desk payment block reads them.
+        //   kind='goglobia_gateway' -> enables per-booking DVA (Paystack dedicated account,
+        //        generated via gia_bp_create_dva at booking time). At most one per property.
+        //   kind='manual'           -> an owner-named method (e.g. "UBA bank transfer",
+        //        "Cash", "Moniepoint POS"); `instructions` holds account/how-to-pay text
+        //        shown to the guest; optional `bank_account_id` links an owned bank account.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_payment_methods` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `stay_id` INT(11) NOT NULL,
+            `org_id` INT(11) DEFAULT NULL,
+            `kind` ENUM('goglobia_gateway','manual') NOT NULL DEFAULT 'manual',
+            `label` VARCHAR(80) NOT NULL,
+            `instructions` VARCHAR(1000) DEFAULT NULL,
+            `bank_account_id` INT(11) DEFAULT NULL,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `sort_order` INT(11) NOT NULL DEFAULT 0,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`,`active`,`sort_order`),
+            KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         // Supplier lifecycle email templates (idempotent, insert-if-absent) so the
         // signup/approval/rejection emails are operator-editable like every other email.

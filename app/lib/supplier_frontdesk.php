@@ -325,6 +325,316 @@ if (!function_exists('desk_tender_label')) {
     }
 }
 
+// =============================================================================
+// PER-PROPERTY PAYMENT METHODS (money-IN at the desk) — table stays_payment_methods.
+// DISTINCT from desk_tender_types() (generic labels for the post-booking mark-paid),
+// from supplier_bank_accounts (money-OUT payouts), and from payment_gateways (GLOBAL
+// admin gateways). Owner/admin configures these per property; the booking payment block
+// reads the active ones. kind='goglobia_gateway' => per-booking DVA; kind='manual' =>
+// owner-named (UBA transfer / Cash / Moniepoint POS …) with guest-facing instructions.
+// =============================================================================
+
+if (!function_exists('stays_payment_methods_list')) {
+    /**
+     * The configured payment methods for a property. $activeOnly hides disabled rows (what
+     * the desk sees); the admin UI passes false to list everything. Ordered by sort_order
+     * then id. Returns [] on any error (never throws into a page).
+     */
+    function stays_payment_methods_list($db, int $stayId, bool $activeOnly = true): array
+    {
+        if ($stayId <= 0) { return []; }
+        $where = ['stay_id' => $stayId];
+        if ($activeOnly) { $where['active'] = 1; }
+        $where['ORDER'] = ['sort_order' => 'ASC', 'id' => 'ASC'];
+        try {
+            return $db->select('stays_payment_methods',
+                ['id', 'stay_id', 'org_id', 'kind', 'label', 'instructions', 'bank_account_id', 'active', 'sort_order'],
+                $where) ?: [];
+        } catch (\Throwable $e) {
+            error_log('stays_payment_methods_list: ' . $e->getMessage());
+            return [];
+        }
+    }
+}
+
+if (!function_exists('stays_payment_method_get')) {
+    /**
+     * Fetch ONE method and verify it belongs to $stayId (ownership guard — never trust a
+     * client-posted method id). Returns the row or null. When $activeOnly, a disabled
+     * method resolves to null so the desk can't pay into a turned-off method.
+     */
+    function stays_payment_method_get($db, int $methodId, int $stayId, bool $activeOnly = true): ?array
+    {
+        if ($methodId <= 0 || $stayId <= 0) { return null; }
+        $where = ['id' => $methodId, 'stay_id' => $stayId];
+        if ($activeOnly) { $where['active'] = 1; }
+        try {
+            $row = $db->get('stays_payment_methods',
+                ['id', 'stay_id', 'org_id', 'kind', 'label', 'instructions', 'bank_account_id', 'active'],
+                $where);
+            return $row ?: null;
+        } catch (\Throwable $e) {
+            error_log('stays_payment_method_get: ' . $e->getMessage());
+            return null;
+        }
+    }
+}
+
+if (!function_exists('stays_payment_gateway_enabled')) {
+    /**
+     * True if this property has an ACTIVE GoGlobia-gateway method (per-booking DVA). At
+     * most one such row exists per property (enforced by the add/toggle helpers).
+     */
+    function stays_payment_gateway_enabled($db, int $stayId): bool
+    {
+        if ($stayId <= 0) { return false; }
+        try {
+            return (bool) $db->has('stays_payment_methods',
+                ['stay_id' => $stayId, 'kind' => 'goglobia_gateway', 'active' => 1]);
+        } catch (\Throwable $e) {
+            error_log('stays_payment_gateway_enabled: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('stays_payment_method_add')) {
+    /**
+     * Add a payment method to a property. For kind='goglobia_gateway' there is only ever
+     * ONE row per property — if one exists it is reactivated/relabelled instead of
+     * duplicated (idempotent toggle-on). For 'manual', a new named row is created.
+     * Returns ['ok'=>bool,'id'=>int,'message'=>string]. Caller authorizes the property.
+     */
+    function stays_payment_method_add($db, int $stayId, array $in): array
+    {
+        if ($stayId <= 0) { return ['ok' => false, 'id' => 0, 'message' => 'No property.']; }
+        $kind  = ($in['kind'] ?? 'manual') === 'goglobia_gateway' ? 'goglobia_gateway' : 'manual';
+        $label = trim((string) ($in['label'] ?? ''));
+        $instructions = trim((string) ($in['instructions'] ?? ''));
+        $bankId = (int) ($in['bank_account_id'] ?? 0);
+        $orgId  = (int) ($in['org_id'] ?? 0);
+        $actor  = (string) ($in['actor'] ?? '');
+        if ($kind === 'goglobia_gateway') {
+            $label = $label !== '' ? $label : 'GoGlobia gateway (card / bank / DVA)';
+        } elseif ($label === '') {
+            return ['ok' => false, 'id' => 0, 'message' => 'A method name is required (e.g. "UBA bank transfer").'];
+        }
+        if (strlen($label) > 80) { $label = substr($label, 0, 80); }
+        if (strlen($instructions) > 1000) { $instructions = substr($instructions, 0, 1000); }
+        try {
+            if ($kind === 'goglobia_gateway') {
+                // Only one gateway row per property: reactivate/relabel if present.
+                $existing = $db->get('stays_payment_methods', ['id'],
+                    ['stay_id' => $stayId, 'kind' => 'goglobia_gateway']);
+                if ($existing) {
+                    $db->update('stays_payment_methods',
+                        ['active' => 1, 'label' => $label, 'instructions' => $instructions ?: null, 'updated_at' => date('Y-m-d H:i:s')],
+                        ['id' => (int) $existing['id']]);
+                    return ['ok' => true, 'id' => (int) $existing['id'], 'message' => 'GoGlobia gateway enabled.'];
+                }
+            }
+            $sort = (int) ($db->max('stays_payment_methods', 'sort_order', ['stay_id' => $stayId]) ?? 0) + 1;
+            $db->insert('stays_payment_methods', [
+                'stay_id'      => $stayId,
+                'org_id'       => $orgId > 0 ? $orgId : null,
+                'kind'         => $kind,
+                'label'        => $label,
+                'instructions' => $instructions !== '' ? $instructions : null,
+                'bank_account_id' => $bankId > 0 ? $bankId : null,
+                'active'       => 1,
+                'sort_order'   => $sort,
+                'created_by'   => $actor !== '' ? $actor : null,
+                'created_at'   => date('Y-m-d H:i:s'),
+            ]);
+            $id = (int) $db->id();
+            return ['ok' => $id > 0, 'id' => $id, 'message' => $id > 0 ? 'Payment method added.' : 'Could not add the method.'];
+        } catch (\Throwable $e) {
+            error_log('stays_payment_method_add: ' . $e->getMessage());
+            return ['ok' => false, 'id' => 0, 'message' => 'Could not add the method.'];
+        }
+    }
+}
+
+if (!function_exists('stays_payment_method_update')) {
+    /** Edit a manual method's label/instructions/bank link. Verifies it belongs to $stayId. */
+    function stays_payment_method_update($db, int $methodId, int $stayId, array $in): array
+    {
+        $m = stays_payment_method_get($db, $methodId, $stayId, false);
+        if (!$m) { return ['ok' => false, 'message' => 'Method not found.']; }
+        $label = trim((string) ($in['label'] ?? $m['label']));
+        if ($m['kind'] === 'manual' && $label === '') { return ['ok' => false, 'message' => 'A method name is required.']; }
+        $instructions = trim((string) ($in['instructions'] ?? (string) ($m['instructions'] ?? '')));
+        $bankId = array_key_exists('bank_account_id', $in) ? (int) $in['bank_account_id'] : (int) ($m['bank_account_id'] ?? 0);
+        try {
+            $db->update('stays_payment_methods', [
+                'label'        => substr($label, 0, 80),
+                'instructions' => $instructions !== '' ? substr($instructions, 0, 1000) : null,
+                'bank_account_id' => $bankId > 0 ? $bankId : null,
+                'updated_at'   => date('Y-m-d H:i:s'),
+            ], ['id' => $methodId, 'stay_id' => $stayId]);
+            return ['ok' => true, 'message' => 'Method updated.'];
+        } catch (\Throwable $e) {
+            error_log('stays_payment_method_update: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not update the method.'];
+        }
+    }
+}
+
+if (!function_exists('stays_payment_method_set_active')) {
+    /** Enable/disable a method (property-scoped). */
+    function stays_payment_method_set_active($db, int $methodId, int $stayId, bool $active): bool
+    {
+        if ($methodId <= 0 || $stayId <= 0) { return false; }
+        try {
+            $db->update('stays_payment_methods',
+                ['active' => $active ? 1 : 0, 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $methodId, 'stay_id' => $stayId]);
+            return true;
+        } catch (\Throwable $e) {
+            error_log('stays_payment_method_set_active: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('stays_payment_method_delete')) {
+    /** Remove a method (property-scoped). Hard delete — config row, no money history on it. */
+    function stays_payment_method_delete($db, int $methodId, int $stayId): bool
+    {
+        if ($methodId <= 0 || $stayId <= 0) { return false; }
+        try {
+            $db->delete('stays_payment_methods', ['id' => $methodId, 'stay_id' => $stayId]);
+            return true;
+        } catch (\Throwable $e) {
+            error_log('stays_payment_method_delete: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('stays_desk_dva_for_booking')) {
+    /**
+     * Generate (or reuse) a per-booking GoGlobia-gateway DVA for a DESK booking, so the
+     * guest can pay by bank transfer and the booking auto-settles via the Paystack
+     * webhook. REUSES gia_bp_create_dva in DESK MODE (no 20-min expiry, no GIA chat
+     * reminders, no auto-cancel) — this is NOT a GIA chat booking, so the room must stay
+     * held until the guest pays. No parallel DVA/settlement code: minting + the
+     * gia_booking_payments row + webhook confirm are all the proven GIA path.
+     *
+     * Only proceeds when the property has an ACTIVE 'goglobia_gateway' method
+     * (stays_payment_gateway_enabled). Returns the create result:
+     *   ['ok'=>true, 'account_number','bank_name','account_name','amount','currency'] or
+     *   ['ok'=>false,'message'=>…] (+ not_enabled / not_ngn / needs_bvn flags passed through).
+     *
+     * @param int    $stayId    the property (authorizes that the gateway is enabled on it)
+     * @param string $invoiceId the just-created booking's invoice id
+     */
+    function stays_desk_dva_for_booking($db, int $stayId, string $invoiceId): array
+    {
+        if ($stayId <= 0 || trim($invoiceId) === '') {
+            return ['ok' => false, 'message' => 'No booking to collect for.'];
+        }
+        if (!stays_payment_gateway_enabled($db, $stayId)) {
+            return ['ok' => false, 'not_enabled' => true,
+                'message' => 'The GoGlobia gateway is not enabled for this property.'];
+        }
+        // Load the GIA booking-payment engine (DVA minting + webhook settlement live here).
+        if (!function_exists('gia_bp_create_dva')) {
+            $lib = dirname(__DIR__) . '/lib/ai/gia_booking_payment.php';
+            if (!is_file($lib)) { $lib = __DIR__ . '/ai/gia_booking_payment.php'; }
+            if (is_file($lib)) { require_once $lib; }
+        }
+        if (!function_exists('gia_bp_create_dva')) {
+            return ['ok' => false, 'message' => 'Bank-transfer payment is unavailable right now.'];
+        }
+        // channel/channel_user_id left blank: a desk booking has no chat channel, so
+        // gia_bp_notify is a no-op for it (and desk mode pre-maxes reminders anyway).
+        return gia_bp_create_dva($db, $invoiceId, '', '', true);
+    }
+}
+
+if (!function_exists('desk_resolve_discount')) {
+    /**
+     * Resolve + authorize an operator-entered front-desk discount against the acting
+     * staffer's ROLE CAP. ONE place both the walk-in create path and the group path call,
+     * so the cap logic (amount|percent -> % of base -> supplier_can_approve('discount_percent'))
+     * is not copy-pasted. This is the SAME rule the folio credit_note already enforces
+     * (supplierReservationsRoutes.php) — extracted, not duplicated.
+     *
+     * NOTE: this is the STAFF-GRANTED manual discount (a one-off the operator types, capped
+     * by role). It is DISTINCT from app/lib/discounts.php, which is the automatic rule-based
+     * marketing-discount engine (admin-configured, scope-matched, margin-floored) — a
+     * different concern, deliberately not reused here.
+     *
+     * @param float  $baseAmount the charge the discount reduces (room total, folio charges…)
+     * @param float  $value      the number the operator typed
+     * @param string $type       'amount' (currency off) | 'percent' (% off)
+     * @param int    $stayId     property (for the ownership/scope check in supplier_can_approve)
+     * @param bool   $ownerOverride owner ticked "override my cap" (ignored for non-owners)
+     * @param string $invoiceId  optional, for the override audit event
+     *
+     * @return array [
+     *   'ok'      => bool   (false only on bad input, e.g. negative/over-base),
+     *   'amount'  => float  (the clamped currency discount, 0..baseAmount),
+     *   'pct'     => float  (that amount as a % of base; 100 if base is 0),
+     *   'allowed' => bool   (within the role cap, or an owner override),
+     *   'message' => string (why it was blocked, for the operator),
+     * ]
+     * When allowed=false the caller MUST NOT apply the discount (escalation required).
+     */
+    function desk_resolve_discount($db, float $baseAmount, float $value, string $type, int $stayId, bool $ownerOverride = false, string $invoiceId = ''): array
+    {
+        $base = round(max(0.0, $baseAmount), 2);
+        $type = $type === 'percent' ? 'percent' : 'amount';
+        $value = max(0.0, $value);
+
+        // No discount requested -> trivially ok, nothing to cap.
+        if ($value <= 0.0) {
+            return ['ok' => true, 'amount' => 0.0, 'pct' => 0.0, 'allowed' => true, 'message' => ''];
+        }
+
+        // Convert to a concrete currency amount, clamped to the base (can't discount more
+        // than the charge). Percent is clamped to 100 first.
+        if ($type === 'percent') {
+            $pctIn = min(100.0, $value);
+            $amount = round($base * $pctIn / 100.0, 2);
+        } else {
+            $amount = min($base, round($value, 2));
+        }
+        if ($amount <= 0.0) {
+            return ['ok' => true, 'amount' => 0.0, 'pct' => 0.0, 'allowed' => true, 'message' => ''];
+        }
+        // Effective % of the base (what the cap is expressed in). If base is 0 there is no
+        // charge to discount, so treat any discount as 100% so it still gates.
+        $pct = $base > 0 ? round($amount / $base * 100.0, 2) : 100.0;
+
+        // Authorize against the role cap (owner/admin unlimited; staff bound; unconfigured
+        // denies -> escalate). Same key the folio credit_note uses.
+        $allowed = !function_exists('supplier_can_approve')
+            || supplier_can_approve($db, 'discount_percent', $pct, $stayId);
+
+        if (!$allowed) {
+            $ctx = function_exists('supplier_acting_context') ? supplier_acting_context($db) : null;
+            $isOwner = is_array($ctx) && !empty($ctx['is_owner']);
+            if ($isOwner && $ownerOverride) {
+                // Owner override — allowed, logged to the audit trail like the folio path.
+                $allowed = true;
+                if (function_exists('emit_event')) {
+                    $org = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+                    emit_event($db, 'discount.override',
+                        ['invoice_id' => $invoiceId, 'amount' => $amount, 'pct' => $pct, 'source' => 'desk_create'],
+                        'reservation', $invoiceId !== '' ? $invoiceId : null, $org > 0 ? $org : null);
+                }
+            } else {
+                return ['ok' => true, 'amount' => $amount, 'pct' => $pct, 'allowed' => false,
+                    'message' => 'That discount (' . rtrim(rtrim(number_format($pct, 2), '0'), '.') . '%) exceeds your role’s limit — a manager must approve it.'];
+            }
+        }
+
+        return ['ok' => true, 'amount' => $amount, 'pct' => $pct, 'allowed' => true, 'message' => ''];
+    }
+}
+
 if (!function_exists('desk_cash_to_shift')) {
     /**
      * Feed a CASH desk payment into the acting user's OPEN cashier shift as a 'received'

@@ -29360,6 +29360,33 @@ CREATE TABLE `supplier_role_limits` (
 -- --------------------------------------------------------
 
 --
+-- Per-property payment methods a GUEST pays into at the desk (money-IN). DISTINCT from
+-- supplier_bank_accounts (money-OUT payouts) and payment_gateways (global admin gateways).
+-- kind='goglobia_gateway' -> enables a per-booking DVA (Paystack dedicated account via
+-- gia_bp_create_dva); at most one per property. kind='manual' -> owner-named method (e.g.
+-- "UBA bank transfer", "Cash", "Moniepoint POS") with guest-facing `instructions`.
+--
+CREATE TABLE `stays_payment_methods` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `org_id` int(11) DEFAULT NULL,
+  `kind` enum('goglobia_gateway','manual') NOT NULL DEFAULT 'manual',
+  `label` varchar(80) NOT NULL,
+  `instructions` varchar(1000) DEFAULT NULL,
+  `bank_account_id` int(11) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`active`,`sort_order`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Platform audit trail (inc S17; docs/supplier/01a §11). Append-only cross-domain
 -- who-did-what, complementing logs_users / logs_webhooks. Written by audit_log() /
 -- emit_event() (app/lib/supplier_events.php). emit_event() reuses triggerWebhook()
@@ -30733,6 +30760,7 @@ CREATE TABLE `stays_groups` (
   `company` varchar(191) DEFAULT NULL,
   `contact_name` varchar(120) DEFAULT NULL,
   `contact_email` varchar(191) DEFAULT NULL,
+  `customer_id` int(11) DEFAULT NULL,
   `arrival` date DEFAULT NULL,
   `departure` date DEFAULT NULL,
   `currency` char(3) NOT NULL DEFAULT 'USD',
@@ -30793,7 +30821,7 @@ CREATE TABLE `stays_group_members` (
 CREATE TABLE `stays_group_items` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `group_id` int(11) NOT NULL,
-  `type` enum('room','charge','extra','payment','refund') NOT NULL,
+  `type` enum('room','charge','extra','payment','refund','credit_note') NOT NULL,
   `description` varchar(191) DEFAULT NULL,
   `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),

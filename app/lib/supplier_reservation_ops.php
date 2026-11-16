@@ -390,7 +390,208 @@ if (!function_exists('resv_create_walkin')) {
             // diagnosable, mirroring how group_member_add_r already reports.
             return ['ok' => false, 'message' => 'Could not create the reservation: ' . $msg];
         }
+
+        // ── POST-CREATE DESK SETTLEMENT (discount + payment + optional check-in) ──
+        // Runs ONLY on a successful create, OUTSIDE the money-critical hold/insert
+        // transaction (which is left exactly as proven). Additive: when none of the new
+        // desk fields are present, the booking keeps whatever payment_status the create
+        // set from the legacy mark_paid bool, and nothing else happens. Any settlement
+        // failure is reported but NEVER un-does the (already firm) reservation.
+        if (!empty($result['ok']) && !empty($result['invoice_id'])) {
+            try {
+                $settle = resv_apply_desk_settlement($db, $stayId, (string) $result['invoice_id'], $finalTotal, $currency, $in);
+                // Merge settlement outcome into the result so the caller can surface it.
+                $result['settlement'] = $settle;
+                if (!empty($settle['notes'])) {
+                    $result['message'] = trim(($result['message'] ?? '') . ' ' . $settle['notes']);
+                }
+                if (isset($settle['balance'])) { $result['balance'] = $settle['balance']; }
+                if (!empty($settle['dva'])) { $result['dva'] = $settle['dva']; }
+            } catch (\Throwable $e) {
+                error_log('resv_apply_desk_settlement ' . ($result['invoice_id'] ?? '') . ': ' . $e->getMessage());
+            }
+        }
         return $result;
+    }
+}
+
+if (!function_exists('resv_apply_desk_settlement')) {
+    /**
+     * Apply the operator-entered DISCOUNT, PAYMENT (full/partial), and optional CHECK-IN to
+     * an already-created reservation. Runs AFTER the create transaction so the proven
+     * hold/insert path is untouched. Reuses the proven money helpers only — no parallel
+     * money path:
+     *   - discount: desk_resolve_discount (role cap) -> folio credit_note (folio_add_item)
+     *   - payment : folio payment line (folio_add_item) + cash drawer (desk_cash_to_shift)
+     *               for simple tenders; the GoGlobia-gateway method mints a DVA via
+     *               stays_desk_dva_for_booking (T2) instead of posting a line.
+     *   - check-in: NOT done here (room assignment happens in the caller AFTER this). The
+     *               caller checks in once the room is assigned; only acted on here if
+     *               $in['_room_already_assigned'] is set (preset-room/group callers).
+     *
+     * Payment is driven by the chosen property method (payment_method_id) OR a legacy
+     * tender string; wallet/company-account backings are deliberately NOT handled here
+     * (they need a linked customer + AR/wallet debit and remain on the reservation-detail
+     * folio flow). pay_type: 'full' | 'partial' (pay_amount) | 'percent' (pay_percent).
+     *
+     * @param float  $total     the booking's charged total (markup + tax) BEFORE discount
+     * @return array ['notes'=>string human summary, 'balance'=>float, 'discount'=>float,
+     *                'paid'=>float, 'payment_status'=>string, 'dva'=>?array, 'checked_in'=>bool]
+     */
+    function resv_apply_desk_settlement($db, int $stayId, string $invoiceId, float $total, string $currency, array $in): array
+    {
+        $out = ['notes' => '', 'balance' => round($total, 2), 'discount' => 0.0, 'paid' => 0.0,
+                'payment_status' => 'unpaid', 'dva' => null, 'checked_in' => false];
+        $notes = [];
+        $actor = (string) ($_SESSION['user_id'] ?? '');
+        $hid   = $stayId;
+        $orgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+
+        // Load the front-desk helpers (discount resolver, DVA, cash feed) if not present.
+        if (!function_exists('desk_resolve_discount') || !function_exists('folio_add_item')) {
+            foreach (['supplier_frontdesk.php', 'supplier_folio.php'] as $lib) {
+                $p = __DIR__ . '/' . $lib; if (is_file($p)) { require_once $p; }
+            }
+        }
+
+        // Lazily create the folio ONLY when we actually have a line to post (a discount or
+        // a payment). A plain create with no desk settlement must behave exactly as before
+        // (no folio at create-time — it's created on first check-in/folio action).
+        $fid = 0; $fidResolved = false;
+        $ensureFolio = function () use ($db, $invoiceId, &$fid, &$fidResolved) {
+            if (!$fidResolved) {
+                $fid = function_exists('folio_get_or_create') ? (int) folio_get_or_create($db, $invoiceId) : 0;
+                $fidResolved = true;
+            }
+            return $fid;
+        };
+
+        // 1) DISCOUNT — amount | percent, capped by the acting role (owner unlimited).
+        $discVal  = (float) ($in['discount_value'] ?? 0);
+        $discType = ($in['discount_type'] ?? 'amount') === 'percent' ? 'percent' : 'amount';
+        $effectiveTotal = round($total, 2);
+        if ($discVal > 0 && function_exists('desk_resolve_discount')) {
+            $dres = desk_resolve_discount($db, $total, $discVal, $discType, $hid,
+                !empty($in['discount_override']), $invoiceId);
+            if (!empty($dres['allowed']) && (float) $dres['amount'] > 0) {
+                $damt = round((float) $dres['amount'], 2);
+                // Post the discount as a folio credit_note (reduces revenue) — the SAME
+                // mechanism the reservation-detail discount uses. Idempotent ref.
+                if ($ensureFolio() > 0 && function_exists('folio_add_item')) {
+                    $st = 'fail';
+                    $ref = 'deskdisc:' . $invoiceId . ':' . number_format($damt, 2, '.', '');
+                    folio_add_item($db, $fid, 'credit_note', $damt,
+                        'Discount (' . rtrim(rtrim(number_format((float) $dres['pct'], 2), '0'), '.') . '%)',
+                        $actor, 1, $ref, $st);
+                }
+                $out['discount'] = $damt;
+                $effectiveTotal = round(max(0.0, $total - $damt), 2);
+                $notes[] = 'Discount ' . $currency . ' ' . number_format($damt, 2) . ' applied.';
+            } elseif (empty($dres['allowed'])) {
+                // Over the role cap — booking stands, discount NOT applied; tell the operator.
+                $notes[] = ($dres['message'] ?? 'Discount exceeds your limit — not applied.');
+            }
+        }
+        $out['balance'] = $effectiveTotal;
+
+        // 2) PAYMENT — resolve the chosen property method (or legacy tender).
+        $method = null;
+        $methodId = (int) ($in['payment_method_id'] ?? 0);
+        if ($methodId > 0 && function_exists('stays_payment_method_get')) {
+            $method = stays_payment_method_get($db, $methodId, $hid, true); // property-scoped, active
+        }
+        // How much to collect now: full | partial(amount) | percent(pay_percent).
+        $payType = (string) ($in['pay_type'] ?? '');
+        $payNow = 0.0;
+        if ($payType === 'partial') {
+            $payNow = round(max(0.0, (float) ($in['pay_amount'] ?? 0)), 2);
+        } elseif ($payType === 'percent') {
+            $pp = min(100.0, max(0.0, (float) ($in['pay_percent'] ?? 0)));
+            $payNow = round($effectiveTotal * $pp / 100.0, 2);
+        } elseif ($payType === 'full') {
+            $payNow = $effectiveTotal;
+        }
+        // NOTE: the legacy `mark_paid` bool is intentionally NOT handled here — when a
+        // caller sends only mark_paid (and no pay_type), the create transaction already
+        // set payment_status='paid', and we leave that exact old behaviour alone so this
+        // extension never changes an existing caller. The new desk flow (T6) always sends
+        // an explicit pay_type, so it drives the folio payment below.
+        $payNow = min($payNow, $effectiveTotal); // never collect more than owed
+
+        // GoGlobia gateway → mint a per-booking DVA for the guest to transfer into (no
+        // folio line now; the Paystack webhook settles it later). The amount owed is the
+        // post-discount balance; the DVA is created against the booking (whose price the
+        // facts helper reads). We still record the intended collect amount for display.
+        if ($method && ($method['kind'] ?? '') === 'goglobia_gateway') {
+            if (function_exists('stays_desk_dva_for_booking')) {
+                $dva = stays_desk_dva_for_booking($db, $hid, $invoiceId);
+                $out['dva'] = $dva;
+                if (!empty($dva['ok'])) {
+                    $notes[] = 'GoGlobia transfer account ready: ' . ($dva['bank_name'] ?? '') . ' ' . ($dva['account_number'] ?? '') . '.';
+                } else {
+                    $notes[] = 'Could not set up the GoGlobia transfer account' . (!empty($dva['message']) ? ' (' . $dva['message'] . ')' : '') . '.';
+                }
+            }
+            // DVA bookings stay 'unpaid' until the transfer lands (webhook → gia_bp_confirm).
+            $out['payment_status'] = 'unpaid';
+        } elseif ($payNow > 0) {
+            // Manual method / simple tender → post a real folio payment line now.
+            $tenderLabel = $method ? (string) $method['label'] : '';
+            if ($tenderLabel === '') {
+                $t = (string) ($in['tender'] ?? 'cash');
+                $tenderLabel = function_exists('desk_tender_label') ? desk_tender_label($t) : ucfirst($t);
+                $isCash = ($t === 'cash');
+            } else {
+                // A manual method named exactly "Cash" (case-insensitive) feeds the drawer.
+                $isCash = (strtolower(trim($tenderLabel)) === 'cash');
+            }
+            $posted = false;
+            if ($ensureFolio() > 0 && function_exists('folio_add_item')) {
+                $st = 'fail';
+                $ref = 'deskpay:' . $invoiceId . ':' . $fid . ':' . number_format($payNow, 2, '.', '');
+                $posted = folio_add_item($db, $fid, 'payment', $payNow, 'Payment — ' . $tenderLabel, $actor, 1, $ref, $st);
+                if ($posted && $st !== 'duplicate' && $isCash && function_exists('desk_cash_to_shift')) {
+                    desk_cash_to_shift($db, $orgId, $actor, $payNow, $invoiceId);
+                }
+            }
+            if ($posted) {
+                $out['paid'] = $payNow;
+                $out['balance'] = round(max(0.0, $effectiveTotal - $payNow), 2);
+                $fullyPaid = $out['balance'] <= 0.009;
+                // bookings.payment_status is an ENUM('paid','unpaid','refunded',
+                // 'partially_paid','awaiting_verification') — a part payment is
+                // 'partially_paid' (NOT 'partial', which the ENUM silently drops to '').
+                $out['payment_status'] = $fullyPaid ? 'paid' : 'partially_paid';
+                // Reflect the money on the booking row (the rest of the PMS reads these).
+                try {
+                    $db->update('bookings', [
+                        'payment_status'  => $out['payment_status'],
+                        'payment_gateway' => $out['payment_status'] !== 'unpaid' ? ('Front desk — ' . $tenderLabel) : null,
+                        'paid_at'         => $fullyPaid ? date('Y-m-d H:i:s') : null,
+                        'updated_at'      => date('Y-m-d H:i:s'),
+                    ], ['invoice_id' => $invoiceId]);
+                } catch (\Throwable $e) { error_log('resv settle status: ' . $e->getMessage()); }
+                $notes[] = ($fullyPaid ? 'Paid in full' : ('Part-payment ' . $currency . ' ' . number_format($payNow, 2)
+                    . ' — balance ' . $currency . ' ' . number_format($out['balance'], 2)))
+                    . ' (' . $tenderLabel . ').';
+            }
+        }
+
+        // 3) CHECK-IN is deliberately NOT done here — the physical-room ASSIGNMENT happens
+        //    in the caller (route) AFTER this returns, and a guest must be assigned a room
+        //    BEFORE being checked in. The caller performs the check-in itself once the room
+        //    is assigned (see supplierReservationsRoutes.php reserve_checkin), passing back
+        //    the result. This flag is kept only so callers that DO assign first (e.g. a
+        //    preset-room path) could opt in; the single-booking route leaves it unset and
+        //    checks in after assignment.
+        if (!empty($in['check_in']) && !empty($in['_room_already_assigned']) && function_exists('folio_checkin')) {
+            $ci = folio_checkin($db, $invoiceId);
+            $out['checked_in'] = (bool) $ci;
+            $notes[] = $ci ? 'Checked in.' : 'Could not check in automatically — do it from the booking.';
+        }
+
+        $out['notes'] = trim(implode(' ', $notes));
+        return $out;
     }
 }
 

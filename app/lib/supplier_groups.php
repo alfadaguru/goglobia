@@ -34,6 +34,7 @@ if (!function_exists('group_create')) {
                 'company'      => trim((string) ($d['company'] ?? '')) ?: null,
                 'contact_name' => trim((string) ($d['contact_name'] ?? '')) ?: null,
                 'contact_email'=> trim((string) ($d['contact_email'] ?? '')) ?: null,
+                'customer_id'  => ((int) ($d['customer_id'] ?? 0)) > 0 ? (int) $d['customer_id'] : null,
                 'arrival'      => preg_match('/^\d{4}-\d{2}-\d{2}$/', $arr) ? $arr : null,
                 'departure'    => preg_match('/^\d{4}-\d{2}-\d{2}$/', $dep) ? $dep : null,
                 'currency'     => strtoupper(substr((string) ($d['currency'] ?? 'USD'), 0, 3)),
@@ -533,7 +534,9 @@ if (!function_exists('group_folio_add')) {
     /** Add a master-folio line to an open group (room/charge/extra/payment/refund). */
     function group_folio_add($db, int $groupId, int $stayId, string $type, float $amount, string $desc = ''): bool
     {
-        $type = in_array($type, ['room', 'charge', 'extra', 'payment', 'refund'], true) ? $type : '';
+        // credit_note = a DISCOUNT on the group bill (reduces charges, mirrors the
+        // single-booking folio). group_totals subtracts it from charges.
+        $type = in_array($type, ['room', 'charge', 'extra', 'payment', 'refund', 'credit_note'], true) ? $type : '';
         $amount = round($amount, 2);
         if ($groupId <= 0 || $type === '' || $amount <= 0) { return false; }
         try {
@@ -557,8 +560,12 @@ if (!function_exists('group_totals')) {
         try {
             foreach ($db->select('stays_group_items', ['type', 'amount'], ['group_id' => $groupId]) ?: [] as $it) {
                 $amt = round((float) $it['amount'], 2);
-                if ((string) $it['type'] === 'payment') { $out['payments'] += $amt; }
-                elseif ((string) $it['type'] === 'refund') { $out['payments'] -= $amt; }
+                $t = (string) $it['type'];
+                if ($t === 'payment') { $out['payments'] += $amt; }
+                elseif ($t === 'refund') { $out['payments'] -= $amt; }
+                // credit_note is a DISCOUNT — it reduces the charges (not a payment), so the
+                // balance a guest owes drops. Mirrors supplier_folio.php's credit_note.
+                elseif ($t === 'credit_note') { $out['charges'] -= $amt; }
                 else { $out['charges'] += $amt; }
             }
             $out['charges'] = round($out['charges'], 2);

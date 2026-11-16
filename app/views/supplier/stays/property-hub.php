@@ -24,6 +24,7 @@ $tiles = [
   ['Events',        'celebration',       'supplier/events' . $q],
   ['Night audit',   'nightlight',        'supplier/night-audit' . $q],
   ['Reviews',       'reviews',           'supplier/reviews' . $q],
+  ['Payment methods','account_balance',  'supplier/stays/' . $sid . '/payment-methods'],
   ['Site & domain', 'public',            'supplier/stays/site/' . $sid],
 ];
 ?>

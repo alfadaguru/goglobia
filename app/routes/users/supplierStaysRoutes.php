@@ -1919,3 +1919,90 @@ $router->post('/supplier/stays/floors/delete', function () use ($SECURE, $db) {
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Floor deleted (room links removed).' : 'Could not delete.'];
     header('Location: ' . $back); exit;
 });
+
+// =============================================================================
+// PAYMENT METHODS (money-IN at the desk) — per-property config. Owner/manager sets the
+// GoGlobia gateway (per-booking DVA) on/off + creates manual methods (UBA transfer, Cash,
+// Moniepoint POS…). Gated like the other property-config screens: hotels:view to see,
+// hotels:edit to change. Reuses the stays_payment_method_* helpers (supplier_frontdesk.php)
+// — no parallel storage/logic.
+// =============================================================================
+$router->get('/supplier/stays/([0-9]+)/payment-methods', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'hotels', 'view', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
+    $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId, 'user_id' => $owner]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+
+    $methods = function_exists('stays_payment_methods_list') ? stays_payment_methods_list($db, $stayId, false) : [];
+    $canEdit = supplier_can($db, 'hotels', 'edit', $stayId);
+    // Is the Paystack DVA gateway actually configured on this install? If not, we still let
+    // them toggle it on, but warn that transfers won't mint until keys are set (honest).
+    $gatewayReady = false;
+    if (function_exists('paystack_dva_gateway')) {
+        $gw = paystack_dva_gateway($db);
+        $gatewayReady = $gw && function_exists('paystack_dva_secret') && paystack_dva_secret($gw) !== '';
+    }
+    $title = 'Payment methods — ' . ($stay['name'] ?? ''); $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/payment-methods.php";
+    require_once views . "includes/footer.php";
+});
+
+// POST add a method (gateway toggle-on or a manual method)
+$router->post('/supplier/stays/([0-9]+)/payment-methods/add', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id; $back = root . 'supplier/stays/' . $stayId . '/payment-methods';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $orgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+    $res = function_exists('stays_payment_method_add') ? stays_payment_method_add($db, $stayId, [
+        'kind'         => (string) ($_POST['kind'] ?? 'manual'),
+        'label'        => (string) ($_POST['label'] ?? ''),
+        'instructions' => (string) ($_POST['instructions'] ?? ''),
+        'org_id'       => $orgId,
+        'actor'        => (string) ($_SESSION['user_id'] ?? ''),
+    ]) : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not add the method.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST edit a manual method's label/instructions
+$router->post('/supplier/stays/([0-9]+)/payment-methods/update', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id; $back = root . 'supplier/stays/' . $stayId . '/payment-methods';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('stays_payment_method_update') ? stays_payment_method_update($db, (int) ($_POST['method_id'] ?? 0), $stayId, [
+        'label'        => (string) ($_POST['label'] ?? ''),
+        'instructions' => (string) ($_POST['instructions'] ?? ''),
+    ]) : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not update.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST toggle a method active/inactive
+$router->post('/supplier/stays/([0-9]+)/payment-methods/toggle', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id; $back = root . 'supplier/stays/' . $stayId . '/payment-methods';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $active = (string) ($_POST['active'] ?? '0') === '1';
+    $ok = function_exists('stays_payment_method_set_active') && stays_payment_method_set_active($db, (int) ($_POST['method_id'] ?? 0), $stayId, $active);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? ($active ? 'Method enabled.' : 'Method disabled.') : 'Could not update.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST delete a method
+$router->post('/supplier/stays/([0-9]+)/payment-methods/delete', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id; $back = root . 'supplier/stays/' . $stayId . '/payment-methods';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('stays_payment_method_delete') && stays_payment_method_delete($db, (int) ($_POST['method_id'] ?? 0), $stayId);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Method removed.' : 'Could not remove.'];
+    header('Location: ' . $back); exit;
+});

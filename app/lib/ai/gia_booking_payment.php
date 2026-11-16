@@ -578,6 +578,7 @@ if (!function_exists('gia_bp_confirm')) {
             $ok = false;
             $bmNotified = false;    // true once a settle sub-path already emailed the customer
             $issueRefunded = false; // true when a flight issue FAILED and was auto-refunded
+            $ledgerUnderpaid = false; // true when an umrah payment landed below the deposit
             // CRITICAL FOR REFUNDS: stamp the generic `bookings` row with the gateway
             // + transaction reference on EVERY confirm. refund_gateway_payment()
             // resolves the refund target from bookings.payment_gateway +
@@ -592,6 +593,7 @@ if (!function_exists('gia_bp_confirm')) {
             ];
             if ($facts['module'] === 'umrah') {
                 require_once dirname(__DIR__) . '/umrah/services.php';
+                $res = ['ok' => false];
                 if (function_exists('umrah_settle_payment')) {
                     $res = umrah_settle_payment($db, $invoiceId, $amount, $currency, $paystackRef);
                     $ok = !empty($res['ok']);
@@ -601,6 +603,46 @@ if (!function_exists('gia_bp_confirm')) {
                 if ($ok) {
                     try { $db->update('bookings', $gwStamp, ['invoice_id' => $invoiceId]); }
                     catch (\Throwable $e) { error_log('[gia_bp] confirm umrah gw-stamp: ' . $e->getMessage()); }
+
+                    // UNDER-PAYMENT (not the full deposit). umrah is EXEMPT from the
+                    // generic amount-mismatch guard (:565) because umrah_settle_payment
+                    // records a partial correctly (ledger stays balanced, booking stays
+                    // 'held'/'partially_paid', seats NOT consumed). But left there it
+                    // SAT IN LIMBO: the sweep won't cancel a part-paid hold (amount_paid>0,
+                    // :585) and nothing nudged the customer or flagged ops — so the money
+                    // was in but the seat unsecured, silently. Now: when the settle did
+                    // NOT confirm (deposit not met), flag the ledger for ops AND tell the
+                    // traveller exactly how much more is needed to secure the seat.
+                    //
+                    // Gate on status==='settled' (a REAL settlement), NOT an idempotent
+                    // re-fire of the same txn (umrah_settle_payment returns 'already' with
+                    // no re-record) — else a Paystack webhook RETRY would re-nudge the
+                    // customer every delivery. A genuine balance top-up arrives as a NEW
+                    // settlement (new ref) and is handled correctly: if it clears the
+                    // deposit, confirmed=true and this block is skipped.
+                    if (($res['status'] ?? '') === 'settled' && empty($res['confirmed'])) {
+                        $balance = (float) ($res['balance'] ?? 0);
+                        $paidSoFar = (float) ($res['amount_paid'] ?? $amount);
+                        // Flag the ledger 'underpaid' — but do it via the single final
+                        // ledger write below (set the flag here; writing it now would be
+                        // clobbered by that final 'paid' write at the end of confirm).
+                        $ledgerUnderpaid = true;
+                        error_log('[gia_bp] umrah UNDERPAID ' . $invoiceId . ' paid=' . number_format($paidSoFar, 2)
+                            . ' balance=' . number_format($balance, 2) . ' — not confirmed, flagged for ops');
+                        if (function_exists('gia_bp_notify')) {
+                            $cur = (string) ($facts['currency'] ?? 'NGN');
+                            $need = $balance > 0 ? ($cur . ' ' . number_format($balance, 2)) : 'the remaining balance';
+                            gia_bp_notify($db, $bp,
+                                "I've received your payment of " . $cur . ' ' . number_format($paidSoFar, 2) . ', but it\'s below the '
+                                . "deposit needed to secure your Umrah seat. Please send " . $need . " more and I'll confirm your "
+                                . "booking right away. Your seat is being held while we sort this out — reply here if you'd like help.");
+                        }
+                        // No need to suppress the paid-confirmation sender below: for an
+                        // under-paid umrah the generic bookings.payment_status is
+                        // 'partially_paid' (umrah_settle_payment), and gia_bp_send_
+                        // confirmation returns early unless payment_status === 'paid'
+                        // (:1030) — so it already won't send a false "confirmed" message.
+                    }
                 }
             } else {
                 // Generic bookings: mark the invoice PAID + stamp the gateway/txn.
@@ -704,12 +746,15 @@ if (!function_exists('gia_bp_confirm')) {
                 return ['ok' => false, 'message' => 'post-payment flow failed']; // retryable
             }
             // Ledger status: 'paid' normally, but 'refunded' when a flight issue
-            // failed and gia_bp_issue_ai_trip auto-refunded the payer — otherwise the
-            // sweep/reminders + state reads would wrongly treat it as a live paid
+            // failed and gia_bp_issue_ai_trip auto-refunded the payer, or 'underpaid'
+            // when an umrah payment landed below the deposit (booking stays held, seat
+            // unsecured — flagged for ops + the customer was nudged above). Otherwise
+            // the sweep/reminders + state reads would wrongly treat it as a live paid
             // booking. The payment reference/sender/paid_at are still recorded (the
-            // charge DID happen; it was then reversed).
+            // charge DID happen).
+            $ledgerStatus = !empty($ledgerUnderpaid) ? 'underpaid' : ($issueRefunded ? 'refunded' : 'paid');
             $db->update('gia_booking_payments', [
-                'status' => $issueRefunded ? 'refunded' : 'paid',
+                'status' => $ledgerStatus,
                 'paystack_reference' => $paystackRef,
                 'sender_account' => $senderAcct, 'sender_bank' => $senderBank,
                 'paid_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
@@ -727,7 +772,10 @@ if (!function_exists('gia_bp_confirm')) {
                 gia_bp_send_confirmation($db, $invoiceId, $bp, true);
             }
 
-            return ['ok' => true, 'status' => 'paid', 'module' => $facts['module']];
+            // ok:true even when underpaid — the payment genuinely settled (money in,
+            // recorded); we must NOT make Paystack retry. Only the ledger state + the
+            // customer nudge differ. Report the real ledger state for diagnostics.
+            return ['ok' => true, 'status' => $ledgerStatus, 'module' => $facts['module']];
         } catch (\Throwable $e) {
             error_log('[gia_bp] confirm ' . $invoiceId . ': ' . $e->getMessage());
             $releaseClaim(); // exception mid-settle: restore status so the webhook retry re-drives it

@@ -14,6 +14,8 @@ $rooms     = (isset($rooms) && is_array($rooms)) ? $rooms : [];
 $roomTypes = (isset($roomTypes) && is_array($roomTypes)) ? $roomTypes : [];
 $canEdit   = !empty($canEdit);
 $canSetRate = !empty($canSetRate); // permission to set a negotiated group rate (#2d)
+$payMethods = (isset($paymentMethods) && is_array($paymentMethods)) ? $paymentMethods : [];
+$showDiscount = !empty($canDiscount);
 $sid = (int) ($stay['id'] ?? 0);
 $cur = htmlspecialchars((string) ($stay['currency'] ?? 'USD'));
 $base = root . 'supplier/groups';
@@ -32,7 +34,7 @@ foreach ($rooms as $r) {
     }
 }
 ?>
-<div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+<div class="max-w-7xl mx-auto px-4 py-8 space-y-6">
   <?php if (!empty($_SESSION['message'])): ?>
     <?php $__m = $_SESSION['message']; $__t = is_array($__m) ? ($__m['type'] ?? 'info') : 'info'; $__x = is_array($__m) ? ($__m['text'] ?? '') : (string) $__m; ?>
     <div class="<?= $__t === 'error' ? 'alert-error' : 'alert-success' ?>">
@@ -70,15 +72,51 @@ foreach ($rooms as $r) {
   <?php if ($canEdit): ?>
   <div class="card p-5">
     <h2 class="text-sm font-semibold text-gray-900 mb-3">New group</h2>
-    <form action="<?= $base ?>/create" method="POST" class="flex flex-wrap items-end gap-2">
+    <form action="<?= $base ?>/create" method="POST" class="space-y-3" id="groupCreateForm">
       <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>">
-      <input type="text" name="name" class="input text-sm" placeholder="Group name *" required>
-      <input type="text" name="company" class="input text-sm" placeholder="Company / organiser">
-      <input type="email" name="contact_email" class="input text-sm" placeholder="Contact email">
-      <div><label class="block text-xs text-gray-600 mb-1">Arrival</label><input type="date" name="arrival" class="input text-sm"></div>
-      <div><label class="block text-xs text-gray-600 mb-1">Departure</label><input type="date" name="departure" class="input text-sm"></div>
-      <button type="submit" class="btn secondary text-sm">Create group</button>
+
+      <!-- Customer (payer / account): search an existing one or create on the spot. The
+           chosen id is written onto the group (customer_id). Reuses the SAME endpoints as
+           the single-booking desk (/supplier/customers/search + quick-create). -->
+      <div class="form-control">
+        <label class="block text-xs font-medium text-gray-700 mb-1">Customer (payer / account) <span class="text-gray-400">(optional)</span></label>
+        <input type="hidden" name="customer_id" id="gcCustomerId" value="">
+        <div id="gcCustPicked" class="hidden items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 mb-2">
+          <span class="flex items-center gap-2 text-sm text-emerald-900"><span class="material-symbols-outlined text-base">account_circle</span><span id="gcCustPickedLabel" class="font-medium"></span><span id="gcCustPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span></span>
+          <button type="button" id="gcCustClear" class="text-emerald-700 hover:text-emerald-900" title="Clear"><span class="material-symbols-outlined text-base">close</span></button>
+        </div>
+        <div class="relative" id="gcCustSearchWrap">
+          <div class="flex gap-2">
+            <input type="text" id="gcCustSearch" autocomplete="off" class="input text-sm" placeholder="Search a customer by name, email or phone…">
+            <button type="button" id="gcCustCreateOpen" class="btn secondary text-sm whitespace-nowrap"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">add</span> Create</span></button>
+          </div>
+          <div id="gcCustResults" class="hidden absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-end gap-2">
+        <input type="text" name="name" class="input text-sm" placeholder="Group name *" required>
+        <input type="text" name="company" class="input text-sm" placeholder="Company / organiser">
+        <input type="email" name="contact_email" class="input text-sm" placeholder="Contact email">
+        <div><label class="block text-xs text-gray-600 mb-1">Arrival</label><input type="date" name="arrival" class="input text-sm"></div>
+        <div><label class="block text-xs text-gray-600 mb-1">Departure</label><input type="date" name="departure" class="input text-sm"></div>
+        <button type="submit" class="btn secondary text-sm">Create group</button>
+      </div>
     </form>
+  </div>
+
+  <!-- customer create modal (shared by the New-group form) -->
+  <div id="gcCustCreateModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div class="w-full max-w-md rounded-lg bg-white shadow-xl">
+      <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3"><h2 class="text-lg font-semibold text-gray-900">New customer</h2><button type="button" id="gcCustCreateClose" class="text-gray-400 hover:text-gray-700"><span class="material-symbols-outlined">close</span></button></div>
+      <div class="px-5 py-4 space-y-3">
+        <div id="gcCustCreateErr" class="hidden alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm"></p></div>
+        <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Type</label><select id="gcNcType" class="input"><option value="individual">Individual</option><option value="company">Company</option><option value="ngo">NGO / Non-profit</option><option value="agent">Travel agent</option></select></div>
+        <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Name *</label><input type="text" id="gcNcName" class="input" placeholder="Full name or company name"></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3"><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label><input type="tel" id="gcNcPhone" inputmode="tel" class="input"></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" id="gcNcEmail" class="input"></div></div>
+      </div>
+      <div class="flex items-center justify-end gap-3 border-t border-gray-100 px-5 py-3"><button type="button" id="gcCustCreateCancel" class="btn secondary">Cancel</button><button type="button" id="gcCustCreateSave" class="btn emerald">Create &amp; use</button></div>
+    </div>
   </div>
   <?php endif; ?>
 
@@ -217,14 +255,51 @@ foreach ($rooms as $r) {
           </div>
           <?php endif; ?>
           <?php endif; ?>
-          <!-- Master folio -->
+          <!-- Master folio: charges / extras / refunds (the plain line form) -->
           <form action="<?= $base ?>/folio" method="POST" class="space-y-1.5">
             <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
-            <div class="text-xs font-semibold text-gray-600">Master folio</div>
-            <select name="ltype" class="input text-xs w-full"><option value="room">Room charge</option><option value="charge">Charge</option><option value="extra">Extra</option><option value="payment">Payment</option><option value="refund">Refund</option></select>
+            <div class="text-xs font-semibold text-gray-600">Master folio — add a charge</div>
+            <select name="ltype" class="input text-xs w-full"><option value="room">Room charge</option><option value="charge">Charge</option><option value="extra">Extra</option><option value="refund">Refund</option></select>
             <div class="flex gap-1.5"><input type="text" name="description" class="input text-xs" placeholder="Description"><input type="number" name="amount" step="0.01" min="0" class="input text-xs w-24" placeholder="amount" required></div>
             <button type="submit" class="btn secondary text-xs">Add line</button>
           </form>
+
+          <!-- TAKE A PAYMENT via a configured property method (manual tender or GoGlobia
+               gateway/DVA). Reuses /supplier/groups/payment (T8) → group_folio_add payment
+               (+ the DVA path for the gateway). Posts against the group master folio. -->
+          <form action="<?= $base ?>/payment" method="POST" class="space-y-1.5 border-t border-gray-100 pt-2">
+            <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
+            <div class="text-xs font-semibold text-gray-600">Take a payment</div>
+            <?php // The MASTER folio takes MANUAL methods only (cash/transfer/POS). The GoGlobia
+                  // gateway/DVA is per-GUEST-booking (a group master has no single bookings
+                  // invoice to settle), so it's collected on each rooming-list member booking. ?>
+            <?php $manualMethods = array_values(array_filter($payMethods, static fn($m) => ($m['kind'] ?? '') !== 'goglobia_gateway')); ?>
+            <select name="payment_method_id" class="input text-xs w-full">
+              <?php foreach ($manualMethods as $pm): ?>
+                <option value="<?= (int) $pm['id'] ?>"><?= htmlspecialchars((string) $pm['label']) ?></option>
+              <?php endforeach; ?>
+              <?php if (empty($manualMethods)): ?><option value="">No manual methods configured</option><?php endif; ?>
+            </select>
+            <div class="flex gap-1.5"><input type="number" name="amount" step="0.01" min="0" class="input text-xs" placeholder="amount to collect"></div>
+            <button type="submit" class="btn secondary text-xs"<?= empty($manualMethods) ? ' disabled' : '' ?>>Record payment</button>
+            <p class="text-[11px] text-gray-400">Bank transfer / DVA is taken on each guest’s booking, not the master folio.</p>
+            <?php if (empty($manualMethods)): ?><p class="text-[11px] text-amber-600">No manual methods — <a href="<?= root ?>supplier/stays/<?= $sid ?>/payment-methods" class="underline">add cash / transfer</a>.</p><?php endif; ?>
+          </form>
+
+          <?php if ($showDiscount): ?>
+          <!-- GROUP DISCOUNT: amount|percent off the master charges, re-capped per role by
+               desk_resolve_discount → posted as a folio credit_note (reduces charges). -->
+          <form action="<?= $base ?>/discount" method="POST" class="space-y-1.5 border-t border-gray-100 pt-2">
+            <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
+            <div class="text-xs font-semibold text-gray-600">Discount</div>
+            <div class="flex gap-1.5">
+              <input type="number" name="discount_value" step="0.01" min="0" class="input text-xs" placeholder="0">
+              <select name="discount_type" class="input text-xs w-24"><option value="amount">Amount</option><option value="percent">%</option></select>
+            </div>
+            <button type="submit" class="btn secondary text-xs">Apply discount</button>
+            <p class="text-[11px] text-gray-400">Capped by your role; over-limit is not applied.</p>
+          </form>
+          <?php endif; ?>
         </div>
       <?php endif; ?>
 
@@ -331,6 +406,73 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
       }, 220);
     });
     document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) hide(); });
+  });
+})();
+
+// CUSTOMER search + pick + inline create on the New-group form. Reuses the SAME
+// /supplier/customers/search + /supplier/customers/quick-create endpoints as the single
+// desk — no new search/create backend.
+(function () {
+  var ROOT = <?= json_encode((string) root) ?>;
+  var CSRFEL = document.querySelector('#groupCreateForm input[name="csrf_token"]');
+  var CSRF_VAL = CSRFEL ? CSRFEL.value : (document.querySelector('input[name="csrf_token"]') ? document.querySelector('input[name="csrf_token"]').value : '');
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  var search = $('gcCustSearch'); if (!search) { return; }
+  var results = $('gcCustResults'), hidden = $('gcCustomerId'), picked = $('gcCustPicked'),
+      pickedLabel = $('gcCustPickedLabel'), pickedType = $('gcCustPickedType'), clearBtn = $('gcCustClear'),
+      wrap = $('gcCustSearchWrap');
+  function selectCustomer(c) {
+    hidden.value = c.id; pickedLabel.textContent = c.name; pickedType.textContent = c.type || '';
+    picked.classList.remove('hidden'); picked.classList.add('flex'); wrap.classList.add('hidden'); results.classList.add('hidden');
+    // prefill company/contact_email on the group form if blank
+    var comp = document.querySelector('#groupCreateForm input[name="company"]');
+    var mail = document.querySelector('#groupCreateForm input[name="contact_email"]');
+    if (comp && !comp.value && (c.type === 'company' || c.type === 'ngo' || c.type === 'agent')) { comp.value = c.name; }
+    if (mail && !mail.value && c.email) { mail.value = c.email; }
+  }
+  function clearCustomer() { hidden.value = ''; picked.classList.add('hidden'); picked.classList.remove('flex'); wrap.classList.remove('hidden'); search.value = ''; results.innerHTML = ''; results.classList.add('hidden'); }
+  clearBtn && clearBtn.addEventListener('click', clearCustomer);
+  var t = null;
+  search.addEventListener('input', function () {
+    var q = search.value.trim(); if (t) clearTimeout(t);
+    if (q.length < 2) { results.classList.add('hidden'); results.innerHTML = ''; return; }
+    t = setTimeout(function () {
+      fetch(ROOT + 'supplier/customers/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          results.innerHTML = ''; var rows = (d && d.results) || [];
+          if (!rows.length) { results.innerHTML = '<div class="px-3 py-2 text-sm text-gray-400">No match. Use “Create”.</div>'; results.classList.remove('hidden'); return; }
+          rows.forEach(function (c) {
+            var el = document.createElement('button'); el.type = 'button'; el.className = 'block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0';
+            el.innerHTML = '<div class="text-sm font-medium text-gray-900">' + esc(c.name) + ' <span class="text-xs uppercase tracking-wide text-gray-400">' + esc(c.type) + '</span></div><div class="text-xs text-gray-500">' + esc([c.email, c.phone].filter(Boolean).join(' · ')) + '</div>';
+            el.addEventListener('click', function () { selectCustomer(c); }); results.appendChild(el);
+          });
+          results.classList.remove('hidden');
+        }).catch(function () { results.classList.add('hidden'); });
+    }, 220);
+  });
+  document.addEventListener('click', function (e) { if (wrap && !wrap.contains(e.target)) { results.classList.add('hidden'); } });
+
+  // inline create
+  var modal = $('gcCustCreateModal'), openBtn = $('gcCustCreateOpen'), closeBtn = $('gcCustCreateClose'),
+      cancelBtn = $('gcCustCreateCancel'), saveBtn = $('gcCustCreateSave'), errBox = $('gcCustCreateErr');
+  function openModal() { $('gcNcName').value = search.value.trim(); $('gcNcEmail').value = ''; $('gcNcPhone').value = ''; errBox.classList.add('hidden'); modal.classList.remove('hidden'); }
+  function closeModal() { modal.classList.add('hidden'); }
+  openBtn && openBtn.addEventListener('click', openModal);
+  closeBtn && closeBtn.addEventListener('click', closeModal);
+  cancelBtn && cancelBtn.addEventListener('click', closeModal);
+  modal && modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+  saveBtn && saveBtn.addEventListener('click', function () {
+    var name = $('gcNcName').value.trim(), ph = $('gcNcPhone').value.trim();
+    if (!name) { errBox.querySelector('p').textContent = 'A name is required.'; errBox.classList.remove('hidden'); return; }
+    if ((ph.replace(/\D+/g, '')).length < 7) { errBox.querySelector('p').textContent = 'A valid phone number is required (at least 7 digits).'; errBox.classList.remove('hidden'); return; }
+    saveBtn.disabled = true;
+    var fd = new FormData(); fd.append('type', $('gcNcType').value); fd.append('display_name', name); fd.append('email', $('gcNcEmail').value.trim()); fd.append('phone', ph); fd.append('csrf_token', CSRF_VAL);
+    fetch(ROOT + 'supplier/customers/quick-create', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF_VAL } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { saveBtn.disabled = false; if (d && d.ok && d.contact) { closeModal(); selectCustomer(d.contact); } else { errBox.querySelector('p').textContent = (d && d.message) || 'Could not create.'; errBox.classList.remove('hidden'); } })
+      .catch(function () { saveBtn.disabled = false; errBox.querySelector('p').textContent = 'Network error.'; errBox.classList.remove('hidden'); });
   });
 })();
 </script>

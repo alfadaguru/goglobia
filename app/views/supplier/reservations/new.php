@@ -4,21 +4,21 @@
   $picker = (isset($roomPicker) && is_array($roomPicker)) ? $roomPicker : [];
   $srcList = (isset($sources) && is_array($sources)) ? $sources : [];
   $cur = htmlspecialchars((string) ($stay['currency'] ?? 'USD'));
+  $payMethods = (isset($paymentMethods) && is_array($paymentMethods)) ? $paymentMethods : [];
+  $showDiscount = !empty($canDiscount);
   $presetRoom = (isset($presetRoom) && is_array($presetRoom)) ? $presetRoom : null; // clicked from the room board
   // Auto-pick the bookable room-type the clicked physical room maps to (room_id), but ONLY
-  // if that type is actually sellable (present in the picker, i.e. has a priced rate). The
-  // dependent-rate JS then auto-fills the first rate for that type on load.
+  // if that type is actually sellable (present in the picker, i.e. has a priced rate).
   $presetRoomTypeId = 0;
   if ($presetRoom && (int) ($presetRoom['room_id'] ?? 0) > 0) {
       $wantRt = (int) $presetRoom['room_id'];
       foreach ($picker as $__p) { if ((int) $__p['room_id'] === $wantRt) { $presetRoomTypeId = $wantRt; break; } }
   }
-  // Walk-in defaults: check-in today, check-out tomorrow (the overwhelming common case),
-  // so the clerk doesn't open two date pickers on every booking. They remain editable.
+  // Walk-in defaults: check-in today, check-out tomorrow.
   $defCheckin  = date('Y-m-d');
   $defCheckout = date('Y-m-d', strtotime('+1 day'));
 ?>
-<div class="max-w-2xl mx-auto px-4 py-8 space-y-6">
+<div class="max-w-7xl mx-auto px-4 py-8 space-y-6">
 
   <?php if (!empty($_SESSION['message'])): ?>
     <?php $__m = $_SESSION['message']; $__t = is_array($__m) ? ($__m['type'] ?? 'info') : 'info'; $__x = is_array($__m) ? ($__m['text'] ?? '') : (string) $__m; ?>
@@ -30,10 +30,20 @@
   <?php endif; ?>
 
   <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-gray-900">New reservation</h1>
-    <a href="<?= root ?>supplier/reservations" class="text-sm text-blue-600 hover:underline">&larr; Reservations</a>
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">New reservation</h1>
+      <p class="text-sm text-gray-600"><?= htmlspecialchars((string) ($stay['name'] ?? '')) ?> — walk-in, phone or manual booking. Priced from your room rates; a room is held immediately.</p>
+    </div>
+    <a href="<?= root ?>supplier/reservations" class="text-sm text-blue-600 hover:underline whitespace-nowrap">&larr; Reservations</a>
   </div>
-  <p class="text-sm text-gray-600"><?= htmlspecialchars((string) ($stay['name'] ?? '')) ?> — take a walk-in, phone, or manual booking. The price is calculated from your room rates; a room is held immediately.</p>
+
+  <!-- single ⇄ group tabs -->
+  <div class="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50" role="tablist" aria-label="Booking type">
+    <button type="button" id="tabSingle" role="tab" aria-selected="true"
+            class="px-4 py-1.5 text-sm font-medium rounded-md bg-white shadow-sm text-gray-900">Single booking</button>
+    <a href="<?= root ?>supplier/groups?stay_id=<?= $sid ?>" id="tabGroup" role="tab"
+       class="px-4 py-1.5 text-sm font-medium rounded-md text-gray-500 hover:text-gray-800">Group booking</a>
+  </div>
 
   <?php if ($presetRoom): ?>
     <div class="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
@@ -47,180 +57,236 @@
     <div class="alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm">This property has no bookable rooms/rates yet. Add rooms &amp; rates first.</p></div>
   <?php else: ?>
 
-  <!-- C3: single ⇄ group toggle. One room is a single booking (this form); many rooms /
-       a room block + rooming list is a GROUP booking (the existing group flow). The Group
-       tab navigates to the group desk — it carries stay_id and (via JS below) warns before
-       discarding anything typed here, so the switch never loses work silently. -->
-  <div class="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50" role="tablist" aria-label="Booking type">
-    <button type="button" id="tabSingle" role="tab" aria-selected="true"
-            class="px-4 py-1.5 text-sm font-medium rounded-md bg-white shadow-sm text-gray-900">
-      Single booking
-    </button>
-    <a href="<?= root ?>supplier/groups?stay_id=<?= $sid ?>" id="tabGroup" role="tab"
-       class="px-4 py-1.5 text-sm font-medium rounded-md text-gray-500 hover:text-gray-800">
-      Group booking
-    </a>
-  </div>
-  <p id="groupHint" class="text-sm text-gray-500">A <strong>group</strong> holds a block of rooms against one account with a rooming list and a master folio. Switching to <strong>Group booking</strong> takes you to the group desk.</p>
-
-  <form id="walkinForm" action="<?= root ?>supplier/stays/<?= $sid ?>/reservations/new" method="POST" class="card p-6 space-y-5">
+  <form id="walkinForm" action="<?= root ?>supplier/stays/<?= $sid ?>/reservations/new" method="POST">
     <?= CSRF::tokenField() ?>
-    <?php // Per-render double-submit nonce: fresh every page load, consumed once server-side,
-          // so a double-click/retry can't create a second booking. ?>
     <input type="hidden" name="walkin_nonce" value="<?= bin2hex(random_bytes(16)) ?>">
     <?php if ($presetRoom): ?><input type="hidden" name="physical_room_id" value="<?= (int) $presetRoom['id'] ?>"><?php endif; ?>
+    <!-- which button was pressed: reserve | reserve_checkin -->
+    <input type="hidden" name="submit_action" id="submitAction" value="reserve">
 
-    <!-- C3: WHO IS THE CUSTOMER. Search an existing payer or create one on the spot.
-         The chosen id is written onto the booking (customer_id), connecting the
-         reservation to the Customer Book. Left blank, the guest below is auto-created
-         as an individual customer by the engine. -->
-    <div class="form-control">
-      <label class="block text-sm font-medium text-gray-700 mb-1">Customer (payer / account)</label>
-      <input type="hidden" name="customer_id" id="customerId" value="">
-      <div id="custPicked" class="hidden items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 mb-2">
-        <span class="flex items-center gap-2 text-sm text-emerald-900">
-          <span class="material-symbols-outlined text-base">account_circle</span>
-          <span id="custPickedLabel" class="font-medium"></span>
-          <span id="custPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span>
-        </span>
-        <button type="button" id="custClear" class="text-emerald-700 hover:text-emerald-900" title="Clear">
-          <span class="material-symbols-outlined text-base">close</span>
-        </button>
-      </div>
-      <div class="relative" id="custSearchWrap">
-        <div class="flex gap-2">
-          <input type="text" id="custSearch" autocomplete="off" class="input"
-                 placeholder="Search by name, email or phone…">
-          <button type="button" id="custCreateOpen" class="btn secondary whitespace-nowrap">
-            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">add</span> Create new</span>
-          </button>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- LEFT: the booking form (2/3 width) -->
+      <div class="lg:col-span-2 space-y-5">
+
+        <!-- WHO: customer (payer) -->
+        <div class="card p-5 space-y-4">
+          <h2 class="text-sm font-semibold text-gray-900">Customer &amp; guest</h2>
+
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Customer (payer / account)</label>
+            <input type="hidden" name="customer_id" id="customerId" value="">
+            <div id="custPicked" class="hidden items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 mb-2">
+              <span class="flex items-center gap-2 text-sm text-emerald-900">
+                <span class="material-symbols-outlined text-base">account_circle</span>
+                <span id="custPickedLabel" class="font-medium"></span>
+                <span id="custPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span>
+              </span>
+              <button type="button" id="custClear" class="text-emerald-700 hover:text-emerald-900" title="Clear"><span class="material-symbols-outlined text-base">close</span></button>
+            </div>
+            <div class="relative" id="custSearchWrap">
+              <div class="flex gap-2">
+                <input type="text" id="custSearch" autocomplete="off" class="input" placeholder="Search a customer by name, email or phone…">
+                <button type="button" id="custCreateOpen" class="btn secondary whitespace-nowrap"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">add</span> Create</span></button>
+              </div>
+              <div id="custResults" class="hidden absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Optional. Leave blank to use the guest below as the customer.</p>
+          </div>
+
+          <!-- GUEST (the stayer): search-or-create -->
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Guest (the stayer)</label>
+            <div class="relative" id="guestSearchWrap">
+              <div class="flex gap-2">
+                <input type="text" id="guestSearch" autocomplete="off" class="input" placeholder="Search an existing guest by name or phone…">
+                <button type="button" id="guestNewBtn" class="btn secondary whitespace-nowrap"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">person_add</span> New</span></button>
+              </div>
+              <div id="guestResults" class="hidden absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
+            </div>
+            <input type="hidden" name="guest_id" id="guestId" value="">
+            <p class="text-xs text-gray-400 mt-1">Pick a returning guest to prefill their details, or just fill the fields below to add a new one.</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Guest first name *</label>
+              <input type="text" name="first_name" id="gFirst" required class="input">
+            </div>
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Guest last name</label>
+              <input type="text" name="last_name" id="gLast" class="input">
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Email <span class="text-gray-400">(optional)</span></label>
+              <input type="email" name="email" id="gEmail" class="input">
+            </div>
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+              <input type="tel" name="phone" id="gPhone" required inputmode="tel" class="input" placeholder="e.g. +234 801 234 5678">
+              <p class="text-xs text-gray-400 mt-1">Required — the guest is stored and searchable by name &amp; phone.</p>
+            </div>
+          </div>
         </div>
-        <div id="custResults" class="hidden absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
-      </div>
-      <p class="text-xs text-gray-400 mt-1">Optional. Leave blank to use the guest below as the customer.</p>
-    </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Room *</label>
-        <select name="room_id" id="roomSelect" required class="input">
-          <option value="">Select a room…</option>
-          <?php foreach ($picker as $p): ?>
-            <?php
-              // Show the room's OWN name (+ its type as context); append a short bed/view
-              // hint so two same-named rooms are still distinguishable in the list.
-              $__opt = (string) $p['room_name'];
-              if (!empty($p['room_hint'])) { $__opt .= ' — ' . $p['room_hint']; }
-            ?>
-            <option value="<?= (int) $p['room_id'] ?>" <?= ($presetRoomTypeId > 0 && (int) $p['room_id'] === $presetRoomTypeId) ? 'selected' : '' ?>><?= htmlspecialchars($__opt) ?></option>
-          <?php endforeach; ?>
-        </select>
-        <p class="text-xs text-gray-400 mt-1">Each room is its own listing with its own rate — pick the exact room, not just the category.</p>
-      </div>
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Rate *</label>
-        <select name="option_id" id="optionSelect" required class="input">
-          <option value="">Select a room first…</option>
-        </select>
-      </div>
-    </div>
+        <!-- ROOM, RATE, DATES -->
+        <div class="card p-5 space-y-4">
+          <h2 class="text-sm font-semibold text-gray-900">Room &amp; dates</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Room *</label>
+              <select name="room_id" id="roomSelect" required class="input">
+                <option value="">Select a room…</option>
+                <?php foreach ($picker as $p): ?>
+                  <?php $__opt = (string) $p['room_name']; if (!empty($p['room_hint'])) { $__opt .= ' — ' . $p['room_hint']; } ?>
+                  <option value="<?= (int) $p['room_id'] ?>" <?= ($presetRoomTypeId > 0 && (int) $p['room_id'] === $presetRoomTypeId) ? 'selected' : '' ?>><?= htmlspecialchars($__opt) ?></option>
+                <?php endforeach; ?>
+              </select>
+              <p class="text-xs text-gray-400 mt-1">Each room is its own listing with its own rate.</p>
+            </div>
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Rate *</label>
+              <select name="option_id" id="optionSelect" required class="input"><option value="">Select a room first…</option></select>
+            </div>
+          </div>
 
-    <?php // Assign an actual ROOM NUMBER right here in the walk-in form — REQUIRED (owner
-          // rule): every walk-in must be assigned a physical room so it appears on the
-          // front-desk room board and can never become an invisible, unassigned booking.
-          // Lists the available physical rooms of the chosen type. Hidden ONLY when the
-          // room came pre-selected from the board (physical_room_id already set above). ?>
-    <?php if (!$presetRoom): ?>
-    <div class="form-control">
-      <label class="block text-sm font-medium text-gray-700 mb-1">Assign room number <span class="text-rose-500">*</span></label>
-      <select name="physical_room_id" id="physRoomSelect" required class="input">
-        <option value="">Pick a room type first…</option>
-      </select>
-      <p class="text-xs text-gray-400 mt-1">Required — pick the physical room this guest will occupy so it shows on the front-desk board.</p>
-      <p id="physRoomEmpty" class="text-xs text-rose-600 mt-1 hidden">
-        No bookable room of this type exists yet.
-        <a href="<?= root ?>supplier/stays/<?= (int) $sid ?>/rooms" class="underline font-medium">Add rooms &amp; numbers first →</a>
-      </p>
-    </div>
-    <?php endif; ?>
+          <?php if (!$presetRoom): ?>
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Assign room number <span class="text-rose-500">*</span></label>
+            <select name="physical_room_id" id="physRoomSelect" required class="input"><option value="">Pick a room type first…</option></select>
+            <p class="text-xs text-gray-400 mt-1">Required — the physical room this guest will occupy (shows on the front-desk board).</p>
+            <p id="physRoomEmpty" class="text-xs text-rose-600 mt-1 hidden">No bookable room of this type exists yet. <a href="<?= root ?>supplier/stays/<?= (int) $sid ?>/rooms" class="underline font-medium">Add rooms &amp; numbers first →</a></p>
+          </div>
+          <?php endif; ?>
 
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Check-in *</label>
-        <input type="date" name="checkin" value="<?= $defCheckin ?>" required class="input">
-      </div>
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Check-out *</label>
-        <input type="date" name="checkout" value="<?= $defCheckout ?>" required class="input">
-      </div>
-      <?php // A single booking is ONE room (owner rule): no Rooms/quantity field here — the
-            // physical room is picked above, and the server books exactly one. Multiple rooms
-            // are a GROUP booking (the "Group booking" tab / /supplier/groups). ?>
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Source</label>
-        <select name="source" class="input">
-          <?php foreach ($srcList as $val => $label): ?>
-            <option value="<?= htmlspecialchars((string) $val) ?>" <?= $val === 'walk_in' ? 'selected' : '' ?>><?= htmlspecialchars((string) $label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-    </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Check-in *</label>
+              <input type="date" name="checkin" id="checkinInput" value="<?= $defCheckin ?>" required class="input">
+            </div>
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Check-out *</label>
+              <input type="date" name="checkout" id="checkoutInput" value="<?= $defCheckout ?>" required class="input">
+            </div>
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Adults</label>
+              <input type="number" name="adults" min="1" value="1" class="input">
+            </div>
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Children</label>
+              <input type="number" name="children" min="0" value="0" class="input">
+            </div>
+          </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Guest first name *</label>
-        <input type="text" name="first_name" id="gFirst" required class="input">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Source</label>
+              <select name="source" class="input">
+                <?php foreach ($srcList as $val => $label): ?>
+                  <option value="<?= htmlspecialchars((string) $val) ?>" <?= $val === 'walk_in' ? 'selected' : '' ?>><?= htmlspecialchars((string) $label) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+              <input type="text" name="notes" class="input" placeholder="Optional front-desk notes">
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Guest last name</label>
-        <input type="text" name="last_name" id="gLast" class="input">
-      </div>
-    </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Email <span class="text-gray-400">(optional)</span></label>
-        <input type="email" name="email" id="gEmail" class="input">
-      </div>
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
-        <input type="tel" name="phone" id="gPhone" required inputmode="tel" class="input" placeholder="e.g. +234 801 234 5678">
-        <p class="text-xs text-gray-400 mt-1">Required — the guest is stored and searchable by name &amp; phone.</p>
-      </div>
-    </div>
+      <!-- RIGHT: live summary + discount + payment (1/3 width, sticky) -->
+      <div class="space-y-5 lg:sticky lg:top-6 self-start">
+        <div class="card p-5 space-y-4">
+          <h2 class="text-sm font-semibold text-gray-900">Price &amp; payment</h2>
 
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Adults</label>
-        <input type="number" name="adults" min="1" value="1" class="input">
-      </div>
-      <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Children</label>
-        <input type="number" name="children" min="0" value="0" class="input">
-      </div>
-      <div class="form-control flex items-end md:col-span-2">
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox" name="mark_paid" value="1" class="checkbox-input">
-          Mark as paid (payment taken at the desk)
-        </label>
-      </div>
-    </div>
+          <!-- live price -->
+          <div class="rounded-lg bg-gray-50 border border-gray-200 p-3 space-y-1 text-sm">
+            <div class="flex justify-between text-gray-600"><span id="sumNights">— nights × —</span><span id="sumRoom" class="tabular-nums"><?= $cur ?> 0.00</span></div>
+            <div class="flex justify-between text-gray-500 text-xs"><span>Taxes &amp; markup are added by your pricing rules</span></div>
+            <div id="sumDiscountRow" class="flex justify-between text-emerald-700 hidden"><span>Discount</span><span id="sumDiscount" class="tabular-nums">− <?= $cur ?> 0.00</span></div>
+            <div class="flex justify-between font-semibold text-gray-900 border-t border-gray-200 pt-1 mt-1"><span>Estimated total</span><span id="sumTotal" class="tabular-nums"><?= $cur ?> 0.00</span></div>
+            <p class="text-[11px] text-gray-400">Estimate from the room rate. The server prices the booking authoritatively on save.</p>
+          </div>
 
-    <div class="form-control">
-      <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-      <textarea name="notes" rows="2" class="input" placeholder="Optional front-desk notes"></textarea>
-    </div>
+          <?php if ($showDiscount): ?>
+          <!-- DISCOUNT (role-capped; server re-checks) -->
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Discount <span class="text-gray-400">(optional)</span></label>
+            <div class="flex gap-2">
+              <input type="number" name="discount_value" id="discountValue" min="0" step="0.01" class="input" placeholder="0">
+              <select name="discount_type" id="discountType" class="input w-28">
+                <option value="amount">Amount</option>
+                <option value="percent">%</option>
+              </select>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Capped by your role. If it’s over your limit the booking is still made without it.</p>
+          </div>
+          <?php endif; ?>
 
-    <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-      <a href="<?= root ?>supplier/reservations" class="btn secondary">Cancel</a>
-      <button type="submit" id="walkinSubmit" class="btn emerald">
-        <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">add</span> Create reservation</span>
-      </button>
+          <!-- PAYMENT -->
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Payment method</label>
+            <select name="payment_method_id" id="payMethod" class="input">
+              <option value="" data-kind="none">No payment now (pay later / at property)</option>
+              <?php foreach ($payMethods as $pm): ?>
+                <option value="<?= (int) $pm['id'] ?>" data-kind="<?= htmlspecialchars((string) $pm['kind']) ?>"><?= htmlspecialchars((string) $pm['label']) ?><?= ($pm['kind'] === 'goglobia_gateway') ? ' (bank transfer / DVA)' : '' ?></option>
+              <?php endforeach; ?>
+            </select>
+            <?php if (empty($payMethods)): ?>
+              <p class="text-xs text-amber-600 mt-1">No payment methods set up. <a href="<?= root ?>supplier/stays/<?= $sid ?>/payment-methods" class="underline">Add cash / transfer / gateway →</a></p>
+            <?php endif; ?>
+          </div>
+
+          <!-- how much (hidden for the gateway/DVA method: that collects by transfer) -->
+          <div id="payAmountBlock" class="space-y-2">
+            <div class="form-control">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Collect</label>
+              <div class="flex gap-2">
+                <select name="pay_type" id="payType" class="input">
+                  <option value="">Nothing now</option>
+                  <option value="full">Full amount</option>
+                  <option value="percent">Percentage</option>
+                  <option value="partial">Custom amount</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-control hidden" id="payPercentWrap">
+              <label class="block text-xs text-gray-600 mb-1">Percent to collect now</label>
+              <input type="number" name="pay_percent" id="payPercent" min="0" max="100" step="1" value="50" class="input">
+            </div>
+            <div class="form-control hidden" id="payAmountWrap">
+              <label class="block text-xs text-gray-600 mb-1">Amount to collect now (<?= $cur ?>)</label>
+              <input type="number" name="pay_amount" id="payAmount" min="0" step="0.01" class="input">
+            </div>
+            <div class="rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-sm flex justify-between">
+              <span class="text-gray-600">Paying now</span><span id="payNowShow" class="font-medium tabular-nums"><?= $cur ?> 0.00</span>
+            </div>
+            <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm flex justify-between" id="balanceRow">
+              <span class="text-amber-800">Balance due</span><span id="balanceShow" class="font-semibold tabular-nums text-amber-900"><?= $cur ?> 0.00</span>
+            </div>
+          </div>
+          <div id="gatewayNote" class="hidden rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
+            A dedicated bank-transfer account is generated for the guest after you reserve. The booking stays unpaid until the transfer lands.
+          </div>
+        </div>
+
+        <!-- SUBMIT: reserve-only vs reserve+check-in -->
+        <div class="card p-5 space-y-2">
+          <button type="submit" id="btnReserveCheckin" class="btn emerald w-full justify-center">
+            <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">login</span> Reserve &amp; check in</span>
+          </button>
+          <button type="submit" id="btnReserve" class="btn secondary w-full justify-center">
+            <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">event_available</span> Reserve only</span>
+          </button>
+          <a href="<?= root ?>supplier/reservations" class="block text-center text-xs text-gray-500 hover:underline pt-1">Cancel</a>
+        </div>
+      </div>
     </div>
   </form>
 
-  <!-- C3: "+ Create new customer" popup. Posts to /supplier/customers/quick-create via
-       fetch, then attaches the returned id to the booking without leaving the page. -->
+  <!-- customer create modal -->
   <div id="custCreateModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
     <div class="w-full max-w-md rounded-lg bg-white shadow-xl">
       <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
@@ -231,26 +297,12 @@
         <div id="custCreateErr" class="hidden alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm"></p></div>
         <div class="form-control">
           <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
-          <select id="ncType" class="input">
-            <option value="individual">Individual</option>
-            <option value="company">Company</option>
-            <option value="ngo">NGO / Non-profit</option>
-            <option value="agent">Travel agent</option>
-          </select>
+          <select id="ncType" class="input"><option value="individual">Individual</option><option value="company">Company</option><option value="ngo">NGO / Non-profit</option><option value="agent">Travel agent</option></select>
         </div>
-        <div class="form-control">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-          <input type="text" id="ncName" class="input" placeholder="Full name or company name">
-        </div>
+        <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Name *</label><input type="text" id="ncName" class="input" placeholder="Full name or company name"></div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div class="form-control">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
-            <input type="tel" id="ncPhone" inputmode="tel" class="input" placeholder="e.g. +234 801 234 5678">
-          </div>
-          <div class="form-control">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Email <span class="text-gray-400">(optional)</span></label>
-            <input type="email" id="ncEmail" class="input">
-          </div>
+          <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label><input type="tel" id="ncPhone" inputmode="tel" class="input" placeholder="e.g. +234 801 234 5678"></div>
+          <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Email <span class="text-gray-400">(optional)</span></label><input type="email" id="ncEmail" class="input"></div>
         </div>
       </div>
       <div class="flex items-center justify-end gap-3 border-t border-gray-100 px-5 py-3">
@@ -264,235 +316,228 @@
 </div>
 
 <script>
-// Dependent room → rate selector. The option list per room is emitted as JSON below so
-// the rate dropdown only shows rates that belong to the chosen room (with its stable
-// option_id — the value the server prices + holds against).
-(function () {
-  var byRoom = <?= json_encode(array_column($picker, 'options', 'room_id')) ?>;
-  // UX#1/#5: available physical rooms per room type [ room_id => [{id,label},...] ].
-  var physByRoom = <?= json_encode(isset($physRoomsByType) && is_array($physRoomsByType) ? $physRoomsByType : (object) []) ?>;
-  var roomSel = document.getElementById('roomSelect');
-  var optSel = document.getElementById('optionSelect');
-  var physSel = document.getElementById('physRoomSelect'); // absent when a room was preset
-  if (!roomSel || !optSel) { return; }
-  var physEmptyMsg = document.getElementById('physRoomEmpty');
-  var submitBtn = document.getElementById('walkinSubmit');
-  function fillPhys() {
-    if (!physSel) { return; }
-    var rid = roomSel.value;
-    var rooms = physByRoom[rid] || [];
-    physSel.innerHTML = '';
-    var first = document.createElement('option');
-    first.value = '';
-    // REQUIRED: a room MUST be picked. When none are free, the select stays empty so the
-    // form's native `required` blocks submit, and we surface a link to go create rooms.
-    first.textContent = rooms.length ? 'Select a room number…' : 'No room available — add rooms first';
-    physSel.appendChild(first);
-    rooms.forEach(function (pr) {
-      var o = document.createElement('option');
-      o.value = pr.id;
-      o.textContent = pr.label;
-      physSel.appendChild(o);
-    });
-    // Show/hide the "add rooms first" hint. Keep the select ENABLED + required + empty so
-    // the browser's native validation ("please select an item") fires on submit — a
-    // disabled field is skipped by validation, which would let an empty submit through to
-    // the server. The submit button is also blocked below when no room is pickable.
-    if (physEmptyMsg) { physEmptyMsg.classList.toggle('hidden', rooms.length > 0 || rid === ''); }
-    // Block submit when a room type is chosen but has no free physical room to assign.
-    if (submitBtn) {
-      var block = (rid !== '' && rooms.length === 0);
-      submitBtn.disabled = block;
-      submitBtn.classList.toggle('opacity-50', block);
-      submitBtn.classList.toggle('cursor-not-allowed', block);
-    }
-  }
-  function fill() {
-    var rid = roomSel.value;
-    optSel.innerHTML = '';
-    var opts = byRoom[rid] || [];
-    if (!opts.length) {
-      var o = document.createElement('option'); o.value = ''; o.textContent = 'Select a room first…'; optSel.appendChild(o);
-      fillPhys();
-      return;
-    }
-    // When a room type has MULTIPLE rates, auto-select the CHEAPEST (best available rate)
-    // rather than whatever happens to be first in the list — a sensible desk default the
-    // operator can still override. A single-rate type is unaffected.
-    var cheapestVal = null, cheapestPrice = Infinity;
-    opts.forEach(function (op) {
-      var o = document.createElement('option');
-      o.value = op.option_id;
-      o.textContent = op.label;
-      optSel.appendChild(o);
-      var p = parseFloat(op.price);
-      if (!isNaN(p) && p < cheapestPrice) { cheapestPrice = p; cheapestVal = op.option_id; }
-    });
-    if (cheapestVal !== null) { optSel.value = cheapestVal; }
-    fillPhys();
-  }
-
-  roomSel.addEventListener('change', fill);
-  fill();
-})();
-
-// UX M9: validate the guest phone client-side (>=7 digits, same as the server) BEFORE
-// submit, so a short phone doesn't pass the native 'required' check, round-trip to the
-// server, and bounce back to a wiped form. Mirrors the create-customer popup's check.
-(function () {
-  var form = document.getElementById('walkinForm');
-  var phone = document.getElementById('gPhone');
-  if (!form || !phone) { return; }
-  form.addEventListener('submit', function (ev) {
-    var digits = (phone.value || '').replace(/\D+/g, '');
-    if (digits.length < 7) {
-      ev.preventDefault();
-      phone.setCustomValidity('Enter a valid phone number (at least 7 digits).');
-      phone.reportValidity();
-      phone.focus();
-    }
-  });
-  phone.addEventListener('input', function () { phone.setCustomValidity(''); });
-
-  // Warn-before-leave when switching to the Group tab with unsaved input, so a clerk who
-  // started a single booking and realises it's a group doesn't lose what they typed without
-  // a prompt. "Dirty" = any field the clerk touched (date defaults don't count as dirty).
-  var dirty = false;
-  form.addEventListener('input', function () { dirty = true; }, true);
-  var groupTab = document.getElementById('tabGroup');
-  if (groupTab) {
-    groupTab.addEventListener('click', function (ev) {
-      if (dirty && !window.confirm('Switch to Group booking? Anything you entered on this single booking will be discarded.')) {
-        ev.preventDefault();
-      }
-    });
-  }
-})();
-
-// C3: customer search + pick + inline create.
 (function () {
   var ROOT = <?= json_encode((string) root) ?>;
-  var CSRF = document.querySelector('input[name="csrf_token"]');
-  var CSRF_VAL = CSRF ? CSRF.value : '';
+  var CUR = <?= json_encode((string) ($stay['currency'] ?? 'USD')) ?>;
+  var CSRFEL = document.querySelector('input[name="csrf_token"]');
+  var CSRF_VAL = CSRFEL ? CSRFEL.value : '';
+  var byRoom = <?= json_encode(array_column($picker, 'options', 'room_id')) ?>;
+  var physByRoom = <?= json_encode(isset($physRoomsByType) && is_array($physRoomsByType) ? $physRoomsByType : (object) []) ?>;
 
-  var search = document.getElementById('custSearch');
-  var results = document.getElementById('custResults');
-  var hidden = document.getElementById('customerId');
-  var picked = document.getElementById('custPicked');
-  var pickedLabel = document.getElementById('custPickedLabel');
-  var pickedType = document.getElementById('custPickedType');
-  var clearBtn = document.getElementById('custClear');
-  var searchWrap = document.getElementById('custSearchWrap');
-  var gFirst = document.getElementById('gFirst'), gLast = document.getElementById('gLast'),
-      gEmail = document.getElementById('gEmail'), gPhone = document.getElementById('gPhone');
-  if (!search) { return; }
-
+  function money(n) { return CUR + ' ' + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function $(id) { return document.getElementById(id); }
 
-  function selectCustomer(c) {
-    hidden.value = c.id;
-    pickedLabel.textContent = c.name;
-    pickedType.textContent = c.type || '';
-    picked.classList.remove('hidden'); picked.classList.add('flex');
-    searchWrap.classList.add('hidden');
-    results.classList.add('hidden');
-    // Prefill guest identity for convenience (staff can still edit the stayer's name).
-    if (gFirst && !gFirst.value && c.name) {
-      var parts = String(c.name).trim().split(/\s+/);
-      gFirst.value = parts.shift() || '';
-      if (gLast && !gLast.value) { gLast.value = parts.join(' '); }
+  var roomSel = $('roomSelect'), optSel = $('optionSelect'), physSel = $('physRoomSelect');
+  if (!roomSel || !optSel) { return; }
+
+  // ---- dependent room → rate + physical room (unchanged logic) ----
+  function fillPhys() {
+    if (!physSel) { return; }
+    var rid = roomSel.value, rooms = physByRoom[rid] || [];
+    physSel.innerHTML = '';
+    var first = document.createElement('option'); first.value = '';
+    first.textContent = rooms.length ? 'Select a room number…' : 'No room available — add rooms first';
+    physSel.appendChild(first);
+    rooms.forEach(function (pr) { var o = document.createElement('option'); o.value = pr.id; o.textContent = pr.label; physSel.appendChild(o); });
+    var empty = $('physRoomEmpty'); if (empty) { empty.classList.toggle('hidden', rooms.length > 0 || rid === ''); }
+  }
+  function fillRates() {
+    var rid = roomSel.value; optSel.innerHTML = '';
+    var opts = byRoom[rid] || [];
+    if (!opts.length) { var o = document.createElement('option'); o.value = ''; o.textContent = 'Select a room first…'; optSel.appendChild(o); fillPhys(); recalc(); return; }
+    var cheapestVal = null, cheapestPrice = Infinity;
+    opts.forEach(function (op) {
+      var o = document.createElement('option'); o.value = op.option_id; o.textContent = op.label; o.setAttribute('data-price', op.price); optSel.appendChild(o);
+      var p = parseFloat(op.price); if (!isNaN(p) && p < cheapestPrice) { cheapestPrice = p; cheapestVal = op.option_id; }
+    });
+    if (cheapestVal !== null) { optSel.value = cheapestVal; }
+    fillPhys(); recalc();
+  }
+  roomSel.addEventListener('change', fillRates);
+  optSel.addEventListener('change', recalc);
+
+  // ---- live price + discount + payment ----
+  function nights() {
+    var a = ($('checkinInput') || {}).value, b = ($('checkoutInput') || {}).value;
+    if (!a || !b) { return 0; }
+    var d = (new Date(b) - new Date(a)) / 86400000; return d > 0 ? Math.round(d) : 0;
+  }
+  function selectedRate() {
+    var opt = optSel.options[optSel.selectedIndex];
+    return opt ? (parseFloat(opt.getAttribute('data-price')) || 0) : 0;
+  }
+  function recalc() {
+    var n = nights(), rate = selectedRate();
+    var room = n * rate; // estimate (server adds markup/tax authoritatively)
+    // discount
+    var disc = 0;
+    var dv = $('discountValue'); var dt = $('discountType');
+    if (dv && dt) {
+      var v = parseFloat(dv.value) || 0;
+      if (v > 0) { disc = (dt.value === 'percent') ? (room * Math.min(100, v) / 100) : Math.min(room, v); }
     }
-    if (gEmail && !gEmail.value && c.email) { gEmail.value = c.email; }
-    if (gPhone && !gPhone.value && c.phone) { gPhone.value = c.phone; }
+    var afterDisc = Math.max(0, room - disc);
+    $('sumNights').textContent = n + ' night' + (n === 1 ? '' : 's') + ' × ' + money(rate);
+    $('sumRoom').textContent = money(room);
+    var dRow = $('sumDiscountRow'); if (dRow) { dRow.classList.toggle('hidden', disc <= 0); $('sumDiscount').textContent = '− ' + money(disc); }
+    $('sumTotal').textContent = money(afterDisc);
+
+    // payment "pay now" + balance
+    var payType = ($('payType') || {}).value || '';
+    var payNow = 0;
+    if (payType === 'full') { payNow = afterDisc; }
+    else if (payType === 'percent') { payNow = afterDisc * (Math.min(100, Math.max(0, parseFloat(($('payPercent') || {}).value) || 0)) / 100); }
+    else if (payType === 'partial') { payNow = Math.min(afterDisc, Math.max(0, parseFloat(($('payAmount') || {}).value) || 0)); }
+    var showEl = $('payNowShow'); if (showEl) { showEl.textContent = money(payNow); }
+    var bal = Math.max(0, afterDisc - payNow);
+    var balEl = $('balanceShow'); if (balEl) { balEl.textContent = money(bal); }
   }
 
-  function clearCustomer() {
-    hidden.value = '';
-    picked.classList.add('hidden'); picked.classList.remove('flex');
-    searchWrap.classList.remove('hidden');
-    search.value = ''; results.innerHTML = ''; results.classList.add('hidden');
+  // payment method toggles amount block vs gateway note
+  var payMethod = $('payMethod');
+  function syncMethod() {
+    var opt = payMethod ? payMethod.options[payMethod.selectedIndex] : null;
+    var kind = opt ? (opt.getAttribute('data-kind') || 'none') : 'none';
+    var isGateway = (kind === 'goglobia_gateway');
+    var amtBlock = $('payAmountBlock'), gwNote = $('gatewayNote');
+    if (amtBlock) { amtBlock.classList.toggle('hidden', isGateway); }
+    if (gwNote) { gwNote.classList.toggle('hidden', !isGateway); }
+    recalc();
   }
-  clearBtn && clearBtn.addEventListener('click', clearCustomer);
+  if (payMethod) { payMethod.addEventListener('change', syncMethod); }
 
-  var t = null;
-  search.addEventListener('input', function () {
-    var q = search.value.trim();
-    if (t) { clearTimeout(t); }
-    if (q.length < 2) { results.classList.add('hidden'); results.innerHTML = ''; return; }
-    t = setTimeout(function () {
-      fetch(ROOT + 'supplier/customers/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+  var payType = $('payType');
+  if (payType) {
+    payType.addEventListener('change', function () {
+      $('payPercentWrap').classList.toggle('hidden', payType.value !== 'percent');
+      $('payAmountWrap').classList.toggle('hidden', payType.value !== 'partial');
+      recalc();
+    });
+  }
+  ['checkinInput', 'checkoutInput', 'discountValue', 'discountType', 'payPercent', 'payAmount'].forEach(function (id) {
+    var el = $(id); if (el) { el.addEventListener('input', recalc); el.addEventListener('change', recalc); }
+  });
+
+  // two submit buttons set the hidden action
+  var sa = $('submitAction');
+  var bCI = $('btnReserveCheckin'), bR = $('btnReserve');
+  if (bCI) { bCI.addEventListener('click', function () { if (sa) sa.value = 'reserve_checkin'; }); }
+  if (bR) { bR.addEventListener('click', function () { if (sa) sa.value = 'reserve'; }); }
+
+  // phone client-side validation (same as server: ≥7 digits)
+  var form = $('walkinForm'), phone = $('gPhone');
+  if (form && phone) {
+    form.addEventListener('submit', function (ev) {
+      var digits = (phone.value || '').replace(/\D+/g, '');
+      if (digits.length < 7) { ev.preventDefault(); phone.setCustomValidity('Enter a valid phone number (at least 7 digits).'); phone.reportValidity(); phone.focus(); }
+    });
+    phone.addEventListener('input', function () { phone.setCustomValidity(''); });
+  }
+
+  // ---- CUSTOMER search + pick + inline create ----
+  (function () {
+    var search = $('custSearch'), results = $('custResults'), hidden = $('customerId'),
+        picked = $('custPicked'), pickedLabel = $('custPickedLabel'), pickedType = $('custPickedType'),
+        clearBtn = $('custClear'), searchWrap = $('custSearchWrap'),
+        gFirst = $('gFirst'), gLast = $('gLast'), gEmail = $('gEmail'), gPhone = $('gPhone');
+    if (!search) { return; }
+    function selectCustomer(c) {
+      hidden.value = c.id; pickedLabel.textContent = c.name; pickedType.textContent = c.type || '';
+      picked.classList.remove('hidden'); picked.classList.add('flex'); searchWrap.classList.add('hidden'); results.classList.add('hidden');
+      if (gFirst && !gFirst.value && c.name) { var parts = String(c.name).trim().split(/\s+/); gFirst.value = parts.shift() || ''; if (gLast && !gLast.value) { gLast.value = parts.join(' '); } }
+      if (gEmail && !gEmail.value && c.email) { gEmail.value = c.email; }
+      if (gPhone && !gPhone.value && c.phone) { gPhone.value = c.phone; }
+    }
+    function clearCustomer() { hidden.value = ''; picked.classList.add('hidden'); picked.classList.remove('flex'); searchWrap.classList.remove('hidden'); search.value = ''; results.innerHTML = ''; results.classList.add('hidden'); }
+    clearBtn && clearBtn.addEventListener('click', clearCustomer);
+    var t = null;
+    search.addEventListener('input', function () {
+      var q = search.value.trim(); if (t) clearTimeout(t);
+      if (q.length < 2) { results.classList.add('hidden'); results.innerHTML = ''; return; }
+      t = setTimeout(function () {
+        fetch(ROOT + 'supplier/customers/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            results.innerHTML = ''; var rows = (d && d.results) || [];
+            if (!rows.length) { results.innerHTML = '<div class="px-3 py-2 text-sm text-gray-400">No match. Use “Create”.</div>'; results.classList.remove('hidden'); return; }
+            rows.forEach(function (c) {
+              var el = document.createElement('button'); el.type = 'button'; el.className = 'block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0';
+              el.innerHTML = '<div class="text-sm font-medium text-gray-900">' + esc(c.name) + ' <span class="text-xs uppercase tracking-wide text-gray-400">' + esc(c.type) + '</span></div><div class="text-xs text-gray-500">' + esc([c.email, c.phone].filter(Boolean).join(' · ')) + '</div>';
+              el.addEventListener('click', function () { selectCustomer(c); }); results.appendChild(el);
+            });
+            results.classList.remove('hidden');
+          }).catch(function () { results.classList.add('hidden'); });
+      }, 220);
+    });
+    document.addEventListener('click', function (e) { if (searchWrap && !searchWrap.contains(e.target)) { results.classList.add('hidden'); } });
+
+    // inline create popup
+    var modal = $('custCreateModal'), openBtn = $('custCreateOpen'), closeBtn = $('custCreateClose'),
+        cancelBtn = $('custCreateCancel'), saveBtn = $('custCreateSave'), errBox = $('custCreateErr');
+    function openModal() {
+      $('ncName').value = (search.value.trim()) || ((gFirst && gFirst.value ? (gFirst.value + ' ' + (gLast ? gLast.value : '')).trim() : ''));
+      $('ncEmail').value = gEmail ? gEmail.value : ''; $('ncPhone').value = gPhone ? gPhone.value : '';
+      errBox.classList.add('hidden'); modal.classList.remove('hidden');
+    }
+    function closeModal() { modal.classList.add('hidden'); }
+    openBtn && openBtn.addEventListener('click', openModal);
+    closeBtn && closeBtn.addEventListener('click', closeModal);
+    cancelBtn && cancelBtn.addEventListener('click', closeModal);
+    modal && modal.addEventListener('click', function (e) { if (e.target === modal) { closeModal(); } });
+    saveBtn && saveBtn.addEventListener('click', function () {
+      var name = $('ncName').value.trim(), ph = $('ncPhone').value.trim();
+      if (!name) { errBox.querySelector('p').textContent = 'A name is required.'; errBox.classList.remove('hidden'); return; }
+      if ((ph.replace(/\D+/g, '')).length < 7) { errBox.querySelector('p').textContent = 'A valid phone number is required (at least 7 digits).'; errBox.classList.remove('hidden'); return; }
+      saveBtn.disabled = true;
+      var fd = new FormData();
+      fd.append('type', $('ncType').value); fd.append('display_name', name);
+      fd.append('email', $('ncEmail').value.trim()); fd.append('phone', ph); fd.append('csrf_token', CSRF_VAL);
+      fetch(ROOT + 'supplier/customers/quick-create', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF_VAL } })
         .then(function (r) { return r.json(); })
-        .then(function (d) {
-          results.innerHTML = '';
-          var rows = (d && d.results) || [];
-          if (!rows.length) {
-            results.innerHTML = '<div class="px-3 py-2 text-sm text-gray-400">No match. Use “Create new”.</div>';
-            results.classList.remove('hidden'); return;
-          }
-          rows.forEach(function (c) {
-            var el = document.createElement('button');
-            el.type = 'button';
-            el.className = 'block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0';
-            el.innerHTML = '<div class="text-sm font-medium text-gray-900">' + esc(c.name) +
-              ' <span class="text-xs uppercase tracking-wide text-gray-400">' + esc(c.type) + '</span></div>' +
-              '<div class="text-xs text-gray-500">' + esc([c.email, c.phone].filter(Boolean).join(' · ')) + '</div>';
-            el.addEventListener('click', function () { selectCustomer(c); });
-            results.appendChild(el);
-          });
-          results.classList.remove('hidden');
-        })
-        .catch(function () { results.classList.add('hidden'); });
-    }, 220);
-  });
-  document.addEventListener('click', function (e) {
-    if (searchWrap && !searchWrap.contains(e.target)) { results.classList.add('hidden'); }
-  });
+        .then(function (d) { saveBtn.disabled = false; if (d && d.ok && d.contact) { closeModal(); selectCustomer(d.contact); } else { errBox.querySelector('p').textContent = (d && d.message) || 'Could not create.'; errBox.classList.remove('hidden'); } })
+        .catch(function () { saveBtn.disabled = false; errBox.querySelector('p').textContent = 'Network error.'; errBox.classList.remove('hidden'); });
+    });
+  })();
 
-  // --- inline create popup ---
-  var modal = document.getElementById('custCreateModal');
-  var openBtn = document.getElementById('custCreateOpen');
-  var closeBtn = document.getElementById('custCreateClose');
-  var cancelBtn = document.getElementById('custCreateCancel');
-  var saveBtn = document.getElementById('custCreateSave');
-  var errBox = document.getElementById('custCreateErr');
-  function openModal() {
-    // Seed from the search box / guest fields so staff don't retype.
-    document.getElementById('ncName').value = (search.value.trim()) || ((gFirst && gFirst.value ? (gFirst.value + ' ' + (gLast ? gLast.value : '')).trim() : ''));
-    document.getElementById('ncEmail').value = gEmail ? gEmail.value : '';
-    document.getElementById('ncPhone').value = gPhone ? gPhone.value : '';
-    errBox.classList.add('hidden');
-    modal.classList.remove('hidden');
-  }
-  function closeModal() { modal.classList.add('hidden'); }
-  openBtn && openBtn.addEventListener('click', openModal);
-  closeBtn && closeBtn.addEventListener('click', closeModal);
-  cancelBtn && cancelBtn.addEventListener('click', closeModal);
-  modal && modal.addEventListener('click', function (e) { if (e.target === modal) { closeModal(); } });
+  // ---- GUEST search-or-create (reuses /supplier/guests/search, like the group desk) ----
+  (function () {
+    var search = $('guestSearch'), results = $('guestResults'), wrap = $('guestSearchWrap'), gid = $('guestId'),
+        gFirst = $('gFirst'), gLast = $('gLast'), gEmail = $('gEmail'), gPhone = $('gPhone'), newBtn = $('guestNewBtn');
+    if (!search) { return; }
+    var t = null;
+    function hide() { results.classList.add('hidden'); results.innerHTML = ''; }
+    search.addEventListener('input', function () {
+      var q = search.value.trim(); if (gid) gid.value = ''; if (t) clearTimeout(t);
+      if (q.length < 2) { hide(); return; }
+      t = setTimeout(function () {
+        fetch(ROOT + 'supplier/guests/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            var rows = (d && d.results) || []; results.innerHTML = '';
+            if (!rows.length) { results.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No match — fill the fields below to add a new guest.</div>'; results.classList.remove('hidden'); return; }
+            rows.forEach(function (g) {
+              var el = document.createElement('button'); el.type = 'button'; el.className = 'block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0';
+              el.innerHTML = '<div class="text-sm font-medium text-gray-800">' + esc(g.name || '(guest)') + '</div><div class="text-xs text-gray-500">' + esc([g.phone, g.email].filter(Boolean).join(' · ')) + '</div>';
+              el.addEventListener('click', function () {
+                if (g.id && gid) { gid.value = g.id; }
+                if (g.name) { var parts = String(g.name).trim().split(/\s+/); if (gFirst) gFirst.value = parts.shift() || ''; if (gLast) gLast.value = parts.join(' '); }
+                if (gEmail && g.email) gEmail.value = g.email;
+                if (gPhone && g.phone) gPhone.value = g.phone;
+                search.value = g.name || ''; hide();
+              });
+              results.appendChild(el);
+            });
+            results.classList.remove('hidden');
+          }).catch(function () { hide(); });
+      }, 220);
+    });
+    document.addEventListener('click', function (e) { if (wrap && !wrap.contains(e.target)) hide(); });
+    // "New" just focuses the first name field (there's no separate guest-create endpoint —
+    // leaving the fields filled creates the guest on submit, exactly like the group desk).
+    if (newBtn) { newBtn.addEventListener('click', function () { if (gid) gid.value = ''; search.value = ''; hide(); if (gFirst) gFirst.focus(); }); }
+  })();
 
-  saveBtn && saveBtn.addEventListener('click', function () {
-    var name = document.getElementById('ncName').value.trim();
-    var phone = document.getElementById('ncPhone').value.trim();
-    if (!name) { errBox.querySelector('p').textContent = 'A name is required.'; errBox.classList.remove('hidden'); return; }
-    // Phone is mandatory (customer searchable by name & phone); ≥7 digits like the server.
-    if ((phone.replace(/\D+/g, '')).length < 7) { errBox.querySelector('p').textContent = 'A valid phone number is required (at least 7 digits).'; errBox.classList.remove('hidden'); return; }
-    saveBtn.disabled = true;
-    var fd = new FormData();
-    fd.append('type', document.getElementById('ncType').value);
-    fd.append('display_name', name);
-    fd.append('email', document.getElementById('ncEmail').value.trim());
-    fd.append('phone', document.getElementById('ncPhone').value.trim());
-    fd.append('csrf_token', CSRF_VAL);
-    fetch(ROOT + 'supplier/customers/quick-create', {
-      method: 'POST', body: fd, credentials: 'same-origin',
-      headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF_VAL }
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        saveBtn.disabled = false;
-        if (d && d.ok && d.contact) { closeModal(); selectCustomer(d.contact); }
-        else { errBox.querySelector('p').textContent = (d && d.message) || 'Could not create.'; errBox.classList.remove('hidden'); }
-      })
-      .catch(function () { saveBtn.disabled = false; errBox.querySelector('p').textContent = 'Network error.'; errBox.classList.remove('hidden'); });
-  });
+  fillRates(); // initial render + price
 })();
 </script>
