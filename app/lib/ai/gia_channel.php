@@ -237,6 +237,23 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             ? gia_conv_history($db, $convId, 20)
             : [];
 
+        // --- NUMBERED-REPLY -> STORED ID (EARLY). On Green API WhatsApp the choices we
+        //     show (fares, rooms AND the pay options) render as a NUMBERED TEXT LIST, so
+        //     the traveller types "1"/"2" rather than tapping. Resolve that to the exact
+        //     id we stored last turn BEFORE the deterministic approve/paybank/paycard
+        //     handlers below — otherwise a "2" reply to the pay options never matches the
+        //     literal 'paycard|<inv>' those handlers expect, the pay step is unreachable
+        //     on this channel, and GIA dead-ends into a human handoff (the live bug).
+        //     A pick id (pickfare|…) falls through to the model path unchanged, exactly
+        //     as a real tap would; a pay id (paybank|/paycard|/approve|) is caught by the
+        //     deterministic handlers immediately below. $text is only rewritten when the
+        //     reply is a bare short number/word, so free-text is never hijacked.
+        $__resolvedPick = gia_channel_resolve_numeric_pick($db, $convId, $text);
+        if ($__resolvedPick !== '') {
+            if (function_exists('gia_trace')) { \gia_trace('numeric_pick', __FILE__, '"' . mb_substr($text, 0, 20) . '" -> ' . $__resolvedPick); }
+            $text = $__resolvedPick;
+        }
+
         // --- APPROVE TAP (money gate) — handled DETERMINISTICALLY, not via the LLM.
         //     A tap sends payload 'approve|<checkout_ref>'. We pay ONLY when the chat
         //     is VERIFIED. We do NOT rely on the model remembering refs (stateless
@@ -453,17 +470,28 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             $agent->setToolContext($toolContext);
             // Teach GIA how to act on a tapped option button ('pick|module|ref').
             $agent->addSystemNote(gia_channel_pick_note());
-            // Payment on channels is handled OUTSIDE the model: after create_booking,
-            // the interface shows an 'Approve & pay' button (or a secure pay link) and
-            // the tap completes payment. So GIA must NOT call request_booking_approval
-            // or initiate_payment here — stop after create_booking and tell the
-            // traveler to tap the button / open the link to pay. If they're not yet
-            // account-linked, verify first (verify_identity).
+            // Payment on channels is handled OUTSIDE the model: once the booking is
+            // fully held (manifest complete), the system itself presents the pay
+            // options (bank transfer / card, and a wallet fast-path if funded). So GIA
+            // must NOT call request_booking_approval or initiate_payment. Two things
+            // matter for honesty on messaging channels (esp. WhatsApp via Green API,
+            // which renders choices as a NUMBERED TEXT LIST — there is NO tappable
+            // "button"): (1) COMPLETE the service's hold flow — for flights that means
+            // flights_book THEN flights_add_passenger for EVERY passenger until it
+            // reports done; the pay options only appear after the manifest is complete,
+            // not after flights_book. (2) Do NOT tell the traveller to "tap a button";
+            // just say the payment options are below (or will appear) and let them pick.
+            // If they're not yet account-linked, verify first (verify_identity).
             $agent->addSystemNote(
-                "PAYMENT ON THIS CHANNEL: do the flow up to and including create_booking, then STOP and "
-                . "invite the traveler to tap the 'Approve & pay' button (or the payment link) shown below "
-                . "your message — that completes payment securely. Do NOT call request_booking_approval or "
-                . "initiate_payment yourself here; the button handles it. Never ask for card details in chat."
+                "PAYMENT ON THIS CHANNEL: complete the service's hold flow fully (for FLIGHTS: flights_book "
+                . "then flights_add_passenger for EVERY passenger until it reports the manifest is done; for "
+                . "STAYS: stays_book; for the generic chain: create_booking). The system then shows the pay "
+                . "options itself — you do NOT call request_booking_approval or initiate_payment, and you do "
+                . "NOT handle card details in chat. CRITICAL: do NOT tell the traveller to 'tap the Approve & "
+                . "Pay button' — on this channel there may be no button, only a numbered list of pay options "
+                . "shown below your message. Simply say their booking is held and the payment options are "
+                . "below (bank transfer / card) for them to choose. Never promise a button or a confirmation "
+                . "you cannot see."
             );
             // Bot disclosure (Meta/WhatsApp policy: automated chats must disclose
             // they're automated). On the FIRST turn of a channel conversation,
@@ -602,16 +630,11 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                 );
             }
             // DETERMINISTIC NUMERIC PICK: on WhatsApp a >3-option list is shown as a
-            // numbered TEXT list (no tap-buttons), so the traveler types "2". Map that
-            // to the exact pick-button id we showed last turn BEFORE the model runs —
-            // otherwise the model gets a naked "2" with no ref and just re-searches
-            // (the live "pick a number -> same cards reappear" loop).
+            // numbered TEXT list (no tap-buttons), so the traveler types "2". $text was
+            // already resolved to the exact pick-button id near the top of this handler
+            // (BEFORE the deterministic pay handlers), so a pick id reaching here is fed
+            // to the model unchanged — the model is taught to act on it (pick_note).
             $runText = $text;
-            $picked = gia_channel_resolve_numeric_pick($db, $convId, $text);
-            if ($picked !== '') {
-                if (function_exists('gia_trace')) { \gia_trace('numeric_pick', __FILE__, '"' . mb_substr($text, 0, 20) . '" -> ' . $picked); }
-                $runText = $picked;
-            }
             $result = $agent->run($runText, $history);
         } catch (\Throwable $e) {
             error_log('[gia] channel_handle run: ' . $e->getMessage());
@@ -738,17 +761,20 @@ if (!function_exists('App\\lib\\ai\\gia_channel_store_choices')) {
     {
         if ($convId <= 0 || !\function_exists('gia_offer_cache_put')) { return; }
         $ids = [];
-        // Cards are shown first (each with one pick button), then standalone buttons —
-        // same visual order the traveler sees numbered on the channel.
+        // ORDER MUST MATCH gia_render_text_fallback (what the traveller actually sees
+        // numbered on Green API): standalone BUTTONS are numbered first, THEN each
+        // card's button. Storing in the same order is what makes a bare "2" reply map
+        // to the 2nd line the user saw — a mismatch would resolve the wrong choice
+        // (and silently pay/select the wrong thing once pay ids are in the list).
+        foreach (($rich['buttons'] ?? []) as $b) {
+            $id = (string) ($b['id'] ?? '');
+            if ($id !== '' && gia_channel_is_pick_id($id)) { $ids[] = $id; }
+        }
         foreach (($rich['cards'] ?? []) as $c) {
             foreach (($c['buttons'] ?? []) as $b) {
                 $id = (string) ($b['id'] ?? '');
                 if ($id !== '' && gia_channel_is_pick_id($id)) { $ids[] = $id; }
             }
-        }
-        foreach (($rich['buttons'] ?? []) as $b) {
-            $id = (string) ($b['id'] ?? '');
-            if ($id !== '' && gia_channel_is_pick_id($id)) { $ids[] = $id; }
         }
         if ($ids === []) { return; }
         \gia_offer_cache_put($db, $convId, 'last_choices', ['ids' => $ids]);
@@ -756,10 +782,20 @@ if (!function_exists('App\\lib\\ai\\gia_channel_store_choices')) {
 }
 
 if (!function_exists('App\\lib\\ai\\gia_channel_is_pick_id')) {
-    /** True for the selection button-ids we teach the model to act on. */
+    /**
+     * True for the choice button-ids a numbered reply may resolve to. This governs
+     * BOTH which ids gia_channel_store_choices remembers for "reply 2" and the
+     * resolver's "already an id" early-return. It MUST include the PAY ids
+     * (paybank|/paycard|/approve|): on Green API the pay options render as numbered
+     * text, so without them a "1"/"2" reply to the pay options can never resolve to
+     * the literal id the deterministic pay handlers expect — which was the live
+     * WhatsApp pay dead-end. 'pick|…' etc. route to the model; the pay ids are caught
+     * deterministically before the model (see the early resolve in gia_channel_handle).
+     */
     function gia_channel_is_pick_id(string $id): bool
     {
-        foreach (['pick|', 'pickfare|', 'pickdep|', 'picktier|', 'pickstay|'] as $p) {
+        foreach (['pick|', 'pickfare|', 'pickdep|', 'picktier|', 'pickstay|',
+                  'paybank|', 'paycard|', 'approve|'] as $p) {
             if (\strncmp($id, $p, \strlen($p)) === 0) { return true; }
         }
         return false;
@@ -1167,6 +1203,50 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
             }
             $buttons[] = ['id' => 'paybank|' . $invoiceId, 'title' => 'Pay by bank transfer'];
             $buttons[] = ['id' => 'paycard|' . $invoiceId, 'title' => 'Pay with card / online'];
+        }
+
+        // HONEST PAY-CTA GUARD (containment, mirrors the price guard in giaAgent).
+        // Instruction-following is best-effort, so the model keeps writing "tap the
+        // Approve & Pay button below" — but on messaging channels (notably WhatsApp via
+        // Green API) there is NO tappable button: pay options render as a NUMBERED TEXT
+        // LIST ("1. Pay by bank transfer …"). So the phrase is misleading whether or not
+        // options were built — and when the manifest wasn't finished (no options at all)
+        // it's the exact live dead-end ("Where the button?"). We therefore ALWAYS strip
+        // the false UI promise here. It's safe: when pay options DO exist, build_rich
+        // already appended its own honest CTA ("Choose how to pay; …") and the renderer
+        // adds "Reply with the number"; when they DON'T, we add an honest next step.
+        // Detection is on prose only (the pay option itself is an id-built button).
+        $isButtonPromise = static function (string $s): bool {
+            return (bool) (preg_match('/\b(tap|click|press|hit)\b[^.\n]{0,40}\b(button|link)\b/i', $s)
+                || preg_match('/\bapprove\s*&\s*pay\b/i', $s)
+                || preg_match('/\bbutton below\b/i', $s)
+                || preg_match('/\b(payment|pay)\s+(button|link)\b/i', $s));
+        };
+        $hasPayOption = false;
+        foreach ($buttons as $b) {
+            $bid = (string) ($b['id'] ?? '');
+            if (strncmp($bid, 'paybank|', 8) === 0 || strncmp($bid, 'paycard|', 8) === 0
+                || strncmp($bid, 'approve|', 8) === 0) { $hasPayOption = true; break; }
+        }
+        if ($text !== '' && $isButtonPromise($text)) {
+            // Drop only the sentence(s) that make the false UI promise; keep the rest.
+            $sentences = preg_split('/(?<=[.!?])\s+/', $text) ?: [$text];
+            $kept = [];
+            foreach ($sentences as $s) {
+                if ($isButtonPromise($s)) { continue; }
+                $kept[] = $s;
+            }
+            $text = trim(implode(' ', $kept));
+            // Never leave a dead end. If NO option was built but a booking is held,
+            // tell the traveller the options are coming (the manifest/collection step
+            // or the next turn surfaces them). When options WERE built, build_rich's own
+            // "Choose how to pay" line + the numbered list already carry the next step.
+            if (!$hasPayOption && $invoiceId !== '') {
+                $text = trim($text . "\n\nOne moment — I'll bring up your payment options now.");
+            }
+            if (function_exists('gia_trace')) {
+                \gia_trace('cta_guard', __FILE__, 'stripped false pay-button promise (hasOption=' . ($hasPayOption ? '1' : '0') . ')');
+            }
         }
 
         // Cap total cards defensively (renderers also clamp per platform).
