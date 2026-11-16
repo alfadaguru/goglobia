@@ -227,12 +227,47 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"><?= T::payment_gateway ?></label>
             <select class="select" id="payment_gateway" onchange="handlePaymentGatewayChange()">
                 <?php
-                $gateways = $db->select('payment_gateways', ['id', 'name', 'display_name', 'type', 'default', 'c1', 'c2', 'c3', 'c4', 'c5'], ['status' => 1,'active' => 1, 'ORDER' => ['name' => 'ASC']]);
-                $isUserLoggedIn = isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
-                if (!$isUserLoggedIn) {
-                    $gateways = array_filter($gateways, function($gw) {
-                        return !(isset($gw['type']) && strtolower($gw['type']) === 'internal_wallet');
-                    });
+                // NOTE: 'currency' is REQUIRED by the currency-routing filter below
+                // (payment_gateway_allowed_for_currency reads $gw['currency']). Without
+                // it every external gateway was filtered out, leaving only wallet.
+                $gateways = $db->select('payment_gateways', ['id', 'name', 'display_name', 'type', 'default', 'currency', 'c1', 'c2', 'c3', 'c4', 'c5'], ['status' => 1,'active' => 1, 'ORDER' => ['name' => 'ASC']]);
+
+                // ACTOR FILTER (parity with the booking-page chooser,
+                // app/views/includes/booking/payment-methods.php): guest -> external
+                // gateways only (no wallet); customer -> wallet or any gateway; agent ->
+                // wallet only. Previously this view only hid internal_wallet for guests.
+                if (function_exists('payment_gateway_allowed_for_actor')) {
+                    $gateways = array_values(array_filter($gateways, function ($gw) use ($db) {
+                        return payment_gateway_allowed_for_actor($db, $gw);
+                    }));
+                } else {
+                    $isUserLoggedIn = isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
+                    if (!$isUserLoggedIn) {
+                        $gateways = array_filter($gateways, function($gw) {
+                            return !(isset($gw['type']) && strtolower($gw['type']) === 'internal_wallet');
+                        });
+                    }
+                }
+
+                // CURRENCY ROUTING (fixes the "gateway won't load / stuck pending" bug):
+                // only show external gateways valid for THIS BOOKING's currency —
+                // NGN -> Paystack, every other currency -> Stripe. Wallet gateways are
+                // currency-agnostic and always pass. Without this filter the pay page
+                // listed every gateway, so an NGN booking could pick Stripe (USD) and the
+                // server-side guard at /payment/process then BLOCKED it and redirected
+                // back to the invoice — the customer saw the gateway never open and the
+                // booking sat unpaid. Use the booking currency (the amount is already
+                // priced in it), matching the server guard (globalRoutes.php currency check).
+                if (function_exists('payment_gateway_allowed_for_currency')) {
+                    $__invCurrency = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
+                    if ($__invCurrency === '') {
+                        $__invCurrency = strtoupper(trim((string) ($_SESSION['app_currency'] ?? '')));
+                    }
+                    if ($__invCurrency !== '') {
+                        $gateways = array_values(array_filter($gateways, function ($gw) use ($db, $__invCurrency) {
+                            return payment_gateway_allowed_for_currency($db, $gw, $__invCurrency);
+                        }));
+                    }
                 }
                 $selectedGatewayId = $booking['payment_gateway'] ?? '';
                 if (empty($selectedGatewayId)) {
@@ -244,10 +279,20 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 $gatewaysMap = [];
                 foreach ($gateways as $gw) {
                     $gatewaysMap[$gw['id']] = $gw;
-                    $displayText = htmlspecialchars(getGatewayDisplayName($gw));
-                    // For internal_wallet, show the name instead of type to differentiate between Balance Wallet and Credits
-                    if (!empty($gw['type']) && $gw['type'] !== 'internal_wallet') {
-                        $displayText = ucwords(str_replace('_', ' ', $gw['type'])) . ' (' . $displayText . ')';
+                    // An explicit display_name is the FULL customer-facing label — use it
+                    // verbatim (e.g. "Online Payment (credit/debit card, bank transfer…)").
+                    // This both relabels "Credit Card" and hides the supplier name
+                    // (Paystack/Stripe) from customers. Only fall back to the type-prefixed
+                    // format when no display_name is set.
+                    $__hasDisplayName = isset($gw['display_name']) && trim((string) $gw['display_name']) !== '';
+                    if ($__hasDisplayName) {
+                        $displayText = htmlspecialchars(trim((string) $gw['display_name']));
+                    } else {
+                        $displayText = htmlspecialchars(getGatewayDisplayName($gw));
+                        // For internal_wallet, show the name instead of type to differentiate between Balance Wallet and Credits
+                        if (!empty($gw['type']) && $gw['type'] !== 'internal_wallet') {
+                            $displayText = ucwords(str_replace('_', ' ', $gw['type'])) . ' (' . $displayText . ')';
+                        }
                     }
                 ?>
                 <option value="<?= $gw['id'] ?>" data-type="<?= $gw['type'] ?>" data-name="<?= htmlspecialchars($gw['name']) ?>" <?= $gw['id'] == $selectedGatewayId ? 'selected' : '' ?>><?= $displayText ?></option>
