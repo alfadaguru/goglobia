@@ -32,7 +32,15 @@ function buildTourUrl(t, searchParams, supplierTokens) {
 function renderTourCard(t, idx, searchParams) {
     // Ensure searchParams is passed correctly
     const searchData = searchParams || this?.searchParams || {};
-    
+
+    // XSS GUARD: this card is injected via x-html, so every supplier-supplied string
+    // interpolated as HTML text (tour name, location/city/country, supplier) must be
+    // HTML-escaped. normalize stores these raw from supplier search JSON — a name like
+    // "<img src=x onerror=...>" would execute. (Same bug fixed in the stays card.)
+    const esc = (s) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
     // Build tour detail URL (opaque supplier token, not the raw name)
     const tourUrl = buildTourUrl(t, searchData, this?.supplierTokens);
 
@@ -158,7 +166,7 @@ function renderTourCard(t, idx, searchParams) {
                     <!-- Tour Type Badge -->
                     <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] == 'admin') { ?>
                     <div class="absolute top-2 right-2 bg-green-600 text-white px-2 py-0.5 rounded text-xs font-bold capitalize">
-                        ${t.supplier || '<?=T::tour?>'}
+                        ${esc(t.supplier || '<?=T::tour?>')}
                     </div>
                     <?php } ?>
 
@@ -179,13 +187,13 @@ function renderTourCard(t, idx, searchParams) {
                     <!-- Tour Name & Location -->
                     <div class="flex-grow">
                         <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100 mb-0.5 line-clamp-1">
-                            ${tourName}
+                            ${esc(tourName)}
                         </h3>
 
                         <div class="flex items-start gap-1.5 mb-2">
                             <span class="material-symbols-outlined text-gray-500 dark:text-gray-400" style="font-size: 16px;">location_on</span>
                             <span class="text-xs text-gray-600 dark:text-gray-400 line-clamp-1">
-                                ${t.location || ''}${t.city ? ', ' + t.city : ''}${t.country ? ', ' + t.country : ''}
+                                ${esc(t.location || '')}${t.city ? ', ' + esc(t.city) : ''}${t.country ? ', ' + esc(t.country) : ''}
                             </span>
                         </div>
 
@@ -298,7 +306,7 @@ function renderTourCard(t, idx, searchParams) {
                     <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] == 'admin') { ?>
                     <div class="flex items-center gap-2">
                         <span class="material-symbols-outlined" style="font-size: 14px;">business</span>
-                        <span><?=T::powered?> <?=T::by?> ${t.supplier || 'N/A'}</span>
+                        <span><?=T::powered?> <?=T::by?> ${esc(t.supplier || 'N/A')}</span>
                         <span class="w-1 h-1 bg-gray-400 dark:bg-gray-600 rounded-full"></span>
                         <span>${t.currency || 'USD'}</span>
                     </div>
