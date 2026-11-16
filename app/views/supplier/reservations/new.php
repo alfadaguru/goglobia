@@ -93,41 +93,43 @@
             <p class="text-xs text-gray-400 mt-1">Optional. Leave blank to use the guest below as the customer.</p>
           </div>
 
-          <!-- GUEST (the stayer): search-or-create -->
+          <!-- GUEST (the stayer): search-or-add, mirrors the customer flow — collapses to a
+               chip when picked, reveals the detail fields only when adding a new guest. -->
           <div class="form-control">
             <label class="block text-sm font-medium text-gray-700 mb-1">Guest (the stayer)</label>
+            <input type="hidden" name="guest_id" id="guestId" value="">
+
+            <!-- Picked-guest chip (shown after choosing a returning guest) -->
+            <div id="guestPicked" class="hidden items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <span class="flex items-center gap-2 text-sm text-emerald-900 min-w-0">
+                <span class="material-symbols-outlined text-base">person</span>
+                <span class="min-w-0">
+                  <span id="guestPickedName" class="font-medium block truncate"></span>
+                  <span id="guestPickedSub" class="text-xs text-emerald-700 block truncate"></span>
+                </span>
+              </span>
+              <button type="button" id="guestClear" class="text-emerald-700 hover:text-emerald-900 shrink-0" title="Change guest"><span class="material-symbols-outlined text-base">close</span></button>
+            </div>
+
+            <!-- Search + add (shown by default) — search a returning guest, or "Add guest"
+               opens the create popup. Exactly like the customer field above. -->
             <div class="relative" id="guestSearchWrap">
               <div class="flex gap-2">
-                <input type="text" id="guestSearch" autocomplete="off" class="input" placeholder="Search an existing guest by name or phone…">
-                <button type="button" id="guestNewBtn" class="btn secondary whitespace-nowrap"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">person_add</span> New</span></button>
+                <input type="text" id="guestSearch" autocomplete="off" class="input" placeholder="Search a returning guest by name or phone…">
+                <button type="button" id="guestNewBtn" class="btn secondary whitespace-nowrap"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">person_add</span> Add guest</span></button>
               </div>
               <div id="guestResults" class="hidden absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
             </div>
-            <input type="hidden" name="guest_id" id="guestId" value="">
-            <p class="text-xs text-gray-400 mt-1">Pick a returning guest to prefill their details, or just fill the fields below to add a new one.</p>
+            <p id="guestHint" class="text-xs text-rose-500 mt-1 hidden">Pick or add a guest to continue.</p>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="form-control">
-              <label class="block text-sm font-medium text-gray-700 mb-1">Guest first name *</label>
-              <input type="text" name="first_name" id="gFirst" required class="input">
-            </div>
-            <div class="form-control">
-              <label class="block text-sm font-medium text-gray-700 mb-1">Guest last name</label>
-              <input type="text" name="last_name" id="gLast" class="input">
-            </div>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="form-control">
-              <label class="block text-sm font-medium text-gray-700 mb-1">Email <span class="text-gray-400">(optional)</span></label>
-              <input type="email" name="email" id="gEmail" class="input">
-            </div>
-            <div class="form-control">
-              <label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
-              <input type="tel" name="phone" id="gPhone" required inputmode="tel" class="input" placeholder="e.g. +234 801 234 5678">
-              <p class="text-xs text-gray-400 mt-1">Required — the guest is stored and searchable by name &amp; phone.</p>
-            </div>
-          </div>
+          <!-- The guest's identity goes to the booking via these hidden inputs — filled by
+               picking a returning guest OR by the "Add guest" popup. The form stays seamless
+               (no raw fields on screen); the server still receives first_name/phone/email. -->
+          <input type="hidden" name="first_name" id="gFirst" value="">
+          <input type="hidden" name="last_name" id="gLast" value="">
+          <input type="hidden" name="email" id="gEmail" value="">
+          <input type="hidden" name="phone" id="gPhone" value="">
         </div>
 
         <!-- ROOM, RATE, DATES -->
@@ -316,6 +318,31 @@
     </div>
   </div>
 
+  <!-- guest create modal (mirrors the customer one; posts to /supplier/guests/quick-create) -->
+  <div id="guestCreateModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div class="w-full max-w-md rounded-lg bg-white shadow-xl">
+      <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+        <h2 class="text-lg font-semibold text-gray-900">New guest</h2>
+        <button type="button" id="guestCreateClose" class="text-gray-400 hover:text-gray-700"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <div class="px-5 py-4 space-y-3">
+        <div id="guestCreateErr" class="hidden alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm"></p></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">First name *</label><input type="text" id="ngFirst" class="input"></div>
+          <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Last name</label><input type="text" id="ngLast" class="input"></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label><input type="tel" id="ngPhone" inputmode="tel" class="input" placeholder="e.g. +234 801 234 5678"></div>
+          <div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Email <span class="text-gray-400">(optional)</span></label><input type="email" id="ngEmail" class="input"></div>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-3 border-t border-gray-100 px-5 py-3">
+        <button type="button" id="guestCreateCancel" class="btn secondary">Cancel</button>
+        <button type="button" id="guestCreateSave" class="btn emerald">Create &amp; use</button>
+      </div>
+    </div>
+  </div>
+
   <?php endif; ?>
 </div>
 
@@ -430,15 +457,10 @@
   if (bR) { bR.addEventListener('click', function () { if (sa) sa.value = 'reserve'; }); }
   if (bH) { bH.addEventListener('click', function () { if (sa) sa.value = 'hold'; }); }
 
-  // phone client-side validation (same as server: ≥7 digits)
-  var form = $('walkinForm'), phone = $('gPhone');
-  if (form && phone) {
-    form.addEventListener('submit', function (ev) {
-      var digits = (phone.value || '').replace(/\D+/g, '');
-      if (digits.length < 7) { ev.preventDefault(); phone.setCustomValidity('Enter a valid phone number (at least 7 digits).'); phone.reportValidity(); phone.focus(); }
-    });
-    phone.addEventListener('input', function () { phone.setCustomValidity(''); });
-  }
+  // Guest phone is now captured in the "Add guest" popup (or from a picked guest), so the
+  // hidden gPhone always holds a validated number. We no longer run a native bubble on it
+  // (reportValidity does nothing on a hidden field). The guest submit-guard below (in the
+  // guest block) blocks submit + shows the hint when no valid guest is set.
 
   // ---- CUSTOMER search + pick + inline create ----
   (function () {
@@ -450,9 +472,12 @@
     function selectCustomer(c) {
       hidden.value = c.id; pickedLabel.textContent = c.name; pickedType.textContent = c.type || '';
       picked.classList.remove('hidden'); picked.classList.add('flex'); searchWrap.classList.add('hidden'); results.classList.add('hidden');
-      if (gFirst && !gFirst.value && c.name) { var parts = String(c.name).trim().split(/\s+/); gFirst.value = parts.shift() || ''; if (gLast && !gLast.value) { gLast.value = parts.join(' '); } }
-      if (gEmail && !gEmail.value && c.email) { gEmail.value = c.email; }
-      if (gPhone && !gPhone.value && c.phone) { gPhone.value = c.phone; }
+      // Offer the payer as the guest too (common walk-in case: payer == stayer), but ONLY
+      // when no guest is set yet — the guest block reflects it as its own chip via the shared
+      // hook, so the two stay consistent. The operator can clear/change the guest independently.
+      if (window.__deskSeedGuest && !($('guestId') && $('guestId').value)) {
+        window.__deskSeedGuest({ name: c.name, phone: c.phone, email: c.email });
+      }
     }
     function clearCustomer() { hidden.value = ''; picked.classList.add('hidden'); picked.classList.remove('flex'); searchWrap.classList.remove('hidden'); search.value = ''; results.innerHTML = ''; results.classList.add('hidden'); }
     clearBtn && clearBtn.addEventListener('click', clearCustomer);
@@ -505,32 +530,66 @@
     });
   })();
 
-  // ---- GUEST search-or-create (reuses /supplier/guests/search, like the group desk) ----
+  // ---- GUEST search-or-create — mirrors the customer flow exactly: search a returning
+  //      guest (pick -> green chip), or "Add guest" opens a popup that creates the guest
+  //      via /supplier/guests/quick-create and attaches it. The guest's identity lands in
+  //      the hidden first_name/last_name/email/phone + guest_id inputs, so the booking POST
+  //      is unchanged. No raw fields on screen. ----
   (function () {
-    var search = $('guestSearch'), results = $('guestResults'), wrap = $('guestSearchWrap'), gid = $('guestId'),
-        gFirst = $('gFirst'), gLast = $('gLast'), gEmail = $('gEmail'), gPhone = $('gPhone'), newBtn = $('guestNewBtn');
+    var search = $('guestSearch'), results = $('guestResults'), wrap = $('guestSearchWrap'),
+        gid = $('guestId'), newBtn = $('guestNewBtn'), hint = $('guestHint'),
+        picked = $('guestPicked'), pickedName = $('guestPickedName'), pickedSub = $('guestPickedSub'), clearBtn = $('guestClear'),
+        gFirst = $('gFirst'), gLast = $('gLast'), gEmail = $('gEmail'), gPhone = $('gPhone');
     if (!search) { return; }
-    var t = null;
+
+    // Write a guest {id?,name,phone,email} into the hidden fields + show the chip.
+    function setGuest(g) {
+      if (gid) { gid.value = g.id ? g.id : ''; }
+      var parts = String(g.name || '').trim().split(/\s+/);
+      if (gFirst) { gFirst.value = parts.shift() || ''; }
+      if (gLast)  { gLast.value = parts.join(' '); }
+      if (gEmail) { gEmail.value = g.email || ''; }
+      if (gPhone) { gPhone.value = g.phone || ''; }
+      pickedName.textContent = g.name || ((gFirst ? gFirst.value : '') + (gLast && gLast.value ? ' ' + gLast.value : '')).trim() || 'Guest';
+      pickedSub.textContent = [g.phone, g.email].filter(Boolean).join(' · ');
+      picked.classList.remove('hidden'); picked.classList.add('flex');
+      wrap.classList.add('hidden');
+      if (hint) { hint.classList.add('hidden'); }
+      results.classList.add('hidden');
+    }
+    function clearGuest() {
+      if (gid) gid.value = ''; if (gFirst) gFirst.value = ''; if (gLast) gLast.value = '';
+      if (gEmail) gEmail.value = ''; if (gPhone) gPhone.value = '';
+      picked.classList.add('hidden'); picked.classList.remove('flex');
+      wrap.classList.remove('hidden'); search.value = ''; results.innerHTML = ''; results.classList.add('hidden');
+    }
+    clearBtn && clearBtn.addEventListener('click', clearGuest);
+
+    // Shared hook so the customer block can offer the payer as the guest (no cross-scope
+    // coupling beyond this one function). Seeds the chip + hidden fields like a real pick.
+    window.__deskSeedGuest = function (g) { if (g && (g.name || g.phone)) { setGuest(g); } };
+
     function hide() { results.classList.add('hidden'); results.innerHTML = ''; }
+    var t = null;
     search.addEventListener('input', function () {
-      var q = search.value.trim(); if (gid) gid.value = ''; if (t) clearTimeout(t);
+      var q = search.value.trim(); if (t) clearTimeout(t);
       if (q.length < 2) { hide(); return; }
       t = setTimeout(function () {
         fetch(ROOT + 'supplier/guests/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
           .then(function (r) { return r.json(); })
           .then(function (d) {
             var rows = (d && d.results) || []; results.innerHTML = '';
-            if (!rows.length) { results.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No match — fill the fields below to add a new guest.</div>'; results.classList.remove('hidden'); return; }
+            if (!rows.length) {
+              var none = document.createElement('button'); none.type = 'button';
+              none.className = 'block w-full text-left px-3 py-2 text-xs text-violet-600 hover:bg-gray-50';
+              none.textContent = 'No match — add “' + q + '” as a new guest';
+              none.addEventListener('click', function () { openGuestModal(q); });
+              results.appendChild(none); results.classList.remove('hidden'); return;
+            }
             rows.forEach(function (g) {
               var el = document.createElement('button'); el.type = 'button'; el.className = 'block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0';
               el.innerHTML = '<div class="text-sm font-medium text-gray-800">' + esc(g.name || '(guest)') + '</div><div class="text-xs text-gray-500">' + esc([g.phone, g.email].filter(Boolean).join(' · ')) + '</div>';
-              el.addEventListener('click', function () {
-                if (g.id && gid) { gid.value = g.id; }
-                if (g.name) { var parts = String(g.name).trim().split(/\s+/); if (gFirst) gFirst.value = parts.shift() || ''; if (gLast) gLast.value = parts.join(' '); }
-                if (gEmail && g.email) gEmail.value = g.email;
-                if (gPhone && g.phone) gPhone.value = g.phone;
-                search.value = g.name || ''; hide();
-              });
+              el.addEventListener('click', function () { setGuest(g); });
               results.appendChild(el);
             });
             results.classList.remove('hidden');
@@ -538,9 +597,52 @@
       }, 220);
     });
     document.addEventListener('click', function (e) { if (wrap && !wrap.contains(e.target)) hide(); });
-    // "New" just focuses the first name field (there's no separate guest-create endpoint —
-    // leaving the fields filled creates the guest on submit, exactly like the group desk).
-    if (newBtn) { newBtn.addEventListener('click', function () { if (gid) gid.value = ''; search.value = ''; hide(); if (gFirst) gFirst.focus(); }); }
+
+    // ---- "Add guest" create popup (mirrors the customer create modal) ----
+    var modal = $('guestCreateModal'), closeBtn2 = $('guestCreateClose'), cancelBtn2 = $('guestCreateCancel'),
+        saveBtn2 = $('guestCreateSave'), errBox2 = $('guestCreateErr');
+    function openGuestModal(seedName) {
+      var parts = String(seedName || search.value || '').trim().split(/\s+/);
+      $('ngFirst').value = parts.shift() || ''; $('ngLast').value = parts.join(' ');
+      $('ngPhone').value = ''; $('ngEmail').value = '';
+      errBox2.classList.add('hidden'); modal.classList.remove('hidden'); $('ngFirst').focus();
+    }
+    function closeGuestModal() { modal.classList.add('hidden'); }
+    newBtn && newBtn.addEventListener('click', function () { openGuestModal(''); });
+    closeBtn2 && closeBtn2.addEventListener('click', closeGuestModal);
+    cancelBtn2 && cancelBtn2.addEventListener('click', closeGuestModal);
+    modal && modal.addEventListener('click', function (e) { if (e.target === modal) { closeGuestModal(); } });
+    saveBtn2 && saveBtn2.addEventListener('click', function () {
+      var first = $('ngFirst').value.trim(), last = $('ngLast').value.trim(), ph = $('ngPhone').value.trim(), em = $('ngEmail').value.trim();
+      if (!first && !last) { errBox2.querySelector('p').textContent = 'A guest name is required.'; errBox2.classList.remove('hidden'); return; }
+      if ((ph.replace(/\D+/g, '')).length < 7) { errBox2.querySelector('p').textContent = 'A valid phone number is required (at least 7 digits).'; errBox2.classList.remove('hidden'); return; }
+      saveBtn2.disabled = true;
+      var fd = new FormData();
+      fd.append('first_name', first); fd.append('last_name', last); fd.append('phone', ph); fd.append('email', em); fd.append('csrf_token', CSRF_VAL);
+      fetch(ROOT + 'supplier/guests/quick-create', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF_VAL } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          saveBtn2.disabled = false;
+          if (d && d.ok && d.guest) { closeGuestModal(); setGuest(d.guest); }
+          else { errBox2.querySelector('p').textContent = (d && d.message) || 'Could not create the guest.'; errBox2.classList.remove('hidden'); }
+        })
+        .catch(function () { saveBtn2.disabled = false; errBox2.querySelector('p').textContent = 'Network error.'; errBox2.classList.remove('hidden'); });
+    });
+
+    // Submit guard: a guest is REQUIRED (the stayer). Since there are no visible required
+    // fields now, block submit until a guest is picked/added and surface the hint.
+    var form2 = $('walkinForm');
+    if (form2) {
+      form2.addEventListener('submit', function (ev) {
+        var hasGuest = (gid && gid.value) || (gPhone && gPhone.value && gFirst && gFirst.value);
+        if (!hasGuest) {
+          ev.preventDefault();
+          if (hint) { hint.classList.remove('hidden'); }
+          wrap.classList.remove('hidden');
+          search.focus();
+        }
+      }, true); // capture: run before the phone-validator (which reads gPhone)
+    }
   })();
 
   fillRates(); // initial render + price

@@ -126,6 +126,45 @@ $router->get('/supplier/guests/search', function () use ($SECURE, $db) {
     echo json_encode(['results' => $out]); exit;
 });
 
+// POST /supplier/guests/quick-create — create (or dedupe-find) a stored guest from
+// name/phone/email and return it, so the front-desk "Add guest" popup can attach a
+// guest_id without leaving the page (mirrors /supplier/customers/quick-create). REUSES
+// guests_resolve_for_booking — the SAME create-or-find the booking engine uses — so a
+// guest made here is identical to one made at submit time. Name + phone required.
+$router->post('/supplier/guests/quick-create', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard(); // X-CSRF-TOKEN header (fetch) or csrf_token field; JSON 403 on fail
+    $c = _guests_ctx($db);
+    if ($c === null || (int) $c['org'] <= 0 || !supplier_can_orgwide($db, 'guests', 'edit')) {
+        echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit;
+    }
+    $orgId = (int) $c['org'];
+    $first = trim((string) ($_POST['first_name'] ?? ''));
+    $last  = trim((string) ($_POST['last_name'] ?? ''));
+    $phone = trim((string) ($_POST['phone'] ?? ''));
+    $email = trim((string) ($_POST['email'] ?? ''));
+    if ($first === '' && $last === '') { echo json_encode(['ok' => false, 'message' => 'A guest name is required.']); exit; }
+    if (!function_exists('supplier_valid_phone') || !supplier_valid_phone($phone)) {
+        echo json_encode(['ok' => false, 'message' => 'A valid phone number is required (at least 7 digits).']); exit;
+    }
+    if (!function_exists('guests_resolve_for_booking')) {
+        echo json_encode(['ok' => false, 'message' => 'Guest engine unavailable.']); exit;
+    }
+    $gid = (int) guests_resolve_for_booking($db, $orgId, [
+        'first_name' => $first, 'last_name' => $last, 'phone' => $phone, 'email' => $email,
+    ]);
+    if ($gid <= 0) { echo json_encode(['ok' => false, 'message' => 'Could not save the guest.']); exit; }
+    $row = $db->get('stays_guests', ['id', 'display_name', 'phone', 'email', 'contact_id'], ['id' => $gid, 'org_id' => $orgId]);
+    echo json_encode(['ok' => true, 'guest' => [
+        'id'         => $gid,
+        'name'       => (string) ($row['display_name'] ?? trim($first . ' ' . $last)),
+        'phone'      => (string) ($row['phone'] ?? $phone),
+        'email'      => (string) ($row['email'] ?? $email),
+        'contact_id' => (int) ($row['contact_id'] ?? 0),
+    ]]); exit;
+});
+
 // POST /supplier/guests/{id}/make-customer — one-click: promote a stored guest to a
 // Customer (payer). If a customer with the same phone already exists in the org, LINK to
 // it; otherwise create one from the guest's name/phone/email and link (guest.contact_id).
