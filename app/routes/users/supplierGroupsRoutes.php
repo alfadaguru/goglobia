@@ -102,16 +102,20 @@ $router->post('/supplier/groups/create', function () use ($SECURE, $db) {
     header('Location: ' . $back); exit;
 });
 
-// POST /supplier/groups/create-full — ONE-PAGE group create (Option B). Collects the group
-// profile + customer + ONE room block + a rooming list in a single submit, then orchestrates
-// the SAME guarded engine helpers the multi-step flow uses, IN ORDER, server-authoritative:
-//   group_create -> group_block_add -> group_member_add_r (×N)
-//   -> (if submit_action='book') group_bulk_assign + group_bulk_book
-// It adds NO new money/inventory logic — each helper keeps its own ownership ($stayId),
-// inventory atomicity (stays_hold_create / FOR UPDATE), and role caps. A failure at profile
-// or block creation STOPS and reports honestly (no half-made group claimed as success); a
-// per-guest add failure is tallied, not hidden. Lands on the group detail page so the operator
-// sees the result. The old step routes stay intact for managing large/existing groups.
+// POST /supplier/groups/create-full — ROOM-FIRST one-page group create. The operator builds a
+// list of ROOM ROWS, each = a room type + dates + (optionally) a SPECIFIC physical room + the
+// guest staying in it (with details). One submit orchestrates the SAME guarded engine helpers,
+// server-authoritative, IN ORDER:
+//   group_create
+//   -> for each distinct (room_id, option_id, date_from, date_to): group_block_add(qty = #rows)
+//   -> per row: group_member_add_r (its guest)  +  group_member_assign_room (its chosen room)
+//   -> (submit_action='book') group_bulk_assign (fills any 'auto-pick' rows) + group_bulk_book
+// It adds NO new money/inventory logic — each helper keeps its own ownership ($stayId), inventory
+// atomicity (stays_hold_create / FOR UPDATE), the date-aware no-oversell room guard, and role
+// caps. A specific room a row asks for is RE-VALIDATED by group_member_assign_room (it can be
+// refused/raced → that row stays unassigned and is reported, never oversold). Honest reporting:
+// a failed block or a failed row is tallied, not hidden; nothing half-made is claimed as success.
+// The old step routes + the detail page stay intact for managing large/existing groups.
 $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db);
@@ -119,17 +123,58 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId; // where we return on an early failure
     if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
-    if (!function_exists('group_create') || !function_exists('group_block_add')) {
+    if (!function_exists('group_create') || !function_exists('group_block_add') || !function_exists('group_member_add_r')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Group engine unavailable.'];
         header('Location: ' . $back); exit;
     }
 
-    // 'hold' = create + hold the block + add the rooming list (default). 'book' additionally
-    // auto-assigns rooms + books every guest now. Mirrors single booking's Reserve / Reserve &
-    // check in. Any other value is treated as 'hold' (the safer path).
+    // 'hold' = create + hold rooms + add the rooming list + assign chosen specific rooms (default).
+    // 'book' additionally auto-assigns any 'auto-pick' rows then books every assigned guest now.
     $submitAction = ($_POST['submit_action'] ?? 'hold') === 'book' ? 'book' : 'hold';
-
     $currency = (string) ($_POST['currency'] ?? '') ?: (string) ($db->get('stays', ['currency'], ['id' => $stayId])['currency'] ?? 'USD');
+
+    // A negotiated per-row rate changes the booking price → honour a posted rate ONLY from a user
+    // with rates:edit (server-authoritative; tampering can't set it). Computed once for the request.
+    $canRate = supplier_can($db, 'rates', 'edit', $stayId);
+
+    // ---- Parse the ROOM ROWS (parallel arrays). Each index i is one room + its guest. ----
+    $rRoom  = isset($_POST['room_id']) && is_array($_POST['room_id']) ? $_POST['room_id'] : [];
+    $rOpt   = isset($_POST['option_id']) && is_array($_POST['option_id']) ? $_POST['option_id'] : [];
+    $rFrom  = isset($_POST['date_from']) && is_array($_POST['date_from']) ? $_POST['date_from'] : [];
+    $rTo    = isset($_POST['date_to']) && is_array($_POST['date_to']) ? $_POST['date_to'] : [];
+    $rRate  = isset($_POST['rate']) && is_array($_POST['rate']) ? $_POST['rate'] : [];
+    $rPrid  = isset($_POST['physical_room_id']) && is_array($_POST['physical_room_id']) ? $_POST['physical_room_id'] : [];
+    $rName  = isset($_POST['guest_name']) && is_array($_POST['guest_name']) ? $_POST['guest_name'] : [];
+    $rEmail = isset($_POST['guest_email']) && is_array($_POST['guest_email']) ? $_POST['guest_email'] : [];
+    $rPhone = isset($_POST['guest_phone']) && is_array($_POST['guest_phone']) ? $_POST['guest_phone'] : [];
+    $rCust  = isset($_POST['guest_customer_id']) && is_array($_POST['guest_customer_id']) ? $_POST['guest_customer_id'] : [];
+
+    // Normalise into clean row records; skip wholly-empty rows (no room type chosen AND no guest).
+    $rows = [];
+    foreach ($rRoom as $i => $_rid) {
+        $roomId = (int) $_rid;
+        $optId  = (int) ($rOpt[$i] ?? 0);
+        $from   = (string) ($rFrom[$i] ?? '');
+        $to     = (string) ($rTo[$i] ?? '');
+        $name   = trim((string) ($rName[$i] ?? ''));
+        if ($roomId <= 0 && $name === '') { continue; } // blank spare row
+        $rows[] = [
+            'room_id'   => $roomId,
+            'option_id' => $optId,
+            'from'      => $from,
+            'to'        => $to,
+            'rate'      => ($canRate && isset($rRate[$i]) && $rRate[$i] !== '') ? (float) $rRate[$i] : null,
+            'prid'      => (int) ($rPrid[$i] ?? 0),       // 0 = auto-pick
+            'name'      => $name,
+            'email'     => (string) ($rEmail[$i] ?? ''),
+            'phone'     => (string) ($rPhone[$i] ?? ''),
+            'cust'      => (int) ($rCust[$i] ?? 0),
+        ];
+    }
+    if (empty($rows)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Add at least one room with a guest.'];
+        header('Location: ' . $back); exit;
+    }
 
     // 1) CREATE the group profile (+ link the chosen customer). Required: a name.
     $groupId = (int) group_create($db, $stayId, [
@@ -146,64 +191,92 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not create the group — a group name is required.'];
         header('Location: ' . $back); exit;
     }
-    // From here on, the group EXISTS — send the operator to its detail page on every outcome,
-    // success or partial, so nothing is silently lost.
+    // The group EXISTS now — send the operator to its detail page on every outcome, success or
+    // partial, so nothing is silently lost.
     $back = root . 'supplier/groups/' . $groupId;
 
-    // 2) HOLD the room block against real availability. A negotiated group rate changes the
-    //    booking price → honour it ONLY from a user with rates:edit (server-authoritative;
-    //    hidden-field tampering can't set it, exactly like /supplier/groups/block).
-    $rate = null;
-    if (isset($_POST['rate']) && $_POST['rate'] !== '' && supplier_can($db, 'rates', 'edit', $stayId)) {
-        $rate = (float) $_POST['rate'];
+    // 2) GROUP rows into BLOCKS by (room_id, option_id, from, to) — dates live on the block, so a
+    //    distinct type+dates = its own block; same type+dates share one block of qty = #rows.
+    //    Hold each block (no-oversell spine). A block that can't be held fails ALL its rows (they
+    //    are reported), but other blocks still proceed.
+    $blockOf = [];        // row index -> block_id (0 if its block failed)
+    $blockIdByKey = [];   // key -> block_id
+    $blockFail = [];      // key -> message (for reporting)
+    $rowsByKey = [];
+    foreach ($rows as $i => $r) {
+        $key = $r['room_id'] . ':' . $r['option_id'] . ':' . $r['from'] . ':' . $r['to'];
+        $rowsByKey[$key][] = $i;
     }
-    $blockRes = group_block_add($db, $groupId, $stayId,
-        (int) ($_POST['room_id'] ?? 0), (int) ($_POST['option_id'] ?? 0),
-        (string) ($_POST['date_from'] ?? ''), (string) ($_POST['date_to'] ?? ''),
-        (int) ($_POST['qty'] ?? 1), (string) ($_POST['cutoff_date'] ?? ''), $rate);
-    if (empty($blockRes['ok'])) {
-        // The group is made but the block failed (e.g. not enough rooms). Say so plainly and
-        // let the operator fix it on the detail/groups page rather than pretend success.
-        $_SESSION['message'] = ['type' => 'error',
-            'text' => 'Group “' . trim((string) ($_POST['name'] ?? '')) . '” created, but the room block could not be held: ' . ($blockRes['message'] ?? 'not enough rooms.') . ' Add a block from the group page.'];
-        header('Location: ' . $back); exit;
-    }
-    $blockId = (int) ($blockRes['block_id'] ?? 0);
-
-    // 3) ADD the rooming list — parallel arrays from the repeatable guest rows. A row with a
-    //    blank name is skipped (the operator may leave spare rows empty). Each add is the SAME
-    //    guarded group_member_add_r the step flow uses.
-    $names  = isset($_POST['guest_name']) && is_array($_POST['guest_name']) ? $_POST['guest_name'] : [];
-    $emails = isset($_POST['guest_email']) && is_array($_POST['guest_email']) ? $_POST['guest_email'] : [];
-    $phones = isset($_POST['guest_phone']) && is_array($_POST['guest_phone']) ? $_POST['guest_phone'] : [];
-    $gcusts = isset($_POST['guest_customer_id']) && is_array($_POST['guest_customer_id']) ? $_POST['guest_customer_id'] : [];
-    $added = 0; $memberFail = 0;
-    foreach ($names as $i => $nm) {
-        $nm = trim((string) $nm);
-        if ($nm === '') { continue; } // empty spare row
-        $r = function_exists('group_member_add_r') ? group_member_add_r($db, $groupId, $stayId, $blockId, $nm, [
-            'email'       => (string) ($emails[$i] ?? ''),
-            'phone'       => (string) ($phones[$i] ?? ''),
-            'customer_id' => (int) ($gcusts[$i] ?? 0),
-        ]) : ['ok' => false];
-        if (!empty($r['ok'])) { $added++; } else { $memberFail++; }
+    foreach ($rowsByKey as $key => $idxs) {
+        $first = $rows[$idxs[0]];
+        // Use the first row's rate for the block's negotiated rate (per-type+dates rate; all rows
+        // of a block share dates/type, so one rate applies — matches the engine's per-block rate).
+        $res = group_block_add($db, $groupId, $stayId,
+            (int) $first['room_id'], (int) $first['option_id'],
+            (string) $first['from'], (string) $first['to'],
+            count($idxs), (string) ($_POST['cutoff_date'] ?? ''), $first['rate']);
+        if (!empty($res['ok'])) {
+            $bid = (int) ($res['block_id'] ?? 0);
+            $blockIdByKey[$key] = $bid;
+            foreach ($idxs as $ix) { $blockOf[$ix] = $bid; }
+        } else {
+            $blockFail[$key] = $res['message'] ?? 'not enough rooms';
+            foreach ($idxs as $ix) { $blockOf[$ix] = 0; }
+        }
     }
 
-    // 4) If "Create & book all": auto-assign a room to every guest, then book every assignable
-    //    guest — reusing the bulk helpers, each a loop over the per-member guarded fn (no
-    //    oversell / double-book possible). On 'hold' we stop here with the block held + the
-    //    rooming list in place for the operator to assign/book on the detail page.
+    // 3) PER ROW: add the guest to its block, then (if a specific room was chosen) assign it. The
+    //    assign goes through group_member_assign_room — the authoritative, FOR-UPDATE, date-aware
+    //    no-oversell re-check — so a tampered/raced room is refused (row stays auto-pickable), never
+    //    oversold. Track the member id so we can assign + so 'book' can act on it.
+    $added = 0; $memberFail = 0; $assigned = 0; $assignFail = 0;
+    foreach ($rows as $i => $r) {
+        $bid = (int) ($blockOf[$i] ?? 0);
+        if ($bid <= 0) { continue; } // its block failed; already recorded in $blockFail
+        $name = $r['name'] !== '' ? $r['name'] : 'Guest';
+        $addRes = group_member_add_r($db, $groupId, $stayId, $bid, $name, [
+            'email'       => $r['email'],
+            'phone'       => $r['phone'],
+            'customer_id' => $r['cust'],
+        ]);
+        if (empty($addRes['ok'])) { $memberFail++; continue; }
+        $added++;
+        // The just-added member is the newest row of this block for this guest; fetch its id.
+        $memberId = (int) $db->id();
+        if ($memberId <= 0) {
+            // Fallback: resolve by the latest matching member (defensive; id() should be set).
+            $memberId = (int) ($db->get('stays_group_members', 'id',
+                ['group_id' => $groupId, 'block_id' => $bid, 'ORDER' => ['id' => 'DESC']]) ?: 0);
+        }
+        if ($memberId > 0 && $r['prid'] > 0 && function_exists('group_member_assign_room')) {
+            $asg = group_member_assign_room($db, $memberId, $stayId, $r['prid']);
+            if (!empty($asg['ok'])) { $assigned++; } else { $assignFail++; }
+        }
+    }
+
+    // 4) BOOK path: auto-assign any rows left on auto-pick, then book every assignable member. Both
+    //    are loops over the per-member guarded fns (no oversell / double-book). On 'hold' we stop
+    //    with rooms held + the rooming list + chosen rooms pre-assigned, ready to book later.
     $bookNote = '';
     if ($submitAction === 'book' && $added > 0 && function_exists('group_bulk_assign') && function_exists('group_bulk_book')) {
         $asg = group_bulk_assign($db, $groupId, $stayId);
         $bk  = group_bulk_book($db, $groupId, $stayId);
-        $bookNote = ' Auto-assign: ' . ($asg['message'] ?? '') . ' Book: ' . ($bk['message'] ?? '');
+        $bookNote = ' Auto-assign remaining: ' . ($asg['message'] ?? '') . ' Book: ' . ($bk['message'] ?? '');
     }
 
-    $msg = 'Group created with ' . $added . ' guest(s) on a held block of ' . (int) ($_POST['qty'] ?? 1) . ' room(s).'
+    // Honest flash — rooms held, guests added, specific rooms assigned, plus any failures.
+    $blockFailNote = '';
+    if (!empty($blockFail)) {
+        $blockFailNote = ' ' . count($blockFail) . ' room block(s) could not be held (' . implode('; ', array_map('strval', $blockFail)) . ').';
+    }
+    $msg = 'Group created: ' . $added . ' guest(s) on held rooms'
+        . ($assigned > 0 ? ', ' . $assigned . ' assigned to the room you picked' : '')
+        . ($assignFail > 0 ? ', ' . $assignFail . ' chosen room(s) were taken (left for auto-assign)' : '')
+        . '.'
         . ($memberFail > 0 ? ' ' . $memberFail . ' guest row(s) could not be added.' : '')
+        . $blockFailNote
         . $bookNote;
-    $_SESSION['message'] = ['type' => 'success', 'text' => $msg];
+    $_SESSION['message'] = ['type' => $added > 0 ? 'success' : 'error', 'text' => $msg];
     header('Location: ' . $back); exit;
 });
 
@@ -484,6 +557,39 @@ if (!function_exists('_group_free_rooms_for_block')) {
         return $out;
     }
 }
+
+// GET /supplier/groups/free-rooms?stay_id&room_id&date_from&date_to — JSON list of the SPECIFIC
+// free physical rooms of a room TYPE for a date range. Powers the room-first create: when the
+// operator sets a row's room type + dates, the browser fetches the truly-free rooms for THOSE
+// dates. It reuses the SAME date-aware guard the detail page uses (_group_free_rooms_for_block →
+// hk_rooms_blocking + hk_assignable_statuses + OOO) by building a pseudo-block from the params —
+// NO parallel availability logic. Read-only; the authoritative re-check still happens server-side
+// in group_member_assign_room on submit. Returns {ok, results:[{id,label}]}.
+// NB: '([0-9]+)' in the detail route below cannot match 'free-rooms', so order is safe; this is
+// registered first for clarity.
+$router->get('/supplier/groups/free-rooms', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { echo json_encode(['ok' => false, 'message' => 'Not authorised.', 'results' => []]); exit; }
+    $stayId = (int) ($_GET['stay_id'] ?? 0);
+    // VIEW is enough to list rooms (the write path re-checks edit); scope to this property.
+    if ($stayId <= 0 || !supplier_can($db, 'groups', 'view', $stayId)) {
+        echo json_encode(['ok' => false, 'message' => 'Not your property.', 'results' => []]); exit;
+    }
+    $roomId = (int) ($_GET['room_id'] ?? 0);
+    $from   = (string) ($_GET['date_from'] ?? '');
+    $to     = (string) ($_GET['date_to'] ?? '');
+    // Dates must be well-formed and from < to, else availability is meaningless.
+    if ($roomId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) || strtotime($to) <= strtotime($from)) {
+        echo json_encode(['ok' => true, 'results' => []]); exit; // nothing to offer yet
+    }
+    // Build a pseudo-block and reuse the canonical date-aware free-room finder (same guards as
+    // the detail page). This is the ONLY availability source — no copy.
+    $pseudoBlock = ['room_id' => $roomId, 'date_from' => $from, 'date_to' => $to];
+    $rooms = function_exists('_group_free_rooms_for_block') ? _group_free_rooms_for_block($db, $stayId, $pseudoBlock) : [];
+    echo json_encode(['ok' => true, 'results' => $rooms]); exit;
+});
 
 // GET /supplier/groups/{id} — group DETAIL: blocks + rooming list with per-member room-
 // number assignment (reuses the group functions; the room picker uses the canonical guard).

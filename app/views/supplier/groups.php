@@ -83,11 +83,10 @@ foreach ($rooms as $r) {
         $roomOptRateTop[(int) $__r['id'] . ':' . (int) ($__o['option_id'] ?? 0)] = (float) ($__o['price'] ?? 0);
       }
     }
-    $firstOptKey = (string) array_key_first($roomOpts);
   ?>
   <div class="card p-5">
     <h2 class="text-sm font-semibold text-gray-900 mb-1">New group</h2>
-    <p class="text-xs text-gray-500 mb-4">Create the group, hold a block of rooms, and add the rooming list — all on this page. Then book everyone with one click.</p>
+    <p class="text-xs text-gray-500 mb-4">Add the group, then add each room with its guest — pick a specific room number or let it auto-assign. Book everyone in one go, or hold the rooms to book later.</p>
 
     <?php if (empty($roomOpts)): ?>
       <div class="alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm">This property has no bookable rooms/rates yet. Add rooms &amp; rates first, then create a group block.</p></div>
@@ -129,42 +128,22 @@ foreach ($rooms as $r) {
         </div>
       </div>
 
-      <!-- 2 · ROOM BLOCK (holds inventory, no oversell) -->
-      <div class="space-y-2 border-t border-gray-100 pt-4">
-        <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">2 · Hold a block of rooms</div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div class="form-control">
-            <label class="block text-xs text-gray-600 mb-0.5">Room type &amp; rate</label>
-            <select class="input text-sm w-full gcf-roomopt" onchange="var v=this.value.split(':');document.getElementById('gcfRoomId').value=v[0];document.getElementById('gcfOptionId').value=v[1];gcfEstimate();">
-              <?php foreach ($roomOpts as $k => $lbl): ?><option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?>
-            </select>
-          </div>
-          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Rooms held</label><input type="number" name="qty" min="1" value="1" class="input text-sm gcf-qty" required oninput="gcfEstimate()"></div>
-        </div>
-        <input type="hidden" name="room_id" id="gcfRoomId" value="<?= (int) explode(':', $firstOptKey)[0] ?>">
-        <input type="hidden" name="option_id" id="gcfOptionId" value="<?= (int) explode(':', $firstOptKey)[1] ?>">
-        <div class="grid grid-cols-1 sm:grid-cols-<?= $canSetRate ? '4' : '3' ?> gap-2">
-          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-in</label><input type="date" name="date_from" class="input text-sm gcf-from" required oninput="gcfEstimate()"></div>
-          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-out</label><input type="date" name="date_to" class="input text-sm gcf-to" required oninput="gcfEstimate()"></div>
-          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Cutoff <span class="text-gray-400">(auto-release)</span></label><input type="date" name="cutoff_date" class="input text-sm" title="Unsold rooms auto-release after this date"></div>
-          <?php if ($canSetRate): ?>
-          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Group rate / night <span class="text-gray-400">(optional)</span></label><input type="number" name="rate" step="0.01" min="0" class="input text-sm gcf-rate" placeholder="room rate" oninput="gcfEstimate()"></div>
-          <?php endif; ?>
-        </div>
-        <div class="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5 flex justify-between">
-          <span class="gcf-breakdown">— rooms × — nights</span>
-          <span class="font-semibold text-gray-900">Est. block total: <span class="gcf-total"><?= $cur ?> 0.00</span></span>
-        </div>
-      </div>
-
-      <!-- 3 · ROOMING LIST (repeatable guest rows, each with search / create-popup) -->
+      <!-- 2 · ROOMS — room-first: each row = a room (type + dates + a SPECIFIC room) and the
+           guest staying in it. "Add another room" repeats. Mixed room types/dates allowed; the
+           server groups rows into held blocks by (type, dates), no oversell. -->
       <div class="space-y-2 border-t border-gray-100 pt-4">
         <div class="flex items-center justify-between">
-          <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">3 · Rooming list <span class="text-gray-400 normal-case font-normal">— the guests staying</span></div>
-          <button type="button" id="gcfAddGuest" class="btn secondary text-xs"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">person_add</span> Add another guest</span></button>
+          <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">2 · Rooms &amp; their guests</div>
+          <button type="button" id="gcfAddRoom" class="btn secondary text-xs"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">add</span> Add another room</span></button>
         </div>
-        <div id="gcfGuestRows" class="space-y-2"><!-- guest rows injected by JS (one to start) --></div>
-        <p class="text-[11px] text-gray-400">Search a returning guest to prefill, or just type a name. Leave spare rows blank — they’re ignored. You can add more guests later on the group page.</p>
+        <div id="gcfRooms" class="space-y-3"><!-- room rows injected by JS (one to start) --></div>
+        <div class="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5 flex justify-between">
+          <span class="gcf-breakdown">— rooms</span>
+          <span class="font-semibold text-gray-900">Est. total: <span class="gcf-total"><?= $cur ?> 0.00</span></span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Cutoff <span class="text-gray-400">(unsold rooms auto-release)</span></label><input type="date" name="cutoff_date" class="input text-sm" title="Unsold rooms auto-release after this date"></div>
+        </div>
       </div>
 
       <!-- SUBMIT: two buttons, mirroring single booking's Reserve / Reserve & check in -->
@@ -175,7 +154,7 @@ foreach ($rooms as $r) {
         <button type="submit" class="btn secondary text-sm" onclick="document.getElementById('gcSubmitAction').value='hold';">
           <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">schedule</span> Create &amp; hold</span>
         </button>
-        <span class="text-[11px] text-gray-400">“Book all” assigns rooms &amp; books every guest now; “Hold” just reserves the rooms for you to book later.</span>
+        <span class="text-[11px] text-gray-400">“Book all” books every room’s guest now; “Hold” just reserves the rooms for you to book later.</span>
       </div>
     </form>
     <?php endif; ?>
@@ -567,70 +546,155 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ONE-PAGE NEW GROUP (Option B): block estimator + rooming-list repeater with a
-// per-row guest search and a shared "Add guest" create-popup. The whole form posts
-// to /create-full in ONE submit. Guarded by: only runs if #groupCreateForm exists.
+// ROOM-FIRST NEW GROUP: a repeatable list of ROOM ROWS. Each row = a room type +
+// dates + a SPECIFIC physical room (fetched live for those dates) + the guest in it
+// (search / create-popup + details). Posts to /create-full as parallel arrays:
+//   room_id[], option_id[], date_from[], date_to[], rate[], physical_room_id[],
+//   guest_name[], guest_email[], guest_phone[], guest_customer_id[]
+// The whole form submits in ONE go. Guarded by: only runs if #groupCreateForm exists.
 // ─────────────────────────────────────────────────────────────────────────────
 (function () {
   var ROOT = <?= json_encode((string) root) ?>;
+  var STAY = <?= (int) $sid ?>;
+  var CUR = <?= json_encode((string) $cur) ?>;
+  var CAN_RATE = <?= $canSetRate ? 'true' : 'false' ?>;
+  // roomOpts: "room:option" -> label ; roomRate: "room:option" -> nightly price (own rate).
+  var ROOM_OPTS = <?= json_encode($roomOpts, JSON_UNESCAPED_UNICODE) ?>;
+  var ROOM_RATE = <?= json_encode($roomOptRateTop) ?>;
+  var DEF_FROM = <?= json_encode((string) ($_GET['from'] ?? '')) ?>;
+  var DEF_TO = <?= json_encode((string) ($_GET['to'] ?? '')) ?>;
   var form = document.getElementById('groupCreateForm');
   if (!form) { return; }
   var CSRFEL = form.querySelector('input[name="csrf_token"]');
   var CSRF_VAL = CSRFEL ? CSRFEL.value : '';
+  var esc = function (s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
+  var fmtMoney = function (n) { return CUR + ' ' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 
-  // ---- Block cost estimate: rooms × nights × rate (room's own rate unless a group rate set).
+  var roomsWrap = document.getElementById('gcfRooms');
+  var addRoomBtn = document.getElementById('gcfAddRoom');
+
+  // Build the "room type & rate" <option> list once (shared markup for each row).
+  var roomOptHtml = '';
+  Object.keys(ROOM_OPTS).forEach(function (k) { roomOptHtml += '<option value="' + esc(k) + '">' + esc(ROOM_OPTS[k]) + '</option>'; });
+
+  // ---- Live estimate across all rows (Σ nights × rate per room). ----
   window.gcfEstimate = function () {
-    var rates = {}; try { rates = JSON.parse(form.getAttribute('data-rates') || '{}'); } catch (e) {}
-    var cur = form.getAttribute('data-cur') || '';
-    var sel = form.querySelector('.gcf-roomopt');
-    var key = sel ? sel.value : '';
-    var from = (form.querySelector('.gcf-from') || {}).value || '';
-    var to = (form.querySelector('.gcf-to') || {}).value || '';
-    var qty = parseInt((form.querySelector('.gcf-qty') || {}).value || '1', 10) || 0;
-    var rateInput = parseFloat((form.querySelector('.gcf-rate') || {}).value || '');
-    var rate = (!isNaN(rateInput) && rateInput > 0) ? rateInput : (parseFloat(rates[key]) || 0);
-    var nights = 0;
-    if (from && to) { var d = (new Date(to) - new Date(from)) / 86400000; if (d > 0) nights = Math.round(d); }
-    var total = qty * nights * rate;
-    var fmt = function (n) { return cur + ' ' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    var total = 0, roomCount = 0;
+    roomsWrap.querySelectorAll('.gcf-room').forEach(function (row) {
+      roomCount++;
+      var key = (row.querySelector('.gcf-roomopt') || {}).value || '';
+      var from = (row.querySelector('.gcf-from') || {}).value || '';
+      var to = (row.querySelector('.gcf-to') || {}).value || '';
+      var rateInput = parseFloat((row.querySelector('.gcf-rate') || {}).value || '');
+      var rate = (!isNaN(rateInput) && rateInput > 0) ? rateInput : (parseFloat(ROOM_RATE[key]) || 0);
+      var nights = 0; if (from && to) { var d = (new Date(to) - new Date(from)) / 86400000; if (d > 0) nights = Math.round(d); }
+      total += nights * rate;
+    });
     var bd = form.querySelector('.gcf-breakdown'), tt = form.querySelector('.gcf-total');
-    if (bd) bd.textContent = qty + ' room' + (qty === 1 ? '' : 's') + ' × ' + nights + ' night' + (nights === 1 ? '' : 's') + (rate ? ' × ' + fmt(rate) : '');
-    if (tt) tt.textContent = fmt(total);
+    if (bd) bd.textContent = roomCount + ' room' + (roomCount === 1 ? '' : 's');
+    if (tt) tt.textContent = fmtMoney(total);
   };
 
-  // ---- Rooming-list repeater. Each row = a guest search box + hidden name/email/phone/
-  //      customer_id that POST as parallel arrays (guest_name[], guest_email[], guest_phone[],
-  //      guest_customer_id[]). A visible chip shows the picked/typed guest; "×" removes the row.
-  var rowsWrap = document.getElementById('gcfGuestRows');
-  var addBtn = document.getElementById('gcfAddGuest');
-  var esc = function (s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
+  // ---- Fetch the free SPECIFIC rooms for a row's (type, dates) and fill its dropdown. ----
+  function refreshRoomsFor(row) {
+    var key = (row.querySelector('.gcf-roomopt') || {}).value || '';
+    var roomId = key.split(':')[0] || '';
+    var from = (row.querySelector('.gcf-from') || {}).value || '';
+    var to = (row.querySelector('.gcf-to') || {}).value || '';
+    var sel = row.querySelector('.gcf-prid');
+    if (!sel) { return; }
+    var cur = sel.value; // preserve a current pick if still valid
+    if (!roomId || !from || !to) { sel.innerHTML = '<option value="">Auto-pick a room</option>'; return; }
+    sel.innerHTML = '<option value="">Loading rooms…</option>';
+    fetch(ROOT + 'supplier/groups/free-rooms?stay_id=' + STAY + '&room_id=' + encodeURIComponent(roomId) + '&date_from=' + encodeURIComponent(from) + '&date_to=' + encodeURIComponent(to),
+      { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var rooms = (d && d.results) || [];
+        var html = '<option value="">Auto-pick a room</option>';
+        rooms.forEach(function (rm) { html += '<option value="' + rm.id + '"' + (String(rm.id) === cur ? ' selected' : '') + '>' + esc(rm.label) + '</option>'; });
+        if (!rooms.length) { html += '<option value="" disabled>(no specific room free — auto-pick)</option>'; }
+        sel.innerHTML = html;
+      })
+      .catch(function () { sel.innerHTML = '<option value="">Auto-pick a room</option>'; });
+  }
 
-  function buildRow() {
+  // ---- Build one ROOM ROW. ----
+  function buildRoomRow() {
     var row = document.createElement('div');
-    row.className = 'gcf-grow rounded-md border border-gray-200 p-2 space-y-1.5';
+    row.className = 'gcf-room rounded-lg border border-gray-200 p-3 space-y-2';
     row.innerHTML =
-      '<div class="flex items-start gap-2">' +
-        '<div class="relative flex-1 gcf-gwrap">' +
-          '<input type="text" class="input text-sm w-full gcf-gsearch" autocomplete="off" placeholder="Search a guest, or type a name…">' +
-          '<div class="gcf-gresults absolute z-20 left-0 right-0 bg-white border border-gray-200 rounded-md shadow hidden max-h-44 overflow-auto"></div>' +
+      // line 1: room type + (rate) + remove
+      '<div class="flex items-end gap-2">' +
+        '<div class="form-control flex-1"><label class="block text-xs text-gray-600 mb-0.5">Room type &amp; rate</label>' +
+          '<select class="input text-sm w-full gcf-roomopt">' + roomOptHtml + '</select></div>' +
+        (CAN_RATE ? '<div class="form-control w-32"><label class="block text-xs text-gray-600 mb-0.5">Rate / night</label><input type="number" step="0.01" min="0" name="rate[]" class="input text-sm gcf-rate" placeholder="own rate"></div>' : '<input type="hidden" name="rate[]" value="">') +
+        '<button type="button" class="text-gray-400 hover:text-rose-600 pb-2 gcf-room-rm" title="Remove this room"><span class="material-symbols-outlined text-base">close</span></button>' +
+      '</div>' +
+      // line 2: dates + specific room
+      '<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">' +
+        '<div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-in</label><input type="date" name="date_from[]" class="input text-sm gcf-from" required></div>' +
+        '<div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-out</label><input type="date" name="date_to[]" class="input text-sm gcf-to" required></div>' +
+        '<div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Room number <span class="text-gray-400">(or auto)</span></label><select name="physical_room_id[]" class="input text-sm gcf-prid"><option value="">Auto-pick a room</option></select></div>' +
+      '</div>' +
+      // hidden room_id/option_id derived from the roomopt select
+      '<input type="hidden" name="room_id[]" class="gcf-roomid" value="">' +
+      '<input type="hidden" name="option_id[]" class="gcf-optid" value="">' +
+      // line 3: the guest in this room
+      '<div class="pt-1 border-t border-gray-100 space-y-1.5">' +
+        '<div class="text-[11px] font-medium text-gray-500 uppercase tracking-wide">Guest in this room</div>' +
+        '<div class="flex items-start gap-2">' +
+          '<div class="relative flex-1 gcf-gwrap">' +
+            '<input type="text" class="input text-sm w-full gcf-gsearch" autocomplete="off" placeholder="Search a guest, or type a name…">' +
+            '<div class="gcf-gresults absolute z-20 left-0 right-0 bg-white border border-gray-200 rounded-md shadow hidden max-h-44 overflow-auto"></div>' +
+          '</div>' +
+          '<button type="button" class="btn secondary text-xs whitespace-nowrap gcf-gnew"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">person_add</span> New</span></button>' +
         '</div>' +
-        '<button type="button" class="btn secondary text-xs whitespace-nowrap gcf-gnew"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">person_add</span> New</span></button>' +
-        '<button type="button" class="text-gray-400 hover:text-rose-600 pt-1.5 gcf-grm" title="Remove this guest"><span class="material-symbols-outlined text-base">close</span></button>' +
-      '</div>' +
-      '<div class="gcf-gchip hidden items-center gap-2 rounded bg-emerald-50 text-emerald-800 text-xs px-2 py-1">' +
-        '<span class="material-symbols-outlined text-sm">check_circle</span><span class="gcf-gchip-label font-medium"></span>' +
-      '</div>' +
-      // The actual POSTed fields (parallel arrays). Name mirrors what /create-full reads.
-      '<input type="hidden" name="guest_name[]" class="gcf-gname" value="">' +
-      '<input type="hidden" name="guest_email[]" class="gcf-gemail" value="">' +
-      '<input type="hidden" name="guest_phone[]" class="gcf-gphone" value="">' +
-      '<input type="hidden" name="guest_customer_id[]" class="gcf-gcust" value="">';
-    wireRow(row);
+        '<div class="gcf-gchip hidden items-center gap-2 rounded bg-emerald-50 text-emerald-800 text-xs px-2 py-1">' +
+          '<span class="material-symbols-outlined text-sm">check_circle</span><span class="gcf-gchip-label font-medium"></span>' +
+        '</div>' +
+        '<input type="hidden" name="guest_name[]" class="gcf-gname" value="">' +
+        '<input type="hidden" name="guest_email[]" class="gcf-gemail" value="">' +
+        '<input type="hidden" name="guest_phone[]" class="gcf-gphone" value="">' +
+        '<input type="hidden" name="guest_customer_id[]" class="gcf-gcust" value="">' +
+      '</div>';
+    wireRoomRow(row);
     return row;
   }
 
+  function syncRoomKey(row) {
+    var key = (row.querySelector('.gcf-roomopt') || {}).value || '';
+    var parts = key.split(':');
+    row.querySelector('.gcf-roomid').value = parts[0] || '';
+    row.querySelector('.gcf-optid').value = parts[1] || '';
+  }
+
+  function wireRoomRow(row) {
+    // defaults
+    var from = row.querySelector('.gcf-from'), to = row.querySelector('.gcf-to');
+    if (DEF_FROM) from.value = DEF_FROM; if (DEF_TO) to.value = DEF_TO;
+    // inherit the group arrival/departure if set
+    var ga = form.querySelector('input[name="arrival"]'), gd = form.querySelector('input[name="departure"]');
+    if (ga && ga.value && !from.value) from.value = ga.value;
+    if (gd && gd.value && !to.value) to.value = gd.value;
+    syncRoomKey(row);
+
+    var roomSel = row.querySelector('.gcf-roomopt');
+    roomSel.addEventListener('change', function () { syncRoomKey(row); refreshRoomsFor(row); window.gcfEstimate(); });
+    [from, to].forEach(function (el) { el.addEventListener('change', function () { refreshRoomsFor(row); window.gcfEstimate(); }); });
+    var rateEl = row.querySelector('.gcf-rate'); if (rateEl) rateEl.addEventListener('input', window.gcfEstimate);
+
+    // remove (keep at least one room)
+    row.querySelector('.gcf-room-rm').addEventListener('click', function () {
+      if (roomsWrap.querySelectorAll('.gcf-room').length > 1) { row.remove(); window.gcfEstimate(); }
+    });
+
+    wireGuest(row);
+    refreshRoomsFor(row);
+  }
+
+  // ---- The guest sub-widget inside a room row (search + create-popup). ----
   function setRowGuest(row, g) {
-    // g: {name, email, phone, contact_id}. Fills the hidden POST fields + the chip.
     var name = (g && g.name) || '';
     row.querySelector('.gcf-gname').value = name;
     row.querySelector('.gcf-gemail').value = (g && g.email) || '';
@@ -639,29 +703,17 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
     var chip = row.querySelector('.gcf-gchip');
     row.querySelector('.gcf-gchip-label').textContent = name + ([g && g.phone, g && g.email].filter(Boolean).length ? ' · ' + [g && g.phone, g && g.email].filter(Boolean).join(' · ') : '');
     chip.classList.remove('hidden'); chip.classList.add('flex');
-    var s = row.querySelector('.gcf-gsearch'); s.value = name;
+    row.querySelector('.gcf-gsearch').value = name;
   }
-  function clearRowGuest(row) {
-    row.querySelector('.gcf-gname').value = '';
-    row.querySelector('.gcf-gemail').value = '';
-    row.querySelector('.gcf-gphone').value = '';
-    row.querySelector('.gcf-gcust').value = '';
-    var chip = row.querySelector('.gcf-gchip'); chip.classList.add('hidden'); chip.classList.remove('flex');
-  }
-
-  function wireRow(row) {
+  function wireGuest(row) {
     var search = row.querySelector('.gcf-gsearch');
     var results = row.querySelector('.gcf-gresults');
     var wrap = row.querySelector('.gcf-gwrap');
     var timer = null;
     function hide() { results.classList.add('hidden'); results.innerHTML = ''; }
-
-    // Typing BOTH updates the hidden name (so a hand-typed guest with no search match still
-    // POSTs) AND searches for a returning guest to pick.
     search.addEventListener('input', function () {
       var q = search.value.trim();
-      // Free typing = a new (un-picked) guest: set the name, clear a prior pick's contact_id.
-      row.querySelector('.gcf-gname').value = q;
+      row.querySelector('.gcf-gname').value = q;      // hand-typed name still POSTs
       row.querySelector('.gcf-gcust').value = '';
       var chip = row.querySelector('.gcf-gchip'); chip.classList.add('hidden'); chip.classList.remove('flex');
       if (timer) clearTimeout(timer);
@@ -672,13 +724,9 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
           .then(function (d) {
             var rows = (d && d.results) || [];
             results.innerHTML = '';
-            if (!rows.length) {
-              results.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No match — the typed name is kept, or use “New”.</div>';
-              results.classList.remove('hidden'); return;
-            }
+            if (!rows.length) { results.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No match — the typed name is kept, or use “New”.</div>'; results.classList.remove('hidden'); return; }
             rows.forEach(function (g) {
-              var el = document.createElement('button');
-              el.type = 'button';
+              var el = document.createElement('button'); el.type = 'button';
               el.className = 'block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50';
               el.innerHTML = '<span class="font-medium text-gray-800">' + esc(g.name || '(guest)') + '</span> <span class="text-gray-400">' + esc([g.phone, g.email].filter(Boolean).join(' · ')) + '</span>';
               el.addEventListener('click', function () { setRowGuest(row, g); hide(); });
@@ -690,19 +738,10 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
       }, 220);
     });
     document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) hide(); });
-
-    // Remove row (but keep at least one row present).
-    row.querySelector('.gcf-grm').addEventListener('click', function () {
-      if (rowsWrap.querySelectorAll('.gcf-grow').length > 1) { row.remove(); }
-      else { clearRowGuest(row); search.value = ''; }
-    });
-
-    // "New" opens the shared create-popup bound to THIS row.
     row.querySelector('.gcf-gnew').addEventListener('click', function () { openGuestModal(row, search.value.trim()); });
   }
 
-  // ---- Shared "New guest" create modal → /supplier/guests/quick-create (the REAL create-or-
-  //      find the booking engine uses, same as the single desk). On success, fills the row.
+  // ---- Shared "New guest" create modal → /supplier/guests/quick-create. Fills the bound row. ----
   var modal = document.getElementById('gcfGuestModal');
   var mClose = document.getElementById('gcfGuestModalClose'), mCancel = document.getElementById('gcfGuestModalCancel'),
       mSave = document.getElementById('gcfGuestModalSave'), mErr = document.getElementById('gcfGuestModalErr'),
@@ -711,7 +750,6 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
   var modalRow = null;
   function openGuestModal(row, seed) {
     modalRow = row;
-    // Seed first/last from whatever the operator typed.
     var parts = (seed || '').split(' ');
     mFirst.value = parts.shift() || ''; mLast.value = parts.join(' ');
     mPhone.value = ''; mEmail.value = ''; mErr.classList.add('hidden');
@@ -738,9 +776,23 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
       .catch(function () { mSave.disabled = false; mErr.querySelector('p').textContent = 'Network error.'; mErr.classList.remove('hidden'); });
   });
 
-  // Start with one guest row, and add-another wiring + initial estimate.
-  addBtn && addBtn.addEventListener('click', function () { rowsWrap.appendChild(buildRow()); });
-  if (rowsWrap) { rowsWrap.appendChild(buildRow()); }
+  // When the group's arrival/departure changes, roll it into empty room-row dates + refresh rooms.
+  var ga = form.querySelector('input[name="arrival"]'), gd = form.querySelector('input[name="departure"]');
+  function cascadeDates() {
+    roomsWrap.querySelectorAll('.gcf-room').forEach(function (row) {
+      var f = row.querySelector('.gcf-from'), t = row.querySelector('.gcf-to');
+      if (ga && ga.value && !f.value) f.value = ga.value;
+      if (gd && gd.value && !t.value) t.value = gd.value;
+      refreshRoomsFor(row);
+    });
+    window.gcfEstimate();
+  }
+  ga && ga.addEventListener('change', cascadeDates);
+  gd && gd.addEventListener('change', cascadeDates);
+
+  // Start with one room row; "Add another room" appends.
+  addRoomBtn && addRoomBtn.addEventListener('click', function () { roomsWrap.appendChild(buildRoomRow()); window.gcfEstimate(); });
+  if (roomsWrap) { roomsWrap.appendChild(buildRoomRow()); }
   window.gcfEstimate();
 })();
 </script>
