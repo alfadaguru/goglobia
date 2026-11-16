@@ -584,7 +584,13 @@ function featuredCarsData(url) {
                 return;
             }
 
-            // Validate dates for rental
+            // Validate dates for rental + compute the rental span.
+            // MONEY FIX (audit MED, verified server-side): the featured card's price is a
+            // PER-DAY rate (display_price_per_day). The server cars submit trusts the draft
+            // price as the full cost (no rental_days x rate recompute), so sending the raw
+            // per-day rate charged ~1 day for a multi-day rental. Multiply the per-day rate
+            // by the number of rental days here so the draft carries the correct total.
+            let rentalDays = 1;
             if (this.selectedCar?.service_type !== 'transfer') {
                 const pp = pickupDate.split('-'), rp = returnDate.split('-');
                 const pd = new Date(pp[2], pp[1]-1, pp[0]), rd = new Date(rp[2], rp[1]-1, rp[0]);
@@ -592,7 +598,10 @@ function featuredCarsData(url) {
                     this.modalAlert = '<?=T::return?> <?=T::date?> <?=T::must?> <?=T::be?> <?=T::after?> <?=T::pickup?> <?=T::date?>';
                     return;
                 }
+                rentalDays = Math.max(1, Math.round((rd - pd) / 86400000));
             }
+            const perDayRate = Number(this.selectedCar.price) || 0;
+            const rentalTotal = Math.round(perDayRate * rentalDays * 100) / 100;
 
             this.mSubmitting = true;
 
@@ -617,9 +626,12 @@ function featuredCarsData(url) {
                 name: this.selectedCar.name,
                 category: 'standard',
                 image: this.selectedCar.image,
-                price: this.selectedCar.price,
-                total_price: this.selectedCar.price,
-                display_price: this.selectedCar.price,
+                price: rentalTotal,
+                total_price: rentalTotal,
+                display_price: rentalTotal,
+                actual_price: rentalTotal,
+                price_per_day: perDayRate,
+                rental_days: rentalDays,
                 currency: this.selectedCar.currency,
                 transmission: this.selectedCar.transmission,
                 fuel_type: this.selectedCar.fuel_type,
