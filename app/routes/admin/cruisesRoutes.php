@@ -141,3 +141,131 @@ $router->post(admin . '/cruises/delete', function () use ($SECURE, $db) {
     }
     header('Location: ' . root . admin . '/cruises'); exit;
 });
+
+// ----------------------------------------------------------------------------
+// CANCEL + REFUND a cruise booking — POST admin/cruises/bookings/refund.
+// Staff-decided refund for an own-inventory cruise. Mirrors the visa admin refund
+// (app/routes/admin/visaRoutes.php): ADMIN_AUTH + admin_require(bookings,refund) +
+// CSRF, already-refunded guard, then refund_gateway_payment() to return the money
+// through the SAME gateway/account the charge used. Supports a PARTIAL amount.
+//
+// Refund-state convention (verified against the schema — bookings.payment_status
+// is an enum WITHOUT a 'partially_refunded' value): on a FULL refund set
+// payment_status='refunded' + booking_status='cancelled'; on a PARTIAL refund set
+// payment_status='refunded' + refund_status='partial' and KEEP booking_status
+// 'confirmed' (the partial refund does not cancel the whole booking). refund_amount
+// always records the actual sum returned. Writing 'partially_refunded' would be an
+// invalid enum -> MySQL stores '' silently, so we never do that without a migration.
+// ----------------------------------------------------------------------------
+$router->post(admin . '/cruises/bookings/refund', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'refund');
+    CSRF::guard();
+
+    $back = $_SERVER['HTTP_REFERER'] ?? (root . admin . '/bookings');
+    $id        = (int) ($_POST['id'] ?? 0);
+    $invoiceId = trim((string) ($_POST['invoice_id'] ?? ''));
+    $reason    = trim((string) ($_POST['reason'] ?? 'Cruise booking cancelled'));
+    $amountRaw = trim((string) ($_POST['amount'] ?? ''));   // blank = full refund
+
+    $where = ['module_type' => 'cruises'];
+    if ($id > 0) { $where['id'] = $id; }
+    elseif ($invoiceId !== '') { $where['invoice_id'] = $invoiceId; }
+    else {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Booking id or invoice id required.'];
+        redirect($back); return;
+    }
+    $booking = $db->get('bookings', '*', $where);
+    if (!$booking) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Cruise booking not found.'];
+        redirect($back); return;
+    }
+
+    // Idempotent guard: never double-refund.
+    if (strtolower((string) ($booking['refund_status'] ?? '')) === 'refunded'
+        || strtolower((string) ($booking['payment_status'] ?? '')) === 'refunded') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'This booking was already refunded.'];
+        redirect($back); return;
+    }
+
+    $paidTotal = round((float) ($booking['price_markup'] ?? 0), 2);
+    $wasPaid   = strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+
+    // Resolve the requested amount. Blank/0 -> full; clamp to [0, paidTotal].
+    $amount = ($amountRaw === '') ? null : round((float) $amountRaw, 2);
+    if ($amount !== null) {
+        if ($amount <= 0) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Refund amount must be greater than zero.'];
+            redirect($back); return;
+        }
+        if ($amount > $paidTotal) { $amount = $paidTotal; }   // never over-refund
+    }
+    $effectiveAmount = $amount ?? $paidTotal;
+    $isPartial = ($effectiveAmount < $paidTotal);
+
+    if (!$wasPaid) {
+        // Nothing was captured -> just cancel the (unpaid) booking.
+        $db->update('bookings', [
+            'booking_status'      => 'cancelled',
+            'cancellation_status' => 1,
+            'updated_at'          => date('Y-m-d H:i:s'),
+        ], ['invoice_id' => $booking['invoice_id']]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Booking cancelled (was unpaid - no refund due).'];
+        redirect($back); return;
+    }
+
+    if (!function_exists('refund_gateway_payment')) {
+        require_once 'app/lib/payment-gateway.php';
+    }
+    $res    = refund_gateway_payment($db, $booking, $amount, $reason);
+    $status = strtolower((string) ($res['status'] ?? 'failed'));
+
+    if ($status === 'refunded' || $status === 'success') {
+        $refunded = round((float) ($res['amount'] ?? $effectiveAmount), 2);
+        $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
+        if (!is_array($bd)) { $bd = []; }
+        $bd['refund'] = [
+            'amount'  => $refunded,
+            'partial' => $isPartial,
+            'at'      => date('Y-m-d H:i:s'),
+            'gateway' => $res['gateway'] ?? '',
+            'ref'     => $res['reference'] ?? '',
+            'reason'  => $reason,
+            'by'      => $_SESSION['user_id'] ?? null,
+        ];
+        $update = [
+            'payment_status'  => 'refunded',               // valid enum; refund_amount conveys partialness
+            'refund_amount'   => $refunded,
+            'refund_status'   => $isPartial ? 'partial' : 'refunded',
+            'refund_response' => json_encode($res, JSON_UNESCAPED_SLASHES),
+            'booking_data'    => json_encode($bd, JSON_UNESCAPED_SLASHES),
+            'updated_at'      => date('Y-m-d H:i:s'),
+        ];
+        if (!$isPartial) {
+            // Full refund -> cancel the booking.
+            $update['booking_status']      = 'cancelled';
+            $update['cancellation_status'] = 1;
+        }
+        $db->update('bookings', $update, ['invoice_id' => $booking['invoice_id']]);
+        $_SESSION['message'] = ['type' => 'success', 'text' =>
+            ($isPartial ? 'Partial refund of ' : 'Refund of ')
+            . htmlspecialchars((string) ($booking['currency_markup'] ?? '')) . ' ' . number_format($refunded, 2)
+            . ' issued to the customer.' . ($isPartial ? '' : ' Booking cancelled.')];
+    } elseif ($status === 'unsupported') {
+        // Gateway can't auto-refund (e.g. manual/offline) -> cancel + flag for manual.
+        $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
+        if (!is_array($bd)) { $bd = []; }
+        $bd['refund_pending'] = ['at' => date('Y-m-d H:i:s'), 'reason' => $reason, 'amount' => $effectiveAmount, 'gateway_msg' => $res['message'] ?? ''];
+        $db->update('bookings', [
+            'booking_status'      => 'cancelled',
+            'cancellation_status' => 1,
+            'booking_data'        => json_encode($bd, JSON_UNESCAPED_SLASHES),
+            'updated_at'          => date('Y-m-d H:i:s'),
+        ], ['invoice_id' => $booking['invoice_id']]);
+        $_SESSION['message'] = ['type' => 'warning', 'text' => 'Booking cancelled. Gateway does not support auto-refund - refund the customer manually. (' . htmlspecialchars((string) ($res['message'] ?? '')) . ')'];
+    } else {
+        // Refund FAILED -> do NOT cancel; let staff retry (money-safe).
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Refund failed: ' . htmlspecialchars((string) ($res['message'] ?? 'gateway error')) . '. Booking NOT cancelled.'];
+    }
+    redirect($back);
+});

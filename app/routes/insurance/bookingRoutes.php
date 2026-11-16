@@ -338,3 +338,44 @@ $router->post('/api/insurance/booking/submit', function () use ($SECURE, $db) {
         echo json_encode(['status' => false, 'success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES);
     }
 });
+
+// ----------------------------------------------------------------------------
+// CUSTOMER CANCELLATION REQUEST — POST /api/insurance/booking/request-cancellation.
+// Own-inventory insurance renders the SHARED invoice summary, whose Request-
+// Cancellation button now calls requestCancellation() -> this endpoint (previously
+// the shared view had the button but no handler, so it was a dead no-op). Same
+// contract as every other service: ownership-guarded, sets cancellation_request=1;
+// the actual refund stays staff-decided.
+// ----------------------------------------------------------------------------
+$router->post('/api/insurance/booking/request-cancellation', function () use ($SECURE, $db) {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $input = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($input)) { $input = $_POST; }
+        $invoiceId = trim((string) ($input['invoice_id'] ?? ''));
+        if ($invoiceId === '') { throw new Exception('Invoice ID required'); }
+
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'insurance']);
+        if (!$booking) { throw new Exception('Booking not found'); }
+
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+        if (in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+            throw new Exception('This booking is already cancelled.');
+        }
+
+        $db->update('bookings', [
+            'cancellation_request' => 1,
+            'updated_at'           => date('Y-m-d H:i:s'),
+        ], ['invoice_id' => $invoiceId]);
+
+        echo json_encode(['success' => true, 'message' => 'Cancellation request submitted']);
+        exit(0);
+    } catch (\Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        exit(0);
+    }
+});

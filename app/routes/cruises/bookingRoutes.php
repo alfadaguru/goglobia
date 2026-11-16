@@ -202,3 +202,47 @@ $router->post('/api/cruise/booking/submit', function () use ($SECURE, $db) {
         echo json_encode(['status' => false, 'success' => false, 'message' => $e->getMessage()]);
     }
 });
+
+// ----------------------------------------------------------------------------
+// CUSTOMER CANCELLATION REQUEST — POST /api/cruise/booking/request-cancellation.
+// Mirrors every other service (bus/stays/tours/...): the customer REQUESTS a
+// cancellation (sets cancellation_request=1); the actual refund is staff-decided
+// via the admin refund route (money-safe — the customer never self-refunds).
+// Ownership-guarded so a stranger cannot flag someone else's booking.
+// ----------------------------------------------------------------------------
+$router->post('/api/cruise/booking/request-cancellation', function () use ($SECURE, $db) {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $input = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($input)) { $input = $_POST; }
+        $invoiceId = trim((string) ($input['invoice_id'] ?? ''));
+        if ($invoiceId === '') { throw new Exception('Invoice ID required'); }
+
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'cruises']);
+        if (!$booking) { throw new Exception('Booking not found'); }
+
+        // OWNERSHIP GUARD: only the invoice owner / creating session / admin.
+        // enforceInvoiceAccess auto-responds 403 JSON on an /api/ route for a non-owner.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
+        // Already cancelled/voided → nothing to request.
+        if (in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+            throw new Exception('This booking is already cancelled.');
+        }
+
+        $db->update('bookings', [
+            'cancellation_request' => 1,
+            'updated_at'           => date('Y-m-d H:i:s'),
+        ], ['invoice_id' => $invoiceId]);
+
+        echo json_encode(['success' => true, 'message' => 'Cancellation request submitted']);
+        exit(0);
+    } catch (\Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        exit(0);
+    }
+});

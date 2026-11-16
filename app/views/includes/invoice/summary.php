@@ -934,6 +934,65 @@ function closeResendModal() {
     document.getElementById('resendInvoiceModal').style.display = 'none';
 }
 
+// CANCELLATION REQUEST (shared invoice summary). Per-module invoice views define
+// their own requestCancellation(); this SHARED summary (used by cruises + own-
+// inventory insurance) had the button but no handler, so clicking it threw a JS
+// ReferenceError and did nothing. Resolve the correct /api endpoint from the
+// booking's module_type and POST the invoice id (same contract every service
+// uses). The CSRF header is auto-attached by app.js's fetch interceptor.
+function requestCancellation() {
+    const btn = document.getElementById('requestCancellationBtn');
+    const invoiceId = <?= json_encode((string) $invoiceId) ?>;
+    const moduleType = <?= json_encode(strtolower((string) ($moduleType ?? $booking['module_type'] ?? ''))) ?>;
+    const ROOT = <?= json_encode((string) root) ?>;
+
+    // module_type -> cancellation endpoint. Cruises + insurance are own-inventory
+    // and route to their own request-cancellation handlers.
+    const endpoints = {
+        'cruises':   'api/cruise/booking/request-cancellation',
+        'insurance': 'api/insurance/booking/request-cancellation'
+    };
+    const path = endpoints[moduleType];
+    if (!path) {
+        alert('Online cancellation is not available for this booking. Please contact support.');
+        return;
+    }
+    if (!confirm('Request cancellation for this booking? Our team will review it and process any eligible refund.')) {
+        return;
+    }
+
+    const original = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined animate-spin !text-sm">sync</span> Submitting...';
+    }
+
+    fetch(ROOT + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ invoice_id: invoiceId })
+    })
+    .then(async (r) => {
+        const ct = r.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) { throw new Error('Server returned ' + r.status); }
+        return r.json();
+    })
+    .then((data) => {
+        if (data && data.success) {
+            alert('Your cancellation request has been submitted. Our team will review it shortly.');
+            window.location.reload();
+        } else {
+            alert('Error: ' + ((data && data.message) || 'Could not submit the request.'));
+            if (btn) { btn.disabled = false; btn.innerHTML = original; }
+        }
+    })
+    .catch((err) => {
+        console.error('requestCancellation:', err);
+        alert('Network error. Please try again.');
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    });
+}
+
 function confirmResendInvoice() {
     const email = document.getElementById('resend_customer_email').value;
     const btn = document.getElementById('confirmResendBtn');
