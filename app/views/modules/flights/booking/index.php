@@ -1312,28 +1312,23 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                     placeholder="<?= T::any ?> <?= T::special ?> <?= T::requests ?> <?= T::or ?> <?= T::notes ?>..."></textarea>
                             </div>
 
-                            <!-- Terms & Conditions -->
+                            <!-- Terms & Conditions — IMPLICIT CONSENT. The blocking
+                                 "tick-to-agree" checkbox was replaced with a continue-means-
+                                 consent notice near the action button: proceeding IS the
+                                 agreement, so the customer is not stopped by an extra tick.
+                                 formData.terms_accepted stays true by default and the button
+                                 no longer gates on it (the price/fare-freshness gates remain).
+                                 Links stay so the customer can still read the terms. -->
                             <div class="pt-6 border-t border-gray-200 dark:border-gray-700">
-                                <div class="checkbox-item">
-                                    <div class="checkbox-container">
-                                        <input type="checkbox" id="terms_accepted" x-model="formData.terms_accepted"
-                                            class="checkbox-input" required>
-                                        <div class="checkbox-custom">
-                                            <span
-                                                class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
-                                        </div>
-                                    </div>
-                                    <label for="terms_accepted"
-                                        class="cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                                        <?= T::i_agree_to_the ?>
-                                        <a href="<?= root ?>page/terms-of-use" target="_blank"
-                                            class="text-blue-600 hover:underline"><?= T::terms ?> &
-                                            <?= T::conditions ?></a>
-                                        <?= T::and ?>
-                                        <a href="<?= root ?>page/privacy-policy" target="_blank"
-                                            class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>
-                                    </label>
-                                </div>
+                                <p class="text-sm text-gray-600 dark:text-gray-400">
+                                    <?= T::by_continuing_you_agree ?? 'By continuing, you agree to our' ?>
+                                    <a href="<?= root ?>page/terms-of-use" target="_blank"
+                                        class="text-blue-600 hover:underline"><?= T::terms ?> &
+                                        <?= T::conditions ?></a>
+                                    <?= T::and ?>
+                                    <a href="<?= root ?>page/privacy-policy" target="_blank"
+                                        class="text-blue-600 hover:underline"><?= T::privacy ?> <?= T::policy ?></a>.
+                                </p>
                             </div>
 
                             <!-- CSRF Token -->
@@ -1399,8 +1394,8 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                             </div>
 
                             <button type="submit" class="btn w-full mt-6"
-                                :disabled="submitting || !formData.terms_accepted || fareExpired || (priceChange && priceChange.direction === 'up')"
-                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted || fareExpired || (priceChange && priceChange.direction === 'up') }"
+                                :disabled="submitting || fareExpired || (priceChange && priceChange.direction === 'up')"
+                                :class="{ 'opacity-50 cursor-not-allowed': fareExpired || (priceChange && priceChange.direction === 'up') }"
                                 <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                                 <span x-show="submitting"
                                     class="material-symbols-outlined animate-spin">progress_activity</span>
@@ -1415,8 +1410,8 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                  enabled. Sets holdMode then runs the same submit → the success
                                  handler reserves + redirects to the "on hold" invoice. -->
                             <button type="button" class="btn light w-full mt-3"
-                                :disabled="submitting || !formData.terms_accepted || fareExpired || (priceChange && priceChange.direction === 'up')"
-                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted || fareExpired || (priceChange && priceChange.direction === 'up') }"
+                                :disabled="submitting || fareExpired || (priceChange && priceChange.direction === 'up')"
+                                :class="{ 'opacity-50 cursor-not-allowed': fareExpired || (priceChange && priceChange.direction === 'up') }"
                                 @click="holdMode = true; submitBooking()">
                                 <span class="material-symbols-outlined">schedule</span>
                                 <span><?= T::hold_this_fare ?? 'Hold this fare — pay later' ?></span>
@@ -1426,13 +1421,8 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                             </p>
                             <?php endif; ?>
 
-                            <!-- Terms validation message -->
-                            <div x-show="!formData.terms_accepted" class="mt-2">
-                                <p class="text-sm text-red-600 dark:text-red-400 text-center">
-                                    <span class="material-symbols-outlined !text-[16px]">info</span>
-                                    <?= T::please_accept_terms_to_proceed ?>
-                                </p>
-                            </div>
+                            <!-- (Removed the "please accept terms" blocker — consent is now
+                                 implicit via the "By continuing you agree…" notice above.) -->
                         </div>
                     </div>
                 </form>
@@ -1797,7 +1787,10 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                 booking_for_someone_else: false,
                 selected_payment: '<?= $defaultGatewayId ?>',
                 special_requests: '',
-                terms_accepted: false
+                // Implicit consent: proceeding is the agreement (see the "By continuing
+                // you agree…" notice). Default true so nothing is gated on a tick; kept
+                // as a field in case any downstream code still reads it.
+                terms_accepted: true
             },
 
                             ancillaries: {
