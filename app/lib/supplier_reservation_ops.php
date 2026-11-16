@@ -1137,11 +1137,19 @@ if (!function_exists('resv_dashboard_buckets')) {
      */
     function resv_dashboard_buckets(array $reservations, string $date): array
     {
-        $out = ['date' => $date, 'arrivals' => [], 'departures' => [], 'in_house' => [], 'stayover' => [],
-                'arrivals_n' => 0, 'departures_n' => 0, 'in_house_n' => 0, 'stayover_n' => 0];
+        $out = ['date' => $date, 'arrivals' => [], 'departures' => [], 'in_house' => [], 'stayover' => [], 'held' => [],
+                'arrivals_n' => 0, 'departures_n' => 0, 'in_house_n' => 0, 'stayover_n' => 0, 'held_n' => 0];
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) { return $out; }
         foreach ($reservations as $r) {
             if (strtolower((string) ($r['booking_status'] ?? '')) === 'cancelled') { continue; }
+            // HELD = tentative book-on-hold bookings awaiting confirmation. They need the
+            // desk's attention (confirm → firm, or they auto-release at the deadline), so
+            // they get their own bucket regardless of their stay dates. Soonest-expiring
+            // first so the desk sees what's about to lapse. (Not an arrival/in-house yet.)
+            if (strtolower((string) ($r['booking_status'] ?? '')) === 'held') {
+                $out['held'][] = $r;
+                continue;
+            }
             $ci = (string) ($r['_checkin'] ?? ''); $co = (string) ($r['_checkout'] ?? '');
             if ($ci === '' || $co === '') { continue; }
             $state = (string) ($r['_stay_state'] ?? '');
@@ -1166,10 +1174,18 @@ if (!function_exists('resv_dashboard_buckets')) {
                 }
             }
         }
+        // Held: soonest-expiring first (NULL deadline sorts last) so the desk acts on the
+        // ones about to lapse. usort is stable-enough for this display ordering.
+        usort($out['held'], static function ($a, $b) {
+            $ta = !empty($a['hold_expires_at']) ? strtotime((string) $a['hold_expires_at']) : PHP_INT_MAX;
+            $tb = !empty($b['hold_expires_at']) ? strtotime((string) $b['hold_expires_at']) : PHP_INT_MAX;
+            return $ta <=> $tb;
+        });
         $out['arrivals_n'] = count($out['arrivals']);
         $out['departures_n'] = count($out['departures']);
         $out['in_house_n'] = count($out['in_house']);
         $out['stayover_n'] = count($out['stayover']);
+        $out['held_n'] = count($out['held']);
         return $out;
     }
 }

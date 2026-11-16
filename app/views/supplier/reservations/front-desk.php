@@ -99,9 +99,11 @@
   </div>
 
   <!-- Day counters + occupancy -->
-  <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+  <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
     <div class="card p-4"><div class="text-xs text-gray-500">Arrivals</div><div class="text-2xl font-bold tabular-nums text-green-700"><?= (int) ($buckets['arrivals_n'] ?? 0) ?></div></div>
     <div class="card p-4"><div class="text-xs text-gray-500">Departures</div><div class="text-2xl font-bold tabular-nums text-amber-700"><?= (int) ($buckets['departures_n'] ?? 0) ?></div></div>
+    <?php $heldN = (int) ($buckets['held_n'] ?? 0); ?>
+    <a href="#held-bookings" class="card p-4 block hover:ring-1 hover:ring-violet-200"><div class="text-xs text-gray-500">On hold</div><div class="text-2xl font-bold tabular-nums <?= $heldN > 0 ? 'text-violet-700' : '' ?>"><?= $heldN ?></div></a>
     <div class="card p-4"><div class="text-xs text-gray-500">In-house</div><div class="text-2xl font-bold tabular-nums"><?= (int) ($buckets['in_house_n'] ?? 0) ?></div></div>
     <div class="card p-4"><div class="text-xs text-gray-500">Available</div><div class="text-2xl font-bold tabular-nums text-blue-700"><?= $hasRooms ? (int) ($occupancy['available'] ?? 0) : '—' ?></div></div>
     <div class="card p-4"><div class="text-xs text-gray-500">Occupancy</div><div class="text-2xl font-bold tabular-nums"><?= $hasRooms ? (int) ($occupancy['pct'] ?? 0) . '%' : '—' ?></div></div>
@@ -339,6 +341,44 @@
     <div class="card p-4"><h2 class="text-sm font-semibold text-gray-900 mb-1">Departing today</h2><?php $rowList($buckets['departures'] ?? [], 'express_checkout'); ?></div>
     <div class="card p-4"><h2 class="text-sm font-semibold text-gray-900 mb-1">In-house</h2><?php $rowList($buckets['in_house'] ?? [], ''); ?></div>
   </div>
+
+  <!-- ON HOLD: tentative book-on-hold reservations awaiting confirmation. Soonest-
+       expiring first (resv_dashboard_buckets sorts them). Each shows a countdown + a
+       Confirm action (POSTs confirm_hold → firm; take payment after). Auto-releases at
+       the deadline if not confirmed. Only rendered when there are holds. -->
+  <?php $heldRows = $buckets['held'] ?? []; if (!empty($heldRows)): ?>
+  <div id="held-bookings" class="card p-4 border-violet-200">
+    <h2 class="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-1.5"><span class="material-symbols-outlined text-base text-violet-600">schedule</span> On hold — awaiting confirmation (<?= count($heldRows) ?>)</h2>
+    <ul class="text-sm divide-y divide-gray-50">
+      <?php foreach ($heldRows as $r):
+        $inv = (string) ($r['invoice_id'] ?? '');
+        $hid = (int) ($r['_hotel_id'] ?? 0);
+        $exp = (string) ($r['hold_expires_at'] ?? '');
+        $secs = $exp !== '' ? strtotime($exp) - time() : 0;
+        $expired = $exp !== '' && $secs <= 0;
+        $left = $expired ? 'expired' : ($secs >= 3600 ? (int) floor($secs / 3600) . 'h left' : max(1, (int) floor($secs / 60)) . 'm left');
+        $ci = (string) ($r['_checkin'] ?? ''); $co = (string) ($r['_checkout'] ?? '');
+      ?>
+      <li class="py-2 flex items-center justify-between gap-2">
+        <span class="min-w-0">
+          <a href="<?= $actionBase ?><?= rawurlencode($inv) ?>" class="text-violet-600 hover:underline font-medium"><?= htmlspecialchars($guestName($r)) ?></a>
+          <span class="block text-xs text-gray-400 truncate">
+            <?= htmlspecialchars((string) ($propMap[$hid] ?? '')) ?><?= $ci !== '' ? ' · ' . htmlspecialchars($ci) . ($co !== '' ? '→' . htmlspecialchars($co) : '') : '' ?>
+            · <span class="<?= $expired ? 'text-rose-600' : 'text-violet-600' ?>"><?= htmlspecialchars($left) ?></span>
+          </span>
+        </span>
+        <?php if ($canEdit && $inv !== ''): ?>
+        <form method="POST" action="<?= $actionBase ?><?= rawurlencode($inv) ?>/action" class="shrink-0">
+          <?= CSRF::tokenField() ?><input type="hidden" name="action" value="confirm_hold">
+          <button type="submit" class="btn emerald text-xs">Confirm</button>
+        </form>
+        <?php endif; ?>
+      </li>
+      <?php endforeach; ?>
+    </ul>
+    <p class="text-[11px] text-gray-400 mt-2">Confirm to make a hold firm (then take payment on the booking). Unconfirmed holds auto-release at their deadline.</p>
+  </div>
+  <?php endif; ?>
 
   <?php if ($stayFilter > 0): ?>
   <div class="flex flex-wrap gap-3 text-sm">
