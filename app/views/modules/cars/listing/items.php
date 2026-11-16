@@ -237,7 +237,7 @@ function renderCarCard(car) {
                             </div>
                             <div class="flex items-center gap-1">
                                 <span class="material-symbols-outlined text-sm">settings</span>
-                                <span>${transmission}</span>
+                                <span>${esc(transmission)}</span>
                             </div>
                             ${ac ? `
                             <div class="flex items-center gap-1">
@@ -263,7 +263,7 @@ function renderCarCard(car) {
                             ` : ''}
                             ${inclusions.slice(0, 3).map(inc => `
                                 <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full text-xs font-medium">
-                                    ${inc}
+                                    ${esc(inc)}
                                 </span>
                             `).join('')}
                         </div>

@@ -71,6 +71,18 @@ $router->get('/cars/mozio/poll-status', function () use ($SECURE, $db) {
         exit;
     }
 
+    // OWNERSHIP (audit MED — IDOR): this route returned any booking's PNR/status and
+    // drove supplier finalize for any invoice_id to an anonymous caller (enumeration +
+    // PNR disclosure + forced notifications). Restrict to the invoice owner / creating
+    // session / admin. The booking submit calls grantInvoiceSessionOwnership(), so the
+    // paying customer's session owns their invoice on the Mozio return.
+    $__mozBooking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'cars']);
+    if (!$__mozBooking || (function_exists('enforceInvoiceAccess') && !enforceInvoiceAccess($db, $__mozBooking, null))) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Not authorised for this booking.', 'status' => 'error']);
+        exit;
+    }
+
     $cfg = mozioModuleConfig($db);
     if (!$cfg) {
         echo json_encode(['success' => false, 'message' => 'Mozio not configured', 'status' => 'error']);
@@ -90,6 +102,15 @@ $router->get('/cars/mozio/poll-status', function () use ($SECURE, $db) {
 $router->get('/cars/mozio/payment-status', function () use ($SECURE, $db) {
     $invoiceId = $_GET['invoice_id'] ?? $_GET['invoice'] ?? '';
     if (empty($invoiceId)) {
+        header('Location: ' . root . 'cars');
+        exit;
+    }
+
+    // OWNERSHIP (audit MED — IDOR): don't drive supplier finalize + notifications for an
+    // arbitrary invoice from an anonymous caller. enforceInvoiceAccess handles owner /
+    // creating-session / admin and self-denies (403/redirect) otherwise.
+    $__mozB = $db->get('bookings', '*', ['invoice_id' => (string)$invoiceId, 'module_type' => 'cars']);
+    if (!$__mozB || (function_exists('enforceInvoiceAccess') && !enforceInvoiceAccess($db, $__mozB, root . 'cars'))) {
         header('Location: ' . root . 'cars');
         exit;
     }

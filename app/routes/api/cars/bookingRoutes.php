@@ -145,9 +145,7 @@ $router->post('/api/cars/booking/draft', function () use ($SECURE, $db) {
         if (!empty($token)) {
             try {
                 $tokenData = JWT::verify($token);
-                if (!$tokenData && method_exists('JWT', 'decode')) {
-                    $tokenData = JWT::decode($token, false);
-                }
+                // (audit HIGH) removed unverified JWT::decode($token,false) fallback — a forged/expired token must NOT set session identity/role; verify() only.
                 if ($tokenData && !empty($tokenData['user_id'])) {
                     $_SESSION['user_id'] = $tokenData['user_id'];
                     $_SESSION['user_role'] = $tokenData['role'] ?? null;
@@ -373,9 +371,7 @@ $router->get('/api/cars/booking/draft/([a-f0-9]{16})', function ($hash) use ($db
     if (!empty($token)) {
         try {
             $tokenData = JWT::verify($token);
-            if (!$tokenData && method_exists('JWT', 'decode')) {
-                $tokenData = JWT::decode($token, false);
-            }
+                // (audit HIGH) removed unverified JWT::decode($token,false) fallback — a forged/expired token must NOT set session identity/role; verify() only.
             if (is_array($tokenData) && !empty($tokenData['user_id'])) {
                 $_SESSION['user_id'] = $tokenData['user_id'];
                 $_SESSION['user_role'] = $tokenData['role'] ?? null;
@@ -477,9 +473,7 @@ $router->post('/api/cars/booking/submit', function () use ($SECURE, $db) {
         if (!empty($token)) {
             try {
                 $tokenData = JWT::verify($token);
-                if (!$tokenData && method_exists('JWT', 'decode')) {
-                    $tokenData = JWT::decode($token, false);
-                }
+                // (audit HIGH) removed unverified JWT::decode($token,false) fallback — a forged/expired token must NOT set session identity/role; verify() only.
                 if ($tokenData && !empty($tokenData['user_id'])) {
                     $userId = $tokenData['user_id'];
                     $whereClause = ['user_id' => (string)$userId];

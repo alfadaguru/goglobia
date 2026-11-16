@@ -295,6 +295,41 @@ if (!function_exists('mozioModuleConfig')) {
             ];
         }
 
+        // CONCURRENCY CLAIM (audit MED — mozio had only the sequential pnr-check above;
+        // cartrawler has this claim). Two TRULY concurrent issue calls (gateway callback
+        // racing /cars/mozio/checkout, or a double-submit) could both read pnr='' and both
+        // POST /v2/reservations/ -> two real Mozio reservations for one invoice. Claim on a
+        // nullable issue_claimed_at timestamp; succeeds only when un-issued AND the claim is
+        // free or STALE (>10 min). A racing duplicate updates 0 rows and is rejected.
+        try { $db->query("ALTER TABLE `bookings` ADD COLUMN `issue_claimed_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
+        $claim = $db->query(
+            "UPDATE bookings SET issue_claimed_at = NOW()
+             WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
+               AND booking_status NOT IN ('confirmed','cancelled')
+               AND (issue_claimed_at IS NULL OR issue_claimed_at < (NOW() - INTERVAL 10 MINUTE))",
+            [':inv' => $invoiceId]
+        );
+        if (!$claim || $claim->rowCount() < 1) {
+            // Resume the existing attempt rather than start a second reservation.
+            $resumeBooking = $db->get('bookings', ['pnr'], ['invoice_id' => $invoiceId]);
+            return [
+                'status'         => !empty($resumeBooking['pnr']),
+                'pnr'            => $resumeBooking['pnr'] ?? '',
+                'message'        => 'This reservation is already being issued or has been issued.',
+                'response_error' => 'already_issuing',
+            ];
+        }
+        // Release the claim on any exit path while still un-issued, so a legit retry isn't
+        // blocked for 10 min.
+        register_shutdown_function(function () use ($db, $invoiceId) {
+            try {
+                $b = $db->get('bookings', ['pnr'], ['invoice_id' => $invoiceId]);
+                if ($b && empty($b['pnr'])) {
+                    $db->query("UPDATE bookings SET issue_claimed_at = NULL WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')", [':inv' => $invoiceId]);
+                }
+            } catch (\Throwable $e) { error_log('mozio issue claim-release: ' . $e->getMessage()); }
+        });
+
         $bookingData = json_decode($booking['booking_data'] ?? '{}', true);
         if (!is_array($bookingData)) {
             $bookingData = [];

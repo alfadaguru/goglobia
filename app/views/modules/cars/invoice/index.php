@@ -182,11 +182,11 @@ $mozioStripeUrl = $mozioMeta['stripe_redirect_url'] ?? '';
                                 <div class="space-y-2 text-sm">
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::name ?>:</span>
-                                        <span class="font-medium"><?= $firstName ?> <?= $lastName ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$firstName, ENT_QUOTES) ?> <?= htmlspecialchars((string)$lastName, ENT_QUOTES) ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::email ?>:</span>
-                                        <span class="font-medium"><?= $email ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$email, ENT_QUOTES) ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::phone ?>:</span>
@@ -209,15 +209,15 @@ $mozioStripeUrl = $mozioMeta['stripe_redirect_url'] ?? '';
                     <div class="card-body">
                         <div class="flex items-start gap-4 pb-4 mb-4 border-b border-gray-200 dark:border-gray-700">
                             <div class="w-24 h-24 flex-shrink-0">
-                                <img src="<?= !empty($carImage) ? $carImage : root . 'uploads/no_img.jpg' ?>"
+                                <img src="<?= htmlspecialchars((string)(!empty($carImage) ? $carImage : root . 'uploads/no_img.jpg'), ENT_QUOTES) ?>"
                                      class="w-full h-full object-contain rounded-xl border border-gray-200 dark:border-gray-700"
-                                     alt="<?= $carName ?>"
+                                     alt="<?= htmlspecialchars((string)$carName, ENT_QUOTES) ?>"
                                      onerror="this.src='<?= root ?>uploads/no_img.jpg'">
                             </div>
 
                             <div class="flex-1">
                                 <h4 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                                    <?= $carName ?>
+                                    <?= htmlspecialchars((string)$carName, ENT_QUOTES) ?>
                                 </h4>
 
                                 <?php if ($isTransfer): ?>
@@ -331,7 +331,7 @@ $mozioStripeUrl = $mozioMeta['stripe_redirect_url'] ?? '';
                                     <?= strtoupper(substr($firstName, 0, 1)) ?><?= strtoupper(substr($lastName, 0, 1)) ?>
                                 </div>
                                 <div>
-                                    <p class="font-bold text-slate-900 dark:text-white"><?= $guestDetails['title'] ?? '' ?> <?= $firstName ?> <?= $lastName ?></p>
+                                    <p class="font-bold text-slate-900 dark:text-white"><?= htmlspecialchars((string)($guestDetails['title'] ?? ''), ENT_QUOTES) ?> <?= htmlspecialchars((string)$firstName, ENT_QUOTES) ?> <?= htmlspecialchars((string)$lastName, ENT_QUOTES) ?></p>
                                     <p class="text-sm text-slate-500">Primary Driver</p>
                                 </div>
                             </div>
@@ -340,12 +340,12 @@ $mozioStripeUrl = $mozioMeta['stripe_redirect_url'] ?? '';
                             <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm border-t border-slate-200 dark:border-gray-700 pt-4">
                                 <div>
                                     <span class="text-slate-500 block"><?= T::nationality ?></span>
-                                    <span class="font-medium"><?= $guestDetails['nationality'] ?></span>
+                                    <span class="font-medium"><?= htmlspecialchars((string)($guestDetails['nationality'] ?? ''), ENT_QUOTES) ?></span>
                                 </div>
                                 <?php if (!empty($guestDetails['passport'])): ?>
                                 <div>
                                     <span class="text-slate-500 block">ID / Passport Number</span>
-                                    <span class="font-medium"><?= $guestDetails['passport'] ?></span>
+                                    <span class="font-medium"><?= htmlspecialchars((string)($guestDetails['passport'] ?? ''), ENT_QUOTES) ?></span>
                                 </div>
                                 <?php endif; ?>
                             </div>
