@@ -11355,6 +11355,13 @@ function ensureSupplierStaysSchema($db): void
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'reviewed_at'")->fetch()) {
             $db->query("ALTER TABLE `stays` ADD COLUMN `reviewed_at` DATETIME DEFAULT NULL");
         }
+        // Front-desk BOOK-ON-HOLD: per-property hold window (hours). When a clerk puts a
+        // walk-in/phone booking "on hold", the room is blocked for this many hours, then the
+        // hold auto-releases (sweep) if not confirmed+paid. Default 24h; editable on the
+        // property edit form. Read via stays_hold_hours().
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'hold_hours'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `hold_hours` INT(11) NOT NULL DEFAULT 24");
+        }
         // Owner index — speeds "my properties" and is cheap; add once.
         $hasOwnerIdx = $db->query("SHOW INDEX FROM `stays` WHERE Key_name = 'idx_stays_owner'")->fetch();
         if (!$hasOwnerIdx) {

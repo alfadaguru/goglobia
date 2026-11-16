@@ -243,6 +243,19 @@ if (!function_exists('resv_create_walkin')) {
         $markPaid = !empty($in['mark_paid']);
         $now = date('Y-m-d H:i:s');
 
+        // BOOK-ON-HOLD: a 'hold' booking is a tentative reservation — the room is BLOCKED (no
+        // oversell) with a deadline, but the hold is NOT consumed (so the sweep can release
+        // it) and NO payment/discount/check-in is taken (those happen at confirm). The
+        // deadline is the property's hold window (stays_hold_hours). When not a hold, this is
+        // the existing firm 'confirmed' walk-in that consumes inventory immediately.
+        $isHold = !empty($in['hold']);
+        $holdMinutes = 0; $holdExpiresAt = null;
+        if ($isHold) {
+            $holdHours = function_exists('stays_hold_hours') ? stays_hold_hours($db, $stayId) : 24;
+            $holdMinutes = max(1, $holdHours) * 60;
+            $holdExpiresAt = date('Y-m-d H:i:s', time() + $holdMinutes * 60);
+        }
+
         $bookingData = [
             'hotel_id'       => $stayId,
             'supplier'       => 'hotels',
@@ -295,12 +308,18 @@ if (!function_exists('resv_create_walkin')) {
             $db->action(function ($db) use (
                 $stayId, $roomId, $optionId, $qty, $checkin, $checkout, $invoiceId,
                 $firstName, $lastName, $in, $net, $finalTotal, $taxAmount, $currency,
-                $bookingData, $markPaid, $source, $now, $custId, $guestId, &$result
+                $bookingData, $markPaid, $source, $now, $custId, $guestId,
+                $isHold, $holdMinutes, $holdExpiresAt, &$result
             ) {
                 // 1) Place the no-oversell hold FIRST — a failed hold aborts the whole
-                //    create (can't take a walk-in for a room we don't have).
+                //    create (can't take a walk-in for a room we don't have). For a HOLD, use
+                //    the property's hold window as the hold TTL (so the stays_holds row's
+                //    expires_at == the booking's hold deadline); a firm booking uses the
+                //    default short TTL and is consumed immediately below.
                 if (function_exists('stays_hold_create')) {
-                    $hold = stays_hold_create($db, $stayId, $roomId, $optionId, $checkin, $checkout, $qty, $invoiceId);
+                    $hold = $isHold
+                        ? stays_hold_create($db, $stayId, $roomId, $optionId, $checkin, $checkout, $qty, $invoiceId, $holdMinutes)
+                        : stays_hold_create($db, $stayId, $roomId, $optionId, $checkin, $checkout, $qty, $invoiceId);
                     if (empty($hold['ok'])) {
                         $result = ['ok' => false, 'message' => $hold['message'] ?? 'Those dates are not available.'];
                         return false; // rollback
@@ -313,9 +332,13 @@ if (!function_exists('resv_create_walkin')) {
                     'module_type'     => 'stays',
                     'module'          => 'hotels',
                     'booking_date'    => $now,
-                    'booking_status'  => 'confirmed',
-                    'payment_status'  => $markPaid ? 'paid' : 'unpaid',
-                    'paid_at'         => $markPaid ? $now : null,
+                    // A HOLD is tentative ('held' + a deadline); a firm walk-in is 'confirmed'.
+                    'booking_status'  => $isHold ? 'held' : 'confirmed',
+                    'hold_expires_at' => $isHold ? $holdExpiresAt : null,
+                    // A hold never takes money at create time (confirm does); mark_paid only
+                    // applies to a firm booking.
+                    'payment_status'  => (!$isHold && $markPaid) ? 'paid' : 'unpaid',
+                    'paid_at'         => (!$isHold && $markPaid) ? $now : null,
                     'price_original'  => round($net, 2),
                     'price_markup'    => $finalTotal,
                     // NB: the bookings table has only `currency_markup` (install/db.sql);
@@ -343,7 +366,7 @@ if (!function_exists('resv_create_walkin')) {
                     'booking_data'    => json_encode($bookingData),
                     'customer_id'     => $custId > 0 ? $custId : null, // C2: booking→payer link
                     'guest_id'        => $guestId > 0 ? $guestId : null, // booking→stayer link
-                    'payment_gateway' => $markPaid ? 'Front desk' : null,
+                    'payment_gateway' => (!$isHold && $markPaid) ? 'Front desk' : null,
                     'created_at'      => $now,
                     'updated_at'      => $now,
                 ]);
@@ -352,20 +375,23 @@ if (!function_exists('resv_create_walkin')) {
                     return false;
                 }
 
-                // 3) CONSUME the hold → permanent reservation. A front-desk walk-in/phone
-                //    booking is created booking_status='confirmed' (a firm commitment the
-                //    hotel honors), so its inventory must be reserved REGARDLESS of payment
-                //    — "pay at property" is the normal case. Previously this only fired when
-                //    $markPaid, so an unpaid confirmed reservation held its rooms only for
-                //    the ~20-min hold TTL and then the nights became re-sellable (oversell
-                //    of a firm reservation). Consuming unconditionally closes that window.
-                //    stays_hold_consume_ref is idempotent (state-guarded held→consumed).
-                if (function_exists('stays_hold_consume_ref')) {
+                // 3) CONSUME the hold → permanent reservation. A FIRM front-desk walk-in is
+                //    created booking_status='confirmed', so its inventory is reserved
+                //    REGARDLESS of payment ("pay at property" is normal). stays_hold_consume_ref
+                //    is idempotent (state-guarded held→consumed).
+                //    A HOLD does NOT consume — the room stays BLOCKED (the stays_holds row's
+                //    expires_at == the hold deadline) until the desk CONFIRMS it (resv_confirm_hold
+                //    consumes then) or the sweep releases it on expiry. Consuming a hold now
+                //    would make it a firm reservation the sweep could never free.
+                if (!$isHold && function_exists('stays_hold_consume_ref')) {
                     stays_hold_consume_ref($db, $invoiceId);
                 }
 
-                $result = ['ok' => true, 'invoice_id' => $invoiceId,
-                           'message' => 'Reservation ' . $invoiceId . ' created.'];
+                $result = ['ok' => true, 'invoice_id' => $invoiceId, 'is_hold' => $isHold,
+                           'hold_expires_at' => $isHold ? $holdExpiresAt : null,
+                           'message' => $isHold
+                               ? ('Booking ' . $invoiceId . ' placed on hold.')
+                               : ('Reservation ' . $invoiceId . ' created.')];
                 return true;
             });
         } catch (\Throwable $e) {
@@ -397,7 +423,9 @@ if (!function_exists('resv_create_walkin')) {
         // desk fields are present, the booking keeps whatever payment_status the create
         // set from the legacy mark_paid bool, and nothing else happens. Any settlement
         // failure is reported but NEVER un-does the (already firm) reservation.
-        if (!empty($result['ok']) && !empty($result['invoice_id'])) {
+        // A HOLD takes no money/discount/check-in at create time — those happen when the
+        // desk CONFIRMS the hold. So the post-create settlement runs only for a firm booking.
+        if (!$isHold && !empty($result['ok']) && !empty($result['invoice_id'])) {
             try {
                 $settle = resv_apply_desk_settlement($db, $stayId, (string) $result['invoice_id'], $finalTotal, $currency, $in);
                 // Merge settlement outcome into the result so the caller can surface it.
@@ -592,6 +620,54 @@ if (!function_exists('resv_apply_desk_settlement')) {
 
         $out['notes'] = trim(implode(' ', $notes));
         return $out;
+    }
+}
+
+if (!function_exists('resv_confirm_hold')) {
+    /**
+     * CONFIRM a held front-desk booking → firm reservation. Flips booking_status held→
+     * confirmed, consumes the still-live inventory hold (making the room permanently
+     * reserved), and clears hold_expires_at. Idempotent + honest:
+     *   - a booking that is not 'held' (already confirmed/cancelled) is reported as-is;
+     *   - if the hold already lapsed (sweep released it, or the room was otherwise taken),
+     *     the consume finds no live 'held' rows → we DO NOT silently confirm an unheld
+     *     room; we report that the hold expired so the desk can reassign/rebook.
+     * Payment/discount are taken SEPARATELY (the reservation detail payment block) — this
+     * only transitions the hold state. Returns ['ok','message','expired'=>bool].
+     */
+    function resv_confirm_hold($db, string $invoiceId): array
+    {
+        $invoiceId = trim($invoiceId);
+        if ($invoiceId === '') { return ['ok' => false, 'message' => 'No booking.']; }
+        $b = $db->get('bookings', ['invoice_id', 'booking_status'], ['invoice_id' => $invoiceId]);
+        if (!$b) { return ['ok' => false, 'message' => 'Booking not found.']; }
+        $status = strtolower((string) ($b['booking_status'] ?? ''));
+        if ($status === 'confirmed') { return ['ok' => true, 'message' => 'Already confirmed.']; }
+        if ($status === 'cancelled') { return ['ok' => false, 'message' => 'This booking was cancelled.']; }
+        if ($status !== 'held') { return ['ok' => false, 'message' => 'This booking is not on hold.']; }
+
+        // Consume the still-'held' inventory rows for this invoice. rowCount > 0 means the
+        // hold was live and is now permanent. 0 means the hold already lapsed/released.
+        $consumed = function_exists('stays_hold_consume_ref') ? (int) stays_hold_consume_ref($db, $invoiceId) : -1;
+        if ($consumed === 0) {
+            // Hold no longer live. Be honest — do not confirm a room we no longer hold.
+            // Leave the booking 'held' so the desk sees it still needs attention; the sweep
+            // (or the operator) will cancel it if the dates are genuinely gone.
+            return ['ok' => false, 'expired' => true,
+                'message' => 'This hold has expired — the room is no longer blocked. Re-check availability and rebook, or cancel.'];
+        }
+        // consumed > 0 (or the helper is absent: -1 → trust the state flip). Firm it up.
+        try {
+            $db->update('bookings', [
+                'booking_status'  => 'confirmed',
+                'hold_expires_at' => null,
+                'updated_at'      => date('Y-m-d H:i:s'),
+            ], ['invoice_id' => $invoiceId, 'booking_status' => 'held']);
+        } catch (\Throwable $e) {
+            error_log('resv_confirm_hold ' . $invoiceId . ': ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not confirm the hold.'];
+        }
+        return ['ok' => true, 'message' => 'Hold confirmed — the reservation is now firm.'];
     }
 }
 

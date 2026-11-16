@@ -13,10 +13,19 @@ $base         = root . 'supplier/reservations';
 $statusBadge = function ($s) {
     $s = strtolower((string) $s);
     return [
+        'held'      => 'bg-violet-50 text-violet-700',
         'confirmed' => 'bg-green-50 text-green-700',
         'pending'   => 'bg-amber-50 text-amber-700',
         'cancelled' => 'bg-red-50 text-red-700',
     ][$s] ?? 'bg-gray-100 text-gray-600';
+};
+// Short human countdown to a hold deadline, e.g. "22h left" / "45m left" / "expired".
+$holdCountdown = function ($expiresAt) {
+    if (empty($expiresAt)) { return ''; }
+    $secs = strtotime((string) $expiresAt) - time();
+    if ($secs <= 0) { return 'expired'; }
+    if ($secs >= 3600) { return (int) floor($secs / 3600) . 'h left'; }
+    return max(1, (int) floor($secs / 60)) . 'm left';
 };
 $payBadge = function ($s) {
     $s = strtolower((string) $s);
@@ -133,7 +142,12 @@ $payBadge = function ($s) {
               <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars($propMap[$hid] ?? ('#' . $hid)) ?></td>
               <td class="px-4 py-3 text-gray-600 whitespace-nowrap text-xs"><?= $ci !== '' ? htmlspecialchars($ci) : '—' ?><?= $co !== '' ? ' → ' . htmlspecialchars($co) : '' ?></td>
               <td class="px-4 py-3 text-gray-900 font-medium tabular-nums whitespace-nowrap"><?= htmlspecialchars((string) ($r['currency_markup'] ?? '')) ?> <?= number_format((float) ($r['price_markup'] ?? 0), 2) ?></td>
-              <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $statusBadge($r['booking_status'] ?? '') ?>"><?= htmlspecialchars(ucfirst((string) ($r['booking_status'] ?? ''))) ?></span></td>
+              <td class="px-4 py-3 whitespace-nowrap">
+                <span class="px-2 py-0.5 rounded text-xs font-medium <?= $statusBadge($r['booking_status'] ?? '') ?>"><?= htmlspecialchars(ucfirst((string) ($r['booking_status'] ?? ''))) ?></span>
+                <?php if (strtolower((string) ($r['booking_status'] ?? '')) === 'held' && !empty($r['hold_expires_at'])): $__cd = $holdCountdown($r['hold_expires_at']); ?>
+                  <span class="ml-1 inline-flex items-center gap-0.5 text-[11px] <?= $__cd === 'expired' ? 'text-rose-600' : 'text-violet-600' ?>" title="Hold until <?= htmlspecialchars((string) $r['hold_expires_at']) ?>"><span class="material-symbols-outlined text-[13px]">schedule</span><?= htmlspecialchars($__cd) ?></span>
+                <?php endif; ?>
+              </td>
               <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $payBadge($r['payment_status'] ?? '') ?>"><?= htmlspecialchars(ucfirst((string) ($r['payment_status'] ?? ''))) ?></span></td>
               <td class="px-4 py-3"><a href="<?= $base ?>/<?= rawurlencode($inv) ?>" class="text-blue-600 hover:underline text-xs font-medium">View</a></td>
             </tr>

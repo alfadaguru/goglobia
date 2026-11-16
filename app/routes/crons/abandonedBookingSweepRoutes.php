@@ -91,5 +91,79 @@ $router->get('/abandoned_booking_sweep', function () use ($SECURE, $db) {
         }
     }
 
+    // ── FRONT-DESK BOOK-ON-HOLD EXPIRY ──────────────────────────────────────────
+    // A front-desk "held" booking blocks its room with a DEADLINE (hold_expires_at, the
+    // property's hold window). This is NOT the grace-window pending case above — it's a
+    // hard deadline. When it lapses unpaid, release the room (stays_on_cancelled — the same
+    // hook the web/admin cancel uses), cancel the booking, and notify. Idempotent + TOCTOU-
+    // guarded. A hold that got CONFIRMED (held→confirmed) is no longer 'held', so it's never
+    // swept. NGN/own-inventory only — these are supplier stays walk-ins/phone holds.
+    $out['holds_expired'] = 0;
+    $nowTs = date('Y-m-d H:i:s');
+    $heldRows = $db->select('bookings',
+        ['invoice_id', 'module_type', 'email', 'phone', 'phone_country_code', 'first_name', 'last_name', 'price_markup', 'currency_markup'], [
+        'booking_status'   => 'held',
+        'hold_expires_at[<]'=> $nowTs,
+        'LIMIT'            => 300,
+    ]) ?: [];
+    foreach ($heldRows as $hb) {
+        $out['scanned']++;
+        $invoiceId = (string) ($hb['invoice_id'] ?? '');
+        if ($invoiceId === '') { $out['skipped']++; continue; }
+        try {
+            // TOCTOU: re-read live — a hold that was JUST confirmed (held→confirmed) between
+            // the SELECT and now must NEVER be cancelled.
+            $live = $db->get('bookings', ['booking_status', 'hold_expires_at'], ['invoice_id' => $invoiceId]);
+            if (!$live || strtolower((string) ($live['booking_status'] ?? '')) !== 'held'
+                || empty($live['hold_expires_at']) || strtotime((string) $live['hold_expires_at']) > time()) {
+                $out['skipped']++;
+                continue;
+            }
+            // Release the room (consume→... no: it's still 'held', so release frees the night).
+            // stays_on_cancelled runs the canonical release (hold → released) + any earning
+            // reversal; fall back to stays_hold_release if the hook isn't loaded.
+            $mt = strtolower((string) ($hb['module_type'] ?? ''));
+            if (in_array($mt, ['stays', 'hotels'], true)) {
+                try {
+                    if (function_exists('stays_on_cancelled')) { stays_on_cancelled($db, $invoiceId); }
+                    elseif (function_exists('stays_hold_release')) { stays_hold_release($db, $invoiceId); }
+                    $out['holds_released']++;
+                } catch (\Throwable $e) { error_log('held_sweep release ' . $invoiceId . ': ' . $e->getMessage()); }
+            }
+            // Cancel the booking (state-guarded: only flip a row still 'held').
+            $db->update('bookings', [
+                'booking_status'        => 'cancelled',
+                'cancellation_status'   => 1,
+                'cancellation_response' => 'Auto-released: hold expired without confirmation (front-desk book-on-hold sweep).',
+                'hold_expires_at'       => null,
+                'updated_at'            => $nowTs,
+            ], ['invoice_id' => $invoiceId, 'booking_status' => 'held']);
+            $out['cancelled']++;
+            $out['holds_expired']++;
+            // Notify the guest the hold lapsed (best-effort, never blocks the sweep). Same
+            // NOTIFY::cancellation($module, $customerData, $bookingData) signature the web
+            // stays-cancel path uses (app/routes/stays/bookingRoutes.php).
+            try {
+                if (class_exists('NOTIFY') && method_exists('NOTIFY', 'cancellation')) {
+                    NOTIFY::cancellation('stays', [
+                        'email'        => $hb['email'] ?? '',
+                        'phone'        => $hb['phone'] ?? '',
+                        'first_name'   => $hb['first_name'] ?? '',
+                        'last_name'    => $hb['last_name'] ?? '',
+                        'country_code' => $hb['phone_country_code'] ?? '',
+                    ], [
+                        'invoice_id'  => $invoiceId,
+                        'amount'      => $hb['price_markup'] ?? 0,
+                        'currency'    => $hb['currency_markup'] ?? 'USD',
+                        'module_type' => 'Stay',
+                    ]);
+                }
+            } catch (\Throwable $e) { error_log('held_sweep notify ' . $invoiceId . ': ' . $e->getMessage()); }
+        } catch (\Throwable $e) {
+            error_log('held_booking_sweep ' . $invoiceId . ': ' . $e->getMessage());
+            $out['skipped']++;
+        }
+    }
+
     echo json_encode($out);
 });

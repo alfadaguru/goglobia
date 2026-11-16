@@ -272,7 +272,7 @@
           </div>
         </div>
 
-        <!-- SUBMIT: reserve-only vs reserve+check-in -->
+        <!-- SUBMIT: reserve+check-in / reserve only / put on hold -->
         <div class="card p-5 space-y-2">
           <button type="submit" id="btnReserveCheckin" class="btn emerald w-full justify-center">
             <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">login</span> Reserve &amp; check in</span>
@@ -280,6 +280,10 @@
           <button type="submit" id="btnReserve" class="btn secondary w-full justify-center">
             <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">event_available</span> Reserve only</span>
           </button>
+          <button type="submit" id="btnHold" class="btn secondary w-full justify-center">
+            <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">schedule</span> Put on hold<?= isset($holdHours) && (int) $holdHours > 0 ? ' (' . (int) $holdHours . 'h)' : '' ?></span>
+          </button>
+          <p class="text-[11px] text-gray-400 text-center">A hold blocks the room without taking payment; it auto-releases if not confirmed in time. Take payment when you confirm the hold.</p>
           <a href="<?= root ?>supplier/reservations" class="block text-center text-xs text-gray-500 hover:underline pt-1">Cancel</a>
         </div>
       </div>
@@ -419,11 +423,12 @@
     var el = $(id); if (el) { el.addEventListener('input', recalc); el.addEventListener('change', recalc); }
   });
 
-  // two submit buttons set the hidden action
+  // the submit buttons set the hidden action (reserve_checkin | reserve | hold)
   var sa = $('submitAction');
-  var bCI = $('btnReserveCheckin'), bR = $('btnReserve');
+  var bCI = $('btnReserveCheckin'), bR = $('btnReserve'), bH = $('btnHold');
   if (bCI) { bCI.addEventListener('click', function () { if (sa) sa.value = 'reserve_checkin'; }); }
   if (bR) { bR.addEventListener('click', function () { if (sa) sa.value = 'reserve'; }); }
+  if (bH) { bH.addEventListener('click', function () { if (sa) sa.value = 'hold'; }); }
 
   // phone client-side validation (same as server: ≥7 digits)
   var form = $('walkinForm'), phone = $('gPhone');

@@ -219,6 +219,11 @@
           <label class="block text-sm font-medium text-gray-700 mb-1">Check-out</label>
           <input type="time" name="checkout_time" class="input" value="<?= htmlspecialchars(substr((string) ($s['checkout_time'] ?? '12:00:00'), 0, 5)) ?>">
         </div>
+        <div class="form-control">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Hold window (hours)</label>
+          <input type="number" name="hold_hours" min="1" max="720" class="input" value="<?= htmlspecialchars((string) ((int) ($s['hold_hours'] ?? 24) ?: 24)) ?>">
+          <p class="text-[11px] text-gray-400 mt-1">How long a front-desk “Put on hold” blocks the room before it auto-releases.</p>
+        </div>
         <div class="form-control md:col-span-2">
           <label class="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
           <select name="timezone" class="input">

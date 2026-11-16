@@ -28822,6 +28822,7 @@ CREATE TABLE `stays` (
   `review_comment` varchar(255) DEFAULT NULL,
   `reviewed_by` varchar(255) DEFAULT NULL,
   `reviewed_at` datetime DEFAULT NULL,
+  `hold_hours` int(11) NOT NULL DEFAULT 24,
   `name` varchar(250) NOT NULL,
   `slug` varchar(250) NOT NULL,
   `featured` tinyint(1) DEFAULT 0,

@@ -151,7 +151,7 @@ if (!function_exists('supplier_fetch_reservations')) {
                 ['id', 'invoice_id', 'booking_status', 'payment_status', 'first_name',
                  'last_name', 'email', 'phone', 'adults', 'childs', 'price_markup',
                  'currency_markup', 'booking_data', 'created_at', 'booking_date',
-                 'cancelled_at', 'module', 'customer_id'], // C4: carry the payer link to every consumer
+                 'cancelled_at', 'module', 'customer_id', 'hold_expires_at'], // + hold deadline for the HELD countdown
                 $where) ?: [];
         } catch (\Throwable $e) {
             error_log('supplier_fetch_reservations: ' . $e->getMessage());
@@ -627,6 +627,12 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 return true;
             });
             $_SESSION['message'] = ['type' => 'success', 'text' => 'No-show cleared.'];
+        } elseif ($action === 'confirm_hold') {
+            // BOOK-ON-HOLD: confirm a held booking → firm reservation (consumes the live
+            // inventory hold, flips held→confirmed, clears the deadline). Payment is taken
+            // afterwards via the normal folio/mark-paid actions. Honest on an expired hold.
+            $res = function_exists('resv_confirm_hold') ? resv_confirm_hold($db, $invoiceId) : ['ok' => false, 'message' => 'Unavailable.'];
+            $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not confirm the hold.'];
         } elseif ($action === 'check_in') {
             // Front desk (inc S21): mark checked-in + ensure a folio exists.
             if (function_exists('folio_checkin')) { folio_checkin($db, $invoiceId); }
@@ -1137,6 +1143,8 @@ $router->get('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($S
     // Per-property payment methods (money-IN) the desk may collect with — the active ones
     // the owner/admin configured (manual tenders + an optional GoGlobia gateway/DVA).
     $paymentMethods = function_exists('stays_payment_methods_list') ? stays_payment_methods_list($db, $stayId, true) : [];
+    // The property's book-on-hold window (hours) — shown on the "Put on hold" button.
+    $holdHours = function_exists('stays_hold_hours') ? stays_hold_hours($db, $stayId) : 24;
     // Whether to show the discount field: the owner always, or a staffer whose role has a
     // discount cap configured (the server re-checks the exact % against the cap on submit).
     $canDiscount = false;
@@ -1238,12 +1246,16 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         header('Location: ' . $back); exit;
     }
 
-    // Which button was pressed: 'reserve' (hold only) or 'reserve_checkin' (also check in
-    // after the room is assigned below). Legacy posts without the field default to reserve.
+    // Which button was pressed: 'reserve' (firm, no check-in), 'reserve_checkin' (firm +
+    // check in after room assignment), or 'hold' (tentative — room blocked with a deadline,
+    // NO payment/discount/check-in now; those happen when the desk CONFIRMS the hold).
+    // Legacy posts without the field default to reserve.
     $submitAction = (string) ($_POST['submit_action'] ?? 'reserve');
+    $isHold       = ($submitAction === 'hold');
     $wantCheckin  = ($submitAction === 'reserve_checkin');
 
     $res = resv_create_walkin($db, $stayId, [
+        'hold'       => $isHold,
         'room_id'    => (int) ($_POST['room_id'] ?? 0),
         'option_id'  => (int) ($_POST['option_id'] ?? 0),
         'qty'        => 1,
@@ -1306,7 +1318,12 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
     } elseif ($wantCheckin && !$assignedOk) {
         $checkinNote = ' (reserved — assign a room then check in).';
     }
-    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => ($res['message'] ?? 'Could not create the reservation.') . $assignNote . $checkinNote];
+    // For a hold, tell the operator the deadline + that payment is taken at confirm.
+    $holdNote = '';
+    if ($isHold && !empty($res['ok']) && !empty($res['hold_expires_at'])) {
+        $holdNote = ' Holds until ' . date('D j M, H:i', strtotime((string) $res['hold_expires_at'])) . ' — confirm & take payment before then.';
+    }
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => ($res['message'] ?? 'Could not create the reservation.') . $assignNote . $checkinNote . $holdNote];
     if (!empty($res['ok']) && !empty($res['invoice_id'])) {
         // Booking succeeded → NOW record the nonce so a double-click/retry of THIS exact
         // render is refused. A failed attempt above never reaches here, so the clerk can

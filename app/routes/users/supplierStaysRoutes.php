@@ -454,6 +454,10 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
         'website'         => trim($_POST['website'] ?? '') ?: null,
         'checkin_time'    => trim($_POST['checkin_time'] ?? '14:00:00'),
         'checkout_time'   => trim($_POST['checkout_time'] ?? '12:00:00'),
+        // Book-on-hold window (hours) — how long a front-desk hold blocks the room. A valid
+        // value is clamped 1..720; anything <=0 / garbage falls to the 24h default (matches
+        // stays_hold_hours()). So a crafted negative never stores a near-zero window.
+        'hold_hours'      => (($__hh = (int) ($_POST['hold_hours'] ?? 0)) > 0 ? min(720, max(1, $__hh)) : 24),
         'refundable'      => isset($_POST['refundable']) ? 1 : 0,
         'amenity_ids'     => trim($_POST['amenity_ids'] ?? '[]'),
         'cancellation_policy' => trim($_POST['cancellation_policy'] ?? '') ?: null,
@@ -725,6 +729,10 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
         'website'         => trim($_POST['website'] ?? '') ?: null,
         'checkin_time'    => trim($_POST['checkin_time'] ?? '14:00:00'),
         'checkout_time'   => trim($_POST['checkout_time'] ?? '12:00:00'),
+        // Book-on-hold window (hours) — how long a front-desk hold blocks the room. A valid
+        // value is clamped 1..720; anything <=0 / garbage falls to the 24h default (matches
+        // stays_hold_hours()). So a crafted negative never stores a near-zero window.
+        'hold_hours'      => (($__hh = (int) ($_POST['hold_hours'] ?? 0)) > 0 ? min(720, max(1, $__hh)) : 24),
         'refundable'      => isset($_POST['refundable']) ? 1 : 0,
         'amenity_ids'     => trim($_POST['amenity_ids'] ?? '[]'),
         'cancellation_policy' => trim($_POST['cancellation_policy'] ?? '') ?: null,

@@ -553,6 +553,30 @@ if (!function_exists('stays_desk_dva_for_booking')) {
     }
 }
 
+if (!function_exists('stays_hold_hours')) {
+    /**
+     * The per-property BOOK-ON-HOLD window in hours — how long a front-desk "hold" blocks
+     * the room before auto-releasing. Read from stays.hold_hours, clamped to a sane range
+     * (1h..720h/30d); default 24h when unset/invalid. One source of truth for the hold
+     * deadline (the create engine, the countdown, and the sweep all read this).
+     */
+    function stays_hold_hours($db, int $stayId): int
+    {
+        $default = 24;
+        if ($stayId <= 0) { return $default; }
+        try {
+            $row = $db->get('stays', ['hold_hours'], ['id' => $stayId]);
+            $h = $row ? (int) ($row['hold_hours'] ?? 0) : 0;
+            if ($h <= 0) { return $default; }
+            return max(1, min(720, $h));
+        } catch (\Throwable $e) {
+            // hold_hours column may not exist yet on a behind install — default, don't break.
+            error_log('stays_hold_hours: ' . $e->getMessage());
+            return $default;
+        }
+    }
+}
+
 if (!function_exists('desk_resolve_discount')) {
     /**
      * Resolve + authorize an operator-entered front-desk discount against the acting

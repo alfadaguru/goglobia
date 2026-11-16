@@ -28,6 +28,36 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
     <?php unset($_SESSION['message']); ?>
   <?php endif; ?>
 
+  <?php
+    // BOOK-ON-HOLD banner: a held booking is tentative. Show the deadline + a "Confirm"
+    // action (flips held→confirmed + consumes the inventory hold). Payment is then taken
+    // with the normal folio/mark-paid actions below. If the hold already lapsed, say so.
+    $holdExpires = (string) ($booking['hold_expires_at'] ?? '');
+    if ($status === 'held'):
+      $secsLeft = $holdExpires !== '' ? (strtotime($holdExpires) - time()) : 0;
+      $expired  = $holdExpires !== '' && $secsLeft <= 0;
+      $leftTxt  = $expired ? 'expired' : ($secsLeft >= 3600 ? (int) floor($secsLeft / 3600) . 'h ' . (int) floor(($secsLeft % 3600) / 60) . 'm left' : max(1, (int) floor($secsLeft / 60)) . 'm left');
+  ?>
+    <div class="rounded-lg border <?= $expired ? 'border-rose-200 bg-rose-50' : 'border-violet-200 bg-violet-50' ?> p-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined <?= $expired ? 'text-rose-600' : 'text-violet-600' ?>">schedule</span>
+        <div>
+          <div class="text-sm font-semibold <?= $expired ? 'text-rose-800' : 'text-violet-900' ?>">On hold — <?= htmlspecialchars($leftTxt) ?></div>
+          <div class="text-xs <?= $expired ? 'text-rose-700' : 'text-violet-700' ?>">
+            <?php if ($expired): ?>This hold has passed its deadline. Confirm to re-check the room, or cancel.
+            <?php else: ?>Holds until <?= htmlspecialchars(date('D j M Y, H:i', strtotime($holdExpires))) ?>. Confirm to make it firm, then take payment below.<?php endif; ?>
+          </div>
+        </div>
+      </div>
+      <?php if ($canEdit): ?>
+      <form action="<?= $base ?>/<?= htmlspecialchars(rawurlencode($inv)) ?>/action" method="POST">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="confirm_hold">
+        <button type="submit" class="btn emerald text-sm"><span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">check_circle</span> Confirm &amp; take payment</span></button>
+      </form>
+      <?php endif; ?>
+    </div>
+  <?php endif; ?>
+
   <nav class="text-xs text-gray-500">
     <a href="<?= $base ?>" class="hover:underline">Reservations</a>
     <span class="mx-1">/</span><span class="text-gray-700 font-mono"><?= htmlspecialchars($inv) ?></span>
