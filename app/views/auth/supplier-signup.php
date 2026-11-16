@@ -252,7 +252,7 @@
           <!-- Submit — blocked until at least one service is selected (when services exist) -->
           <?php $svcRequired = !empty($svcOffered); ?>
           <div class="card-actions pt-2">
-            <button type="submit" class="btn emerald w-full relative"
+            <button type="submit" class="btn w-full relative"
               :disabled="isSubmitting <?= $svcRequired ? '|| serviceCount === 0' : '' ?>"
               :class="(<?= $svcRequired ? 'serviceCount === 0' : 'false' ?>) ? 'opacity-50 cursor-not-allowed' : ''"
               @click="if (<?= $svcRequired ? 'serviceCount === 0' : 'false' ?>) { $event.preventDefault(); }"

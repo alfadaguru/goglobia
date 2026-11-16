@@ -36,7 +36,7 @@
           class="input text-center tracking-[0.5em] text-lg"
           placeholder="______">
       </div>
-      <button type="submit" class="btn emerald w-full">Verify phone</button>
+      <button type="submit" class="btn w-full">Verify phone</button>
     </form>
 
     <form method="POST" action="<?= root ?>verify-phone/resend" class="text-center">

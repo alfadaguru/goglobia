@@ -189,6 +189,9 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                         </div>
                     </div>
 
+                    <!-- Remember-me + Forgot-password on ONE row (the natural pair); the
+                         "Log in with phone (OTP)" alternative moves to its own line below so
+                         three items no longer cram onto a single justify-between row. -->
                     <div class="flex items-center justify-between">
                         <div class="checkbox-item">
                             <div class="checkbox-container">
@@ -209,9 +212,19 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
 
                         <?php if (!str_contains($_SERVER['REQUEST_URI'], '/admin/')): ?>
                         <a href="<?=root?>forgot-password" class="btn-link text-sm"><?= T::forgot_password ?></a>
-                        <a href="<?=root?>login/phone" class="btn-link text-sm">Log in with phone (OTP)</a>
                         <?php endif; ?>
                     </div>
+
+                    <?php if (!str_contains($_SERVER['REQUEST_URI'], '/admin/')): ?>
+                    <!-- Alternative sign-in method on its own line (clear separation from the
+                         Remember/Forgot row above). -->
+                    <div class="text-center">
+                        <a href="<?=root?>login/phone" class="btn-link text-sm inline-flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[16px]">smartphone</span>
+                            Log in with phone (OTP)
+                        </a>
+                    </div>
+                    <?php endif; ?>
 
                     <div class="card-actions">
                         <button type="submit" class="btn w-full" :disabled="isSubmitting">

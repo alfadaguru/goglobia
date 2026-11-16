@@ -47,7 +47,7 @@
               value="<?= htmlspecialchars($_SESSION['phone_login_identifier'] ?? '') ?>">
           </div>
         </div>
-        <button type="submit" class="btn emerald w-full">Send code</button>
+        <button type="submit" class="btn w-full">Send code</button>
       </form>
     <?php else: ?>
       <!-- Step 2: enter the OTP -->
@@ -62,7 +62,7 @@
         <label class="flex items-center gap-2 text-sm text-gray-600">
           <input type="checkbox" name="remember_me" value="1" class="rounded"> Keep me signed in
         </label>
-        <button type="submit" class="btn emerald w-full">Verify &amp; log in</button>
+        <button type="submit" class="btn w-full">Verify &amp; log in</button>
       </form>
       <form method="POST" action="<?= root ?>login/phone" class="text-center">
         <?= CSRF::tokenField() ?>

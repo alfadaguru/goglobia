@@ -138,7 +138,7 @@
                     </div>
 
                     <div class="card-actions">
-                        <button type="submit" class="btn emerald w-full" :disabled="isSubmitting">
+                        <button type="submit" class="btn w-full" :disabled="isSubmitting">
                             <span class="flex items-center justify-center gap-2" x-show="!isSubmitting">
                                 <span class="material-symbols-outlined text-sm">lock_reset</span>
                                 <?= T::update_password ?>

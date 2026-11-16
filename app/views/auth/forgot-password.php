@@ -69,7 +69,7 @@
                             <?= T::back_to_login ?>
                         </a>
 
-                        <a href="<?=root?>signup" class="btn emerald">
+                        <a href="<?=root?>signup" class="btn">
                             <span class="material-symbols-outlined text-sm">person_add</span>
                             <?= T::create_account ?>
                         </a>

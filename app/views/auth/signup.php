@@ -303,7 +303,7 @@
           <!-- Submit Button -->
           <div class="card-actions">
             <button type="submit"
-              class="btn emerald w-full relative"
+              class="btn w-full relative"
               :disabled="isSubmitting">
               <span class="flex items-center justify-center gap-2" x-show="!isSubmitting">
                 <span class="material-symbols-outlined text-sm">person_add</span>
