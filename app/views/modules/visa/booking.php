@@ -417,7 +417,7 @@ if ($isUserLoggedIn) {
                                             <input type="file"
                                                    class="input select"
                                                    @change="handleFileUpload($event, index, 'national_id_front_copy')"
-                                                   accept=".pdf,.png,.jpg,.jpeg,.svg,.webp">
+                                                   accept=".pdf,.png,.jpg,.jpeg,.webp">
                                             <span x-show="traveler.national_id_front_copy_name" class="text-xs text-green-600 mt-1 flex items-center gap-1">
                                                 <span class="material-symbols-outlined text-sm">check_circle</span>
                                                 <span x-text="traveler.national_id_front_copy_name"></span>
@@ -453,7 +453,7 @@ if ($isUserLoggedIn) {
                                             <input type="file"
                                                    class="input select"
                                                    @change="handleFileUpload($event, index, 'national_id_back_copy')"
-                                                   accept=".pdf,.png,.jpg,.jpeg,.svg,.webp">
+                                                   accept=".pdf,.png,.jpg,.jpeg,.webp">
                                             <span x-show="traveler.national_id_back_copy_name" class="text-xs text-green-600 mt-1 flex items-center gap-1">
                                                 <span class="material-symbols-outlined text-sm">check_circle</span>
                                                 <span x-text="traveler.national_id_back_copy_name"></span>
@@ -489,7 +489,7 @@ if ($isUserLoggedIn) {
                                             <input type="file"
                                                    class="input select"
                                                    @change="handleFileUpload($event, index, 'passport_copy')"
-                                                   accept=".pdf,.png,.jpg,.jpeg,.svg,.webp">
+                                                   accept=".pdf,.png,.jpg,.jpeg,.webp">
                                             <span x-show="traveler.passport_copy_name" class="text-xs text-green-600 mt-1 flex items-center gap-1">
                                                 <span class="material-symbols-outlined text-sm">check_circle</span>
                                                 <span x-text="traveler.passport_copy_name"></span>

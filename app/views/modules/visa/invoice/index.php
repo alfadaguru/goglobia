@@ -178,10 +178,10 @@ $getVisaDocumentItems = function ($traveler) {
                                             </div>
                                             <div class="flex-1">
                                                 <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                                    <?= $traveler['title'] ?? '' ?> <?= $traveler['first_name'] ?? '' ?> <?= $traveler['last_name'] ?? '' ?>
+                                                    <?= htmlspecialchars((string)($traveler['title'] ?? ''), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)($traveler['first_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)($traveler['last_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
                                                 </p>
                                                 <?php if (!empty($traveler['passport_number'])): ?>
-                                                    <p class="text-xs text-gray-500">Passport: <?= $traveler['passport_number'] ?></p>
+                                                    <p class="text-xs text-gray-500">Passport: <?= htmlspecialchars((string)$traveler['passport_number'], ENT_QUOTES, 'UTF-8') ?></p>
                                                 <?php endif; ?>
                                             </div>
                                         </div>
@@ -192,7 +192,9 @@ $getVisaDocumentItems = function ($traveler) {
                                                     <?php foreach ($documents as $document): ?>
                                                         <?php
                                                             $documentUrl = root . $document['path'];
-                                                            $isImage = in_array($document['extension'], ['jpg', 'jpeg', 'png', 'webp', 'svg'], true);
+                                                            // SVG intentionally excluded (defense-in-depth): uploads reject it, and an
+                                                            // inline-rendered SVG can carry a script payload (stored XSS).
+                                                            $isImage = in_array($document['extension'], ['jpg', 'jpeg', 'png', 'webp'], true);
                                                             $isPdf = $document['extension'] === 'pdf';
                                                         ?>
                                                         <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">

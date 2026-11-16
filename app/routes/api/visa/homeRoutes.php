@@ -63,10 +63,12 @@ $router->get('/api/visas', function () use ($db) {
         ]);
 
     } catch (Exception $e) {
+        // 500 = unexpected/internal error — don't leak DB/internals (audit LOW).
+        error_log('VISA_API_HOME: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode([
             'success' => false,
-            'message' => $e->getMessage()
+            'message' => 'Something went wrong loading visa data. Please try again.'
         ]);
     }
 

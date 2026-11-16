@@ -456,6 +456,16 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
             throw new Exception('Invalid booking draft data');
         }
 
+        // ATOMIC DRAFT CLAIM (audit LOW — double-create race): mirror the web submit
+        // (app/routes/visa/bookingRoutes.php). Previously the draft was only deleted
+        // AFTER the booking insert, so two concurrent submits of the same hash both read
+        // it and both created a booking (+ duplicate promo usage once promos land here).
+        // DELETE-then-check: exactly one caller wins (rowCount >= 1); the loser aborts.
+        $claimDraft = $db->delete('logs_bookings', ['hash' => $bookingHash]);
+        if (!$claimDraft || $claimDraft->rowCount() < 1) {
+            throw new Exception('This booking is already being processed.');
+        }
+
         // --------------------------------------------------
         // RE-VALIDATE PRICING FROM DATABASE
         // --------------------------------------------------
@@ -625,6 +635,36 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
 
         // --------------------------------------------------
+        // PROMO / DISCOUNT (audit MED — web/mobile parity gap): the WEB visa submit
+        // runs apply_booking_discounts()+recordPromoUsage() (app/routes/visa/
+        // bookingRoutes.php:339-412) but this MOBILE submit had NO promo handling at
+        // all, so a promo code sent from the app was silently ignored (customer charged
+        // full price, couldn't redeem). Recompute the discount SERVER-SIDE (never trust
+        // a client number), clamp to supplier_net so charged never drops below cost, and
+        // record the redemption for per-user/usage limits — identical to the web path.
+        // --------------------------------------------------
+        $promoCodeStr  = trim((string) ($input['promo_code'] ?? ''));
+        $promoDiscount = 0.0; $promoData = null; $promoCodeJson = null;
+        if (function_exists('apply_booking_discounts')) {
+            $dsc = apply_booking_discounts($db, [
+                'base'         => (float) $finalPriceMarkup,
+                'supplier_net' => (float) $finalPriceOriginal,
+                'module'       => 'visa',
+                'currency'     => (string) $defaultCurrency,
+                'promo_code'   => $promoCodeStr,
+                'booking_data' => null,
+                'item_id'      => (int) ($visaInfoRaw['id'] ?? 0),
+                'provider'     => 'visa',
+                'user_id'      => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email'   => $email ?: null,
+            ]);
+            $finalPriceMarkup = (float) $dsc['total'];
+            $promoDiscount    = (float) $dsc['promo_discount'];
+            $promoData        = $dsc['promo_row'];
+            $promoCodeJson    = $dsc['promo_json'];
+        }
+
+        // --------------------------------------------------
         // INSERT BOOKING INTO DATABASE
         // --------------------------------------------------
         $bookingInsert = $db->insert('bookings', [
@@ -653,6 +693,7 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
             'address' => '',
             'booking_data' => json_encode($completeBookingData),
             'special_requests' => $specialRequests,
+            'promo_codes' => $promoCodeJson,
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
             'booking_date' => date('Y-m-d')
@@ -662,14 +703,16 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
             throw new Exception('Failed to create booking. Please try again.');
         }
 
+        // Record promo redemption for per-user/usage limits (mirror the web path).
+        if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+            recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?: null, $email ?: null, (float) $promoDiscount, 'visa', (string) $defaultCurrency);
+        }
+
         // AGENT API — wallet settlement (no-op unless agent-API request).
         $visaBookingId = $db->id();
         agent_api_settle_booking($db, 'visa', $visaBookingId, $invoiceId, (float) $finalPriceMarkup);
 
-        // --------------------------------------------------
-        // DELETE TEMPORARY DRAFT
-        // --------------------------------------------------
-        $db->delete('logs_bookings', ['hash' => $bookingHash]);
+        // Draft already consumed atomically above (the claim DELETE) — nothing to do here.
 
         // --------------------------------------------------
         // GENERATE PDF
