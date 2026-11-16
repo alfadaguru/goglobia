@@ -181,10 +181,12 @@ $router->post('tours/tours/search', function() use ($db) {
 
         if (!empty($token)) {
             try {
+                // Only trust a FULLY-VERIFIED token for session identity (audit MED).
+                // The old fallback to JWT::decode($token, false) skipped signature +
+                // expiry verification, so a malformed/expired/forged token could set
+                // $_SESSION['user_role'] and flip the b2b/b2c markup tier (price-tier
+                // tamper). Use verify() only; an invalid token simply gets no session.
                 $tokenData = JWT::verify($token);
-                if (!$tokenData && method_exists('JWT', 'decode')) {
-                    $tokenData = JWT::decode($token, false);
-                }
                 if (is_array($tokenData) && !empty($tokenData['user_id'])) {
                     // Start session if not started to populate session variables for search session data
                     if (session_status() === PHP_SESSION_NONE) {

@@ -15,7 +15,11 @@ if (!function_exists('_toursbms_cfg')) {
         $secretKey  = trim((string) ($m['c2'] ?? ''));
         // The spec defines only a production base URL; test env = "default" (same host).
         // Optional override via c3 for a per-merchant test host.
-        $baseUrl = trim((string) ($m['c3'] ?? '')) ?: 'http://api.toursbms.com';
+        // Default to HTTPS (audit HIGH — was plain http://). An admin-set c3 is
+        // honored as-is, but force https:// if it was configured as http:// so signed
+        // creds are never sent in cleartext.
+        $baseUrl = trim((string) ($m['c3'] ?? '')) ?: 'https://api.toursbms.com';
+        $baseUrl = preg_replace('#^http://#i', 'https://', $baseUrl);
         return [
             'module'      => $m,
             'merchant_id' => $merchantId,
@@ -238,7 +242,12 @@ if (!function_exists('_toursbms_http')) {
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_CONNECTTIMEOUT => defined('SUPPLIER_CONNECT_TIMEOUT') ? SUPPLIER_CONNECT_TIMEOUT : 10,
             CURLOPT_TIMEOUT        => defined('SUPPLIER_REQUEST_TIMEOUT') ? SUPPLIER_REQUEST_TIMEOUT : 30,
-            CURLOPT_SSL_VERIFYPEER => false,
+            // TLS peer verification MUST be on (audit HIGH). It was disabled, and the
+            // base URL defaulted to plain http://, so the merchantId + MD5 signature +
+            // all traffic went MITM-able/cleartext. Verify peer + host like every other
+            // supplier does.
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
         ]);
         $raw  = curl_exec($ch);
         $err  = curl_error($ch);

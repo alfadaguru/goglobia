@@ -189,10 +189,10 @@ $router->post('/tours/tours/details', function() use ($db) {
 
         if (!empty($token)) {
             try {
+                // Only trust a FULLY-VERIFIED token for session identity (audit MED):
+                // the old JWT::decode($token, false) fallback skipped signature/expiry
+                // verification and could set the b2b/b2c markup tier from a forged token.
                 $tokenData = JWT::verify($token);
-                if (!$tokenData && method_exists('JWT', 'decode')) {
-                    $tokenData = JWT::decode($token, false);
-                }
                 if (is_array($tokenData) && !empty($tokenData['user_id'])) {
                     $_SESSION['user_id'] = $tokenData['user_id'];
                     $_SESSION['user_role'] = $tokenData['role'] ?? null;
