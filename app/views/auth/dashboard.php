@@ -246,6 +246,11 @@
 
             <!-- Add-card panel — USD/Stripe: card field mounts here -->
             <div x-show="adding && !isNgn" x-cloak class="mt-3 rounded-lg border border-slate-200 p-3">
+               <!-- Currency-context nudge: cards are added for the currency you're
+                    browsing in (USD/other -> Stripe here). To add the other type, the
+                    customer switches their site currency — matches how the whole app
+                    routes by currency. -->
+               <p class="text-[11px] text-slate-500 mb-2">You're adding a <strong>USD / international</strong> card. To add a <strong>Naira</strong> card, switch your currency to NGN first.</p>
                <div id="card-element" class="p-2 border border-slate-200 rounded bg-white"></div>
                <p class="text-xs text-red-500 mt-1" x-text="err" x-show="err"></p>
                <div class="flex items-center gap-2 mt-3">
@@ -259,6 +264,7 @@
 
             <!-- Add-card panel — NGN/Paystack: guide to the top-up (which saves the card) -->
             <div x-show="adding && isNgn" x-cloak class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+               <p class="text-[11px] text-slate-500 mb-2">You're adding a <strong>Naira</strong> card. To add a <strong>USD / international</strong> card, switch your currency to USD first.</p>
                <p class="text-xs text-slate-600">To save a <strong>Naira</strong> card, make a wallet top-up with Paystack and tick “save my card” on Paystack’s page. Your card is then stored here automatically — Paystack doesn’t allow saving a card without a payment.</p>
                <div class="flex items-center gap-2 mt-3">
                   <button type="button" class="btn primary text-xs inline-flex items-center gap-1" @click="goTopUp()">
