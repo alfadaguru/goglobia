@@ -436,6 +436,11 @@ if (!empty($paymentGateways)) {
             submitting: false,
             cartAdding: false,
             cartAdded: false,
+            // Full-page loading overlay (includes/booking/loading.php binds x-show to
+            // this). It was assigned (this.showBookingLoader = true/false) but never
+            // DECLARED here, so Alpine threw "ReferenceError: showBookingLoader is not
+            // defined" on first render of every eSIM results/booking page. Declare it.
+            showBookingLoader: false,
 
             couponCode: '',
             couponApplied: false,
