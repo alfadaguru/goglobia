@@ -106,15 +106,15 @@ $router->post('/supplier/groups/create', function () use ($SECURE, $db) {
 // list of ROOM ROWS, each = a room type + dates + (optionally) a SPECIFIC physical room + the
 // guest staying in it (with details). One submit orchestrates the SAME guarded engine helpers,
 // server-authoritative, IN ORDER:
-//   group_create
+//   group_create (customer REQUIRED — the group's company/email come from it)
 //   -> for each distinct (room_id, option_id, date_from, date_to): group_block_add(qty = #rows)
-//   -> per row: group_member_add_r (its guest)  +  group_member_assign_room (its chosen room)
-//   -> (submit_action='book') group_bulk_assign (fills any 'auto-pick' rows) + group_bulk_book
-// It adds NO new money/inventory logic — each helper keeps its own ownership ($stayId), inventory
-// atomicity (stays_hold_create / FOR UPDATE), the date-aware no-oversell room guard, and role
-// caps. A specific room a row asks for is RE-VALIDATED by group_member_assign_room (it can be
-// refused/raced → that row stays unassigned and is reported, never oversold). Honest reporting:
-// a failed block or a failed row is tallied, not hidden; nothing half-made is claimed as success.
+//   -> per row: group_member_add_r (its guest)  +  group_member_assign_room (its REQUIRED room)
+//   -> (submit_action='book') group_bulk_book
+// Every room is a SPECIFIC choice — there is no auto-pick. It adds NO new money/inventory logic:
+// each helper keeps its own ownership ($stayId), inventory atomicity (stays_hold_create / FOR
+// UPDATE), the date-aware no-oversell room guard, and role caps. The specific room a row asks for
+// is RE-VALIDATED by group_member_assign_room (it can be refused/raced → that row is reported for
+// reassignment, never oversold). Honest reporting: a failed block or row is tallied, not hidden.
 // The old step routes + the detail page stay intact for managing large/existing groups.
 $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
@@ -149,30 +149,56 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
     $rPhone = isset($_POST['guest_phone']) && is_array($_POST['guest_phone']) ? $_POST['guest_phone'] : [];
     $rCust  = isset($_POST['guest_customer_id']) && is_array($_POST['guest_customer_id']) ? $_POST['guest_customer_id'] : [];
 
+    // CUSTOMER is REQUIRED for a group (owner rule): the group's company/organiser + contact
+    // email are taken FROM the customer, so there is no customer = no group. Server-authoritative.
+    $customerId = (int) ($_POST['customer_id'] ?? 0);
+    if ($customerId <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Pick a customer for this group (the payer / account).'];
+        header('Location: ' . $back); exit;
+    }
+    // Group NAME is required (its own label, distinct from the customer).
+    if (trim((string) ($_POST['name'] ?? '')) === '') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Give the group a name.'];
+        header('Location: ' . $back); exit;
+    }
+
     // Normalise into clean row records; skip wholly-empty rows (no room type chosen AND no guest).
+    // Every KEPT row MUST carry a SPECIFIC physical room (no auto-pick) and a guest name — the
+    // same thing the form requires, re-enforced here so a hand-crafted POST can't skip a room.
     $rows = [];
+    $rowErr = '';
     foreach ($rRoom as $i => $_rid) {
         $roomId = (int) $_rid;
         $optId  = (int) ($rOpt[$i] ?? 0);
         $from   = (string) ($rFrom[$i] ?? '');
         $to     = (string) ($rTo[$i] ?? '');
         $name   = trim((string) ($rName[$i] ?? ''));
-        if ($roomId <= 0 && $name === '') { continue; } // blank spare row
+        $prid   = (int) ($rPrid[$i] ?? 0);
+        $isBlank = ($roomId <= 0 && $name === '' && $prid <= 0);
+        if ($isBlank) { continue; } // genuinely empty spare row → ignore
+        // A row that has ANY content must be complete: a room type, a specific room, and a guest.
+        if ($roomId <= 0) { $rowErr = 'Pick a room type for every room.'; break; }
+        if ($prid <= 0)   { $rowErr = 'Pick a specific room (by its room number) for every room — there is no auto-pick.'; break; }
+        if ($name === '') { $rowErr = 'Add the guest for every room.'; break; }
         $rows[] = [
             'room_id'   => $roomId,
             'option_id' => $optId,
             'from'      => $from,
             'to'        => $to,
             'rate'      => ($canRate && isset($rRate[$i]) && $rRate[$i] !== '') ? (float) $rRate[$i] : null,
-            'prid'      => (int) ($rPrid[$i] ?? 0),       // 0 = auto-pick
+            'prid'      => $prid,       // REQUIRED specific room (re-validated at assign time)
             'name'      => $name,
             'email'     => (string) ($rEmail[$i] ?? ''),
             'phone'     => (string) ($rPhone[$i] ?? ''),
             'cust'      => (int) ($rCust[$i] ?? 0),
         ];
     }
+    if ($rowErr !== '') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => $rowErr];
+        header('Location: ' . $back); exit;
+    }
     if (empty($rows)) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Add at least one room with a guest.'];
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Add at least one room with a specific room number and a guest.'];
         header('Location: ' . $back); exit;
     }
 
@@ -185,7 +211,7 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
         'arrival'       => $_POST['arrival'] ?? '',
         'departure'     => $_POST['departure'] ?? '',
         'currency'      => $currency,
-        'customer_id'   => (int) ($_POST['customer_id'] ?? 0),
+        'customer_id'   => $customerId,
     ]);
     if ($groupId <= 0) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not create the group — a group name is required.'];
@@ -225,16 +251,15 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
         }
     }
 
-    // 3) PER ROW: add the guest to its block, then (if a specific room was chosen) assign it. The
+    // 3) PER ROW: add the guest to its block, then assign the row's REQUIRED specific room. The
     //    assign goes through group_member_assign_room — the authoritative, FOR-UPDATE, date-aware
-    //    no-oversell re-check — so a tampered/raced room is refused (row stays auto-pickable), never
-    //    oversold. Track the member id so we can assign + so 'book' can act on it.
+    //    no-oversell re-check — so a tampered/raced room is refused (reported), never oversold.
+    //    There is no auto-pick: every row carries a specific room (validated above).
     $added = 0; $memberFail = 0; $assigned = 0; $assignFail = 0;
     foreach ($rows as $i => $r) {
         $bid = (int) ($blockOf[$i] ?? 0);
         if ($bid <= 0) { continue; } // its block failed; already recorded in $blockFail
-        $name = $r['name'] !== '' ? $r['name'] : 'Guest';
-        $addRes = group_member_add_r($db, $groupId, $stayId, $bid, $name, [
+        $addRes = group_member_add_r($db, $groupId, $stayId, $bid, $r['name'], [
             'email'       => $r['email'],
             'phone'       => $r['phone'],
             'customer_id' => $r['cust'],
@@ -248,20 +273,20 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
             $memberId = (int) ($db->get('stays_group_members', 'id',
                 ['group_id' => $groupId, 'block_id' => $bid, 'ORDER' => ['id' => 'DESC']]) ?: 0);
         }
-        if ($memberId > 0 && $r['prid'] > 0 && function_exists('group_member_assign_room')) {
+        if ($memberId > 0 && function_exists('group_member_assign_room')) {
             $asg = group_member_assign_room($db, $memberId, $stayId, $r['prid']);
             if (!empty($asg['ok'])) { $assigned++; } else { $assignFail++; }
         }
     }
 
-    // 4) BOOK path: auto-assign any rows left on auto-pick, then book every assignable member. Both
-    //    are loops over the per-member guarded fns (no oversell / double-book). On 'hold' we stop
-    //    with rooms held + the rooming list + chosen rooms pre-assigned, ready to book later.
+    // 4) BOOK path: book every assigned member (group_bulk_book is a loop over the per-member
+    //    guarded fn — no oversell / double-book). NO auto-assign step: every room was chosen
+    //    explicitly. On 'hold' we stop with rooms held + the rooming list + the chosen rooms
+    //    assigned, ready to book later.
     $bookNote = '';
-    if ($submitAction === 'book' && $added > 0 && function_exists('group_bulk_assign') && function_exists('group_bulk_book')) {
-        $asg = group_bulk_assign($db, $groupId, $stayId);
-        $bk  = group_bulk_book($db, $groupId, $stayId);
-        $bookNote = ' Auto-assign remaining: ' . ($asg['message'] ?? '') . ' Book: ' . ($bk['message'] ?? '');
+    if ($submitAction === 'book' && $added > 0 && function_exists('group_bulk_book')) {
+        $bk = group_bulk_book($db, $groupId, $stayId);
+        $bookNote = ' Book: ' . ($bk['message'] ?? '');
     }
 
     // Honest flash — rooms held, guests added, specific rooms assigned, plus any failures.
@@ -269,9 +294,9 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
     if (!empty($blockFail)) {
         $blockFailNote = ' ' . count($blockFail) . ' room block(s) could not be held (' . implode('; ', array_map('strval', $blockFail)) . ').';
     }
-    $msg = 'Group created: ' . $added . ' guest(s) on held rooms'
-        . ($assigned > 0 ? ', ' . $assigned . ' assigned to the room you picked' : '')
-        . ($assignFail > 0 ? ', ' . $assignFail . ' chosen room(s) were taken (left for auto-assign)' : '')
+    $msg = 'Group created: ' . $added . ' guest(s)'
+        . ($assigned > 0 ? ', ' . $assigned . ' in the room you picked' : '')
+        . ($assignFail > 0 ? ', ' . $assignFail . ' chosen room(s) were just taken — reassign a room on the group page' : '')
         . '.'
         . ($memberFail > 0 ? ' ' . $memberFail . ' guest row(s) could not be added.' : '')
         . $blockFailNote

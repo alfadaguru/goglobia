@@ -86,7 +86,7 @@ foreach ($rooms as $r) {
   ?>
   <div class="card p-5">
     <h2 class="text-sm font-semibold text-gray-900 mb-1">New group</h2>
-    <p class="text-xs text-gray-500 mb-4">Add the group, then add each room with its guest — pick a specific room number or let it auto-assign. Book everyone in one go, or hold the rooms to book later.</p>
+    <p class="text-xs text-gray-500 mb-4">Pick the customer, then add each room with its specific room number and the guest staying in it. Book everyone in one go, or hold the rooms to book later.</p>
 
     <?php if (empty($roomOpts)): ?>
       <div class="alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm">This property has no bookable rooms/rates yet. Add rooms &amp; rates first, then create a group block.</p></div>
@@ -100,15 +100,22 @@ foreach ($rooms as $r) {
       <div class="space-y-3">
         <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">1 · Group &amp; customer</div>
 
-        <!-- Customer (payer / account): search an existing one or create on the spot. The
-             chosen id is written onto the group (customer_id). Reuses the SAME endpoints as
-             the single-booking desk (/supplier/customers/search + quick-create). -->
+        <!-- Customer (payer / account) — REQUIRED. A customer can be an individual, company,
+             NGO or agent; the group's company/organiser + contact email are taken FROM the
+             customer (no separate fields to retype). Search an existing one or create on the
+             spot. Reuses the single-desk endpoints (/supplier/customers/search + quick-create). -->
         <div class="form-control">
-          <label class="block text-xs font-medium text-gray-700 mb-1">Customer (payer / account) <span class="text-gray-400">(optional)</span></label>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Customer (payer / account) <span class="text-rose-500">*</span></label>
           <input type="hidden" name="customer_id" id="gcCustomerId" value="">
-          <div id="gcCustPicked" class="hidden items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 mb-2">
-            <span class="flex items-center gap-2 text-sm text-emerald-900"><span class="material-symbols-outlined text-base">account_circle</span><span id="gcCustPickedLabel" class="font-medium"></span><span id="gcCustPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span></span>
-            <button type="button" id="gcCustClear" class="text-emerald-700 hover:text-emerald-900" title="Clear"><span class="material-symbols-outlined text-base">close</span></button>
+          <!-- company + contact email ride along to group_create, derived from the customer -->
+          <input type="hidden" name="company" id="gcCompany" value="">
+          <input type="hidden" name="contact_email" id="gcContactEmail" value="">
+          <div id="gcCustPicked" class="hidden flex-col gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 mb-2">
+            <div class="flex items-center justify-between gap-2">
+              <span class="flex items-center gap-2 text-sm text-emerald-900"><span class="material-symbols-outlined text-base">account_circle</span><span id="gcCustPickedLabel" class="font-medium"></span><span id="gcCustPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span></span>
+              <button type="button" id="gcCustClear" class="text-emerald-700 hover:text-emerald-900" title="Change customer"><span class="material-symbols-outlined text-base">close</span></button>
+            </div>
+            <div id="gcCustPickedMeta" class="text-xs text-emerald-800 pl-6"></div>
           </div>
           <div class="relative" id="gcCustSearchWrap">
             <div class="flex gap-2">
@@ -117,12 +124,11 @@ foreach ($rooms as $r) {
             </div>
             <div id="gcCustResults" class="hidden absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
           </div>
+          <p class="text-[11px] text-gray-400 mt-1">The group’s company/organiser &amp; contact email come from the customer.</p>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          <input type="text" name="name" class="input text-sm" placeholder="Group name *" required>
-          <input type="text" name="company" class="input text-sm" placeholder="Company / organiser">
-          <input type="email" name="contact_email" class="input text-sm" placeholder="Contact email">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input type="text" name="name" class="input text-sm" placeholder="Group name * (e.g. Lagos Conference 2026)" required>
           <div><label class="block text-xs text-gray-600 mb-1">Arrival</label><input type="date" name="arrival" class="input text-sm"></div>
           <div><label class="block text-xs text-gray-600 mb-1">Departure</label><input type="date" name="departure" class="input text-sm"></div>
         </div>
@@ -491,16 +497,30 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
   var results = $('gcCustResults'), hidden = $('gcCustomerId'), picked = $('gcCustPicked'),
       pickedLabel = $('gcCustPickedLabel'), pickedType = $('gcCustPickedType'), clearBtn = $('gcCustClear'),
       wrap = $('gcCustSearchWrap');
+  var pickedMeta = $('gcCustPickedMeta');
+  var fCompany = $('gcCompany'), fEmail = $('gcContactEmail');
   function selectCustomer(c) {
     hidden.value = c.id; pickedLabel.textContent = c.name; pickedType.textContent = c.type || '';
     picked.classList.remove('hidden'); picked.classList.add('flex'); wrap.classList.add('hidden'); results.classList.add('hidden');
-    // prefill company/contact_email on the group form if blank
-    var comp = document.querySelector('#groupCreateForm input[name="company"]');
-    var mail = document.querySelector('#groupCreateForm input[name="contact_email"]');
-    if (comp && !comp.value && (c.type === 'company' || c.type === 'ngo' || c.type === 'agent')) { comp.value = c.name; }
-    if (mail && !mail.value && c.email) { mail.value = c.email; }
+    // The group's company/organiser + contact email are DERIVED from the customer (not retyped).
+    // A company/ngo/agent customer IS the organiser; an individual has no company. Email rides along.
+    var isOrg = (c.type === 'company' || c.type === 'ngo' || c.type === 'agent');
+    if (fCompany) fCompany.value = isOrg ? (c.name || '') : '';
+    if (fEmail) fEmail.value = c.email || '';
+    // Show what's being used, read-only, in the chip.
+    if (pickedMeta) {
+      var bits = [];
+      if (isOrg) bits.push('Company: ' + c.name);
+      if (c.email) bits.push(c.email);
+      if (c.phone) bits.push(c.phone);
+      pickedMeta.textContent = bits.join(' · ');
+    }
   }
-  function clearCustomer() { hidden.value = ''; picked.classList.add('hidden'); picked.classList.remove('flex'); wrap.classList.remove('hidden'); search.value = ''; results.innerHTML = ''; results.classList.add('hidden'); }
+  function clearCustomer() {
+    hidden.value = ''; if (fCompany) fCompany.value = ''; if (fEmail) fEmail.value = '';
+    if (pickedMeta) pickedMeta.textContent = '';
+    picked.classList.add('hidden'); picked.classList.remove('flex'); wrap.classList.remove('hidden'); search.value = ''; results.innerHTML = ''; results.classList.add('hidden');
+  }
   clearBtn && clearBtn.addEventListener('click', clearCustomer);
   var t = null;
   search.addEventListener('input', function () {
@@ -604,19 +624,20 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
     var sel = row.querySelector('.gcf-prid');
     if (!sel) { return; }
     var cur = sel.value; // preserve a current pick if still valid
-    if (!roomId || !from || !to) { sel.innerHTML = '<option value="">Auto-pick a room</option>'; return; }
+    if (!roomId || !from || !to) { sel.innerHTML = '<option value="">Pick a room type &amp; dates first…</option>'; return; }
     sel.innerHTML = '<option value="">Loading rooms…</option>';
     fetch(ROOT + 'supplier/groups/free-rooms?stay_id=' + STAY + '&room_id=' + encodeURIComponent(roomId) + '&date_from=' + encodeURIComponent(from) + '&date_to=' + encodeURIComponent(to),
       { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var rooms = (d && d.results) || [];
-        var html = '<option value="">Auto-pick a room</option>';
+        // The operator must choose a SPECIFIC room by its number/name (no automatic selection).
+        var html = '<option value="">Select a room…</option>';
         rooms.forEach(function (rm) { html += '<option value="' + rm.id + '"' + (String(rm.id) === cur ? ' selected' : '') + '>' + esc(rm.label) + '</option>'; });
-        if (!rooms.length) { html += '<option value="" disabled>(no specific room free — auto-pick)</option>'; }
+        if (!rooms.length) { html = '<option value="">No room of this type is free for those dates</option>'; }
         sel.innerHTML = html;
       })
-      .catch(function () { sel.innerHTML = '<option value="">Auto-pick a room</option>'; });
+      .catch(function () { sel.innerHTML = '<option value="">Could not load rooms — try again</option>'; });
   }
 
   // ---- Build one ROOM ROW. ----
@@ -635,7 +656,7 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
       '<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">' +
         '<div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-in</label><input type="date" name="date_from[]" class="input text-sm gcf-from" required></div>' +
         '<div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Check-out</label><input type="date" name="date_to[]" class="input text-sm gcf-to" required></div>' +
-        '<div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Room number <span class="text-gray-400">(or auto)</span></label><select name="physical_room_id[]" class="input text-sm gcf-prid"><option value="">Auto-pick a room</option></select></div>' +
+        '<div class="form-control"><label class="block text-xs text-gray-600 mb-0.5">Room number <span class="text-rose-500">*</span></label><select name="physical_room_id[]" required class="input text-sm gcf-prid"><option value="">Pick a room type &amp; dates first…</option></select></div>' +
       '</div>' +
       // hidden room_id/option_id derived from the roomopt select
       '<input type="hidden" name="room_id[]" class="gcf-roomid" value="">' +
@@ -789,6 +810,27 @@ document.querySelectorAll('form[data-group-block]').forEach(function (f) { gbEst
   }
   ga && ga.addEventListener('change', cascadeDates);
   gd && gd.addEventListener('change', cascadeDates);
+
+  // ---- Submit guard: customer required, and every room row needs a SPECIFIC room + a guest.
+  //      (The server re-enforces all of this; this is just a friendly pre-check.)
+  form.addEventListener('submit', function (e) {
+    var cust = document.getElementById('gcCustomerId');
+    if (!cust || !cust.value) {
+      e.preventDefault();
+      alert('Pick a customer for this group (search an existing one or use “Create”).');
+      var s = document.getElementById('gcCustSearch'); if (s) s.focus();
+      return;
+    }
+    var bad = null;
+    roomsWrap.querySelectorAll('.gcf-room').forEach(function (row) {
+      if (bad) { return; }
+      var prid = (row.querySelector('.gcf-prid') || {}).value || '';
+      var gname = (row.querySelector('.gcf-gname') || {}).value || '';
+      if (!prid) { bad = 'Pick a specific room for every room (by its room number).'; }
+      else if (!gname.trim()) { bad = 'Add the guest for every room.'; }
+    });
+    if (bad) { e.preventDefault(); alert(bad); }
+  });
 
   // Start with one room row; "Add another room" appends.
   addRoomBtn && addRoomBtn.addEventListener('click', function () { roomsWrap.appendChild(buildRoomRow()); window.gcfEstimate(); });
