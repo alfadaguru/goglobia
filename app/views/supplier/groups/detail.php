@@ -152,7 +152,21 @@ $blkColor = ['held'=>'bg-emerald-50 text-emerald-700','released'=>'bg-gray-100 t
                             <button type="submit" class="btn secondary text-xs">Mark paid</button>
                           </form>
                         <?php endif; ?>
-                        <a href="<?= root ?>supplier/reservations/<?= rawurlencode($invoice) ?>" class="text-xs text-violet-600 hover:underline" title="Open the reservation to check in / manage">Open →</a>
+                        <?php // CHECK-IN right here on the detail page (no need to open the reservation).
+                              // Shows a "Checked in" badge once in, else a "Check in" button (needs a room). ?>
+                        <?php $checkedIn = (string) ($m['_stay_state'] ?? '') === 'checked_in'; ?>
+                        <?php if ($checkedIn): ?>
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-medium"><span class="material-symbols-outlined text-sm">login</span> Checked in</span>
+                        <?php else: ?>
+                          <form method="POST" action="<?= $groupsBase ?>/member/checkin" class="inline" onsubmit="return confirm('Check in this guest now?');">
+                            <?= CSRF::tokenField() ?>
+                            <input type="hidden" name="stay_id" value="<?= $sid ?>">
+                            <input type="hidden" name="group_id" value="<?= $gid ?>">
+                            <input type="hidden" name="member_id" value="<?= $mid ?>">
+                            <button type="submit" class="btn emerald text-xs"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">login</span> Check in</span></button>
+                          </form>
+                        <?php endif; ?>
+                        <a href="<?= root ?>supplier/reservations/<?= rawurlencode($invoice) ?>" class="text-xs text-violet-600 hover:underline" title="Open the reservation to manage / check out">Open →</a>
                       </div>
                     <?php elseif (($blk['state'] ?? '') !== 'held'): ?>
                       <span class="text-xs text-gray-300">—</span>

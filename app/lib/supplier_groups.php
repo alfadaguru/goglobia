@@ -272,6 +272,50 @@ if (!function_exists('group_member_mark_paid')) {
     }
 }
 
+if (!function_exists('group_member_checkin')) {
+    /**
+     * CHECK IN a single BOOKED group member's reservation, from the group detail page — so the
+     * whole lifecycle lives on one screen instead of routing to each member's reservation page.
+     * Mirrors group_member_mark_paid's ownership guards (member → block → this property, booking
+     * live + this property's), then delegates to the SAME canonical folio_checkin the reservation
+     * page uses (sets booking_data.pms_stay_state='checked_in'; no financial effect — checkout is
+     * the money trigger). A guest can't be checked in without a room (same rule as the single
+     * desk), so we require physical_room_id. Idempotent: an already-checked-in member is a no-op
+     * success. Returns ['ok'=>bool,'already'=>?,'message'=>string].
+     */
+    function group_member_checkin($db, int $memberId, int $stayId): array
+    {
+        if ($memberId <= 0 || $stayId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        try {
+            $m = $db->get('stays_group_members', ['id', 'group_id', 'block_id', 'physical_room_id', 'invoice_id'], ['id' => $memberId]);
+            if (!$m) { return ['ok' => false, 'message' => 'Member not found']; }
+            // Ownership: the member's block must belong to a group for this property.
+            $blk = $db->get('stays_group_blocks', ['id'],
+                ['id' => (int) $m['block_id'], 'group_id' => (int) $m['group_id'], 'stay_id' => $stayId]);
+            if (!$blk) { return ['ok' => false, 'message' => 'Not your property.']; }
+            $inv = trim((string) ($m['invoice_id'] ?? ''));
+            if ($inv === '') { return ['ok' => false, 'message' => 'Book this guest first, then check in.']; }
+            if ((int) ($m['physical_room_id'] ?? 0) <= 0) { return ['ok' => false, 'message' => 'Assign a room first, then check in.']; }
+            $b = $db->get('bookings', ['invoice_id', 'booking_status', 'booking_data'], ['invoice_id' => $inv]);
+            if (!$b || strtolower((string) ($b['booking_status'] ?? '')) === 'cancelled') { return ['ok' => false, 'message' => 'That reservation is not active.']; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd) || (int) ($bd['hotel_id'] ?? 0) !== $stayId) { return ['ok' => false, 'message' => 'Not your property.']; }
+            // Idempotent: already checked in → no-op success.
+            if (function_exists('folio_stay_state') && folio_stay_state($b['booking_data'] ?? null) === 'checked_in') {
+                return ['ok' => true, 'already' => true, 'message' => 'Already checked in.'];
+            }
+            if (!function_exists('folio_checkin')) { return ['ok' => false, 'message' => 'Check-in engine unavailable.']; }
+            $ok = folio_checkin($db, $inv);
+            // Open a folio for the stay (same as the reservation-page check-in path), best-effort.
+            if ($ok && function_exists('folio_get_or_create')) { folio_get_or_create($db, $inv); }
+            return $ok ? ['ok' => true, 'message' => 'Checked in.'] : ['ok' => false, 'message' => 'Could not check in.'];
+        } catch (\Throwable $e) {
+            error_log('group_member_checkin (' . $memberId . '): ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not check in.'];
+        }
+    }
+}
+
 if (!function_exists('group_member_book')) {
     /**
      * MATERIALISE a group member into a REAL confirmed reservation (report 11.13 #3c:
