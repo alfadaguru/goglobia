@@ -526,7 +526,8 @@ foreach ($rooms as $r) {
           </div>
           <div class="form-control">
             <label class="block text-xs font-medium text-gray-700 mb-1">Rooms available</label>
-            <input type="number" name="available_quantity" min="0" class="input" :value="editOption ? editOption.available_quantity : 1">
+            <input type="number" name="available_quantity" min="0" class="input" :value="editOption ? editOption.available_quantity : ''" placeholder="auto (all your rooms of this type)">
+            <p class="text-[11px] text-gray-400 mt-0.5">Leave blank to sell every physical room of this type; or type a smaller number to cap it.</p>
           </div>
           <div class="form-control">
             <label class="block text-xs font-medium text-gray-700 mb-1">Max adults</label>

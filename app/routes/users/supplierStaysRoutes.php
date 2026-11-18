@@ -1183,6 +1183,21 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/options/save', function (
     $options  = stays_room_option_ids($db, $roomId, $stayId);
     $optionId = (int) ($_POST['option_id'] ?? 0);
 
+    // AVAILABLE QUANTITY default = this room type's REAL physical-room count. A hotel with 21
+    // Deluxe rooms should be able to sell 21, not 1 — the old `?? 1` default silently capped
+    // every room at 1 (which blocked group holds and oversold nothing but under-sold everything).
+    // If the operator TYPED a quantity, honour it exactly; only fall back to the physical count
+    // when the field is blank (and to 1 only if the room has no physical rooms mapped yet).
+    $physCount = 0;
+    try {
+        $physCount = (int) $db->count('stays_physical_rooms', ['stay_id' => $stayId, 'room_id' => $roomId, 'active' => 1]);
+    } catch (\Throwable $e) { error_log('option-save phys count: ' . $e->getMessage()); }
+    $qtyRaw = $_POST['available_quantity'] ?? '';
+    if (is_string($qtyRaw)) { $qtyRaw = trim($qtyRaw); }
+    $availableQuantity = ($qtyRaw === '' || $qtyRaw === null)
+        ? ($physCount > 0 ? $physCount : 1)         // blank → real physical count (else 1)
+        : max(0, (int) $qtyRaw);                     // typed → honour exactly
+
     $fields = [
         'max_adults'          => max(1, (int) ($_POST['max_adults'] ?? 2)),
         'max_children'        => max(0, (int) ($_POST['max_children'] ?? 0)),
@@ -1193,7 +1208,7 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/options/save', function (
         'breakfast_included'  => isset($_POST['breakfast_included']) ? 1 : 0,
         'cancellation_free'   => isset($_POST['cancellation_free']) ? 1 : 0,
         'refundable'          => isset($_POST['refundable']) ? 1 : 0,
-        'available_quantity'  => max(0, (int) ($_POST['available_quantity'] ?? 1)),
+        'available_quantity'  => $availableQuantity,
         'status'              => isset($_POST['status']) ? 1 : 0,
         'board_id'            => (int) ($_POST['board_id'] ?? 0),
     ];
