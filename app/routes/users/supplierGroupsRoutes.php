@@ -756,6 +756,24 @@ $router->post('/supplier/groups/member/checkin', function () use ($SECURE, $db) 
     header('Location: ' . $back); exit;
 });
 
+// POST /supplier/groups/member/checkout — check OUT ONE checked-in group member from the detail
+// page. Delegates to group_member_checkout → folio_checkout (FINANCIAL: finalizes the folio,
+// posts the guest bill to the GL, releases the earning; requires the guest to be checked in).
+$router->post('/supplier/groups/member/checkout', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $groupId = (int) ($_POST['group_id'] ?? 0);
+    $back = root . 'supplier/groups/' . $groupId;
+    if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('group_member_checkout')
+        ? group_member_checkout($db, (int) ($_POST['member_id'] ?? 0), $stayId)
+        : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not check out.'];
+    header('Location: ' . $back); exit;
+});
+
 // POST /supplier/groups/member/unassign-room — clear a group member's room assignment
 $router->post('/supplier/groups/member/unassign-room', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();

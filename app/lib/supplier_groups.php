@@ -316,6 +316,44 @@ if (!function_exists('group_member_checkin')) {
     }
 }
 
+if (!function_exists('group_member_checkout')) {
+    /**
+     * CHECK OUT a single group member's reservation, from the group detail page — so the whole
+     * lifecycle lives on one screen. Mirrors group_member_checkin's ownership guards (member →
+     * block → this property; booking live + this property's), then delegates to the SAME canonical
+     * folio_checkout the reservation page uses. folio_checkout is the FINANCIAL trigger: it
+     * finalizes the folio, posts the guest bill to the GL, and releases the supplier earning — and
+     * it REQUIRES the guest to be checked in first (refuses otherwise), which is the correct guard,
+     * so we rely on it rather than duplicating the rule. Idempotent: an already-checked-out member
+     * (folio closed) returns already=true. Returns ['ok'=>bool,'already'=>?,'message'=>string].
+     */
+    function group_member_checkout($db, int $memberId, int $stayId): array
+    {
+        if ($memberId <= 0 || $stayId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        try {
+            $m = $db->get('stays_group_members', ['id', 'group_id', 'block_id', 'invoice_id'], ['id' => $memberId]);
+            if (!$m) { return ['ok' => false, 'message' => 'Member not found']; }
+            // Ownership: the member's block must belong to a group for this property.
+            $blk = $db->get('stays_group_blocks', ['id'],
+                ['id' => (int) $m['block_id'], 'group_id' => (int) $m['group_id'], 'stay_id' => $stayId]);
+            if (!$blk) { return ['ok' => false, 'message' => 'Not your property.']; }
+            $inv = trim((string) ($m['invoice_id'] ?? ''));
+            if ($inv === '') { return ['ok' => false, 'message' => 'Book + check this guest in first.']; }
+            $b = $db->get('bookings', ['invoice_id', 'booking_status', 'booking_data'], ['invoice_id' => $inv]);
+            if (!$b || strtolower((string) ($b['booking_status'] ?? '')) === 'cancelled') { return ['ok' => false, 'message' => 'That reservation is not active.']; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd) || (int) ($bd['hotel_id'] ?? 0) !== $stayId) { return ['ok' => false, 'message' => 'Not your property.']; }
+            if (!function_exists('folio_checkout')) { return ['ok' => false, 'message' => 'Check-out engine unavailable.']; }
+            // folio_checkout enforces checked-in, finalizes the folio, and posts the GL. It returns
+            // its own ['ok','message','already'] which we pass straight through.
+            return folio_checkout($db, $inv);
+        } catch (\Throwable $e) {
+            error_log('group_member_checkout (' . $memberId . '): ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not check out.'];
+        }
+    }
+}
+
 if (!function_exists('group_member_book')) {
     /**
      * MATERIALISE a group member into a REAL confirmed reservation (report 11.13 #3c:
