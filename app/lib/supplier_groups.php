@@ -17,13 +17,18 @@
 
 if (!function_exists('group_create')) {
     /** Create a group profile (enquiry) for a property. Returns id (0 on failure). */
-    function group_create($db, int $stayId, array $d): int
+    function group_create($db, int $stayId, array $d, string &$err = ''): int
     {
         $name = trim((string) ($d['name'] ?? ''));
-        if ($stayId <= 0 || $name === '') { return 0; }
+        if ($stayId <= 0) { $err = 'No property selected.'; return 0; }
+        if ($name === '') { $err = 'Give the group a name.'; return 0; }
         $arr = (string) ($d['arrival'] ?? '');
         $dep = (string) ($d['departure'] ?? '');
-        try {
+        // Attempt the insert; on a SCHEMA GAP (a behind-schema install missing a group column
+        // like customer_id — added by a version-gated ensure that only runs after the admin DB
+        // tool) self-heal once via ensureSupplierStaysSchema, then retry. This stops the old
+        // failure mode where a missing column threw and the caller wrongly blamed the NAME.
+        $attempt = function () use ($db, $stayId, $d, $name, $arr, $dep) {
             $orgId = function_exists('supplier_property_org') ? supplier_property_org($db, $stayId) : 0;
             $ref = 'GRP-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 5));
             $db->insert('stays_groups', [
@@ -43,7 +48,22 @@ if (!function_exists('group_create')) {
                 'created_at'   => date('Y-m-d H:i:s'),
             ]);
             return (int) $db->id();
-        } catch (\Throwable $e) { error_log('group_create: ' . $e->getMessage()); return 0; }
+        };
+        try {
+            return $attempt();
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage();
+            $isSchemaGap = (stripos($msg, '1054') !== false) || (stripos($msg, 'Unknown column') !== false)
+                || (stripos($msg, '1146') !== false) || (stripos($msg, "doesn't exist") !== false);
+            if ($isSchemaGap && function_exists('ensureSupplierStaysSchema')) {
+                try { ensureSupplierStaysSchema($db); } catch (\Throwable $e2) { error_log('group_create self-heal: ' . $e2->getMessage()); }
+                try { return $attempt(); } // retry once after healing
+                catch (\Throwable $e3) { $msg = $e3->getMessage(); }
+            }
+            error_log('group_create: ' . $msg);
+            $err = 'Could not save the group (' . $msg . ')';
+            return 0;
+        }
     }
 }
 
@@ -116,10 +136,14 @@ if (!function_exists('group_member_add_r')) {
         if ($guestName === '') { return ['ok' => false, 'message' => 'Enter the guest name.']; }
         if ($groupId <= 0) { return ['ok' => false, 'message' => 'No group selected.']; }
         if ($blockId <= 0) { return ['ok' => false, 'message' => 'Hold a block of rooms first, then add guests to it.']; }
-        try {
-            $blk = $db->get('stays_group_blocks', ['id', 'state'], ['id' => $blockId, 'group_id' => $groupId, 'stay_id' => $stayId]);
-            if (!$blk) { return ['ok' => false, 'message' => 'That block was not found for this group — hold a block first.']; }
-            if (($blk['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'That block has been released; hold a new one.']; }
+        $blk = $db->get('stays_group_blocks', ['id', 'state'], ['id' => $blockId, 'group_id' => $groupId, 'stay_id' => $stayId]);
+        if (!$blk) { return ['ok' => false, 'message' => 'That block was not found for this group — hold a block first.']; }
+        if (($blk['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'That block has been released; hold a new one.']; }
+        // Insert the member; on a SCHEMA GAP (behind-schema install missing phone/customer_id on
+        // stays_group_members — added by the version-gated ensure) self-heal once then retry. This
+        // is the fix for "showed added successfully but the guest is nowhere": the insert was
+        // throwing on a missing column and the guest was never actually saved.
+        $attempt = function () use ($db, $groupId, $blockId, $guestName, $opts) {
             $db->insert('stays_group_members', [
                 'group_id'  => $groupId, 'block_id' => $blockId,
                 'guest_name'=> substr($guestName, 0, 120),
@@ -128,13 +152,25 @@ if (!function_exists('group_member_add_r')) {
                 'customer_id' => (int) ($opts['customer_id'] ?? 0) ?: null,
                 'created_at'=> date('Y-m-d H:i:s'),
             ]);
-            if ((int) $db->id() <= 0) { return ['ok' => false, 'message' => 'Could not save the guest.']; }
+            return (int) $db->id();
+        };
+        try {
+            $newId = $attempt();
+            if ($newId <= 0) { return ['ok' => false, 'message' => 'Could not save the guest.']; }
             return ['ok' => true, 'message' => 'Guest added to the rooming list.'];
         } catch (\Throwable $e) {
-            error_log('group_member_add_r: ' . $e->getMessage());
+            $msg = $e->getMessage();
+            $isSchemaGap = (stripos($msg, '1054') !== false) || (stripos($msg, 'Unknown column') !== false)
+                || (stripos($msg, '1146') !== false) || (stripos($msg, "doesn't exist") !== false);
+            if ($isSchemaGap && function_exists('ensureSupplierStaysSchema')) {
+                try { ensureSupplierStaysSchema($db); } catch (\Throwable $e2) { error_log('group_member_add_r self-heal: ' . $e2->getMessage()); }
+                try { $newId = $attempt(); return $newId > 0 ? ['ok' => true, 'message' => 'Guest added to the rooming list.'] : ['ok' => false, 'message' => 'Could not save the guest.']; }
+                catch (\Throwable $e3) { $msg = $e3->getMessage(); }
+            }
+            error_log('group_member_add_r: ' . $msg);
             // Owner/staff back-office screen — surface the real reason so a schema/DB issue
             // is diagnosable instead of a mystery 'error'.
-            return ['ok' => false, 'message' => 'Could not add guest: ' . $e->getMessage()];
+            return ['ok' => false, 'message' => 'Could not add guest: ' . $msg];
         }
     }
 }

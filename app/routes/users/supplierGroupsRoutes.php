@@ -90,6 +90,7 @@ $router->post('/supplier/groups/create', function () use ($SECURE, $db) {
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/groups?stay_id=' . $stayId;
     if (!supplier_can($db, 'groups', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $createErr = '';
     $id = function_exists('group_create') ? group_create($db, $stayId, [
         'name' => $_POST['name'] ?? '', 'company' => $_POST['company'] ?? '', 'contact_name' => $_POST['contact_name'] ?? '',
         'contact_email' => $_POST['contact_email'] ?? '', 'arrival' => $_POST['arrival'] ?? '', 'departure' => $_POST['departure'] ?? '',
@@ -97,8 +98,8 @@ $router->post('/supplier/groups/create', function () use ($SECURE, $db) {
         // Link the group to a CUSTOMER (payer/account) the desk searched/created. group_create
         // stores it as stays_groups.customer_id; 0/blank leaves it NULL.
         'customer_id' => (int) ($_POST['customer_id'] ?? 0),
-    ]) : 0;
-    $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Group created.' : 'Could not create group (name required?).'];
+    ], $createErr) : 0;
+    $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Group created.' : ($createErr !== '' ? $createErr : 'Could not create the group.')];
     header('Location: ' . $back); exit;
 });
 
@@ -202,7 +203,10 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
         header('Location: ' . $back); exit;
     }
 
-    // 1) CREATE the group profile (+ link the chosen customer). Required: a name.
+    // 1) CREATE the group profile (+ link the chosen customer). group_create self-heals a
+    //    behind-schema DB and returns the REAL reason in $createErr on failure (so we never
+    //    wrongly blame the name when the actual cause is e.g. a missing column).
+    $createErr = '';
     $groupId = (int) group_create($db, $stayId, [
         'name'          => $_POST['name'] ?? '',
         'company'       => $_POST['company'] ?? '',
@@ -212,9 +216,9 @@ $router->post('/supplier/groups/create-full', function () use ($SECURE, $db) {
         'departure'     => $_POST['departure'] ?? '',
         'currency'      => $currency,
         'customer_id'   => $customerId,
-    ]);
+    ], $createErr);
     if ($groupId <= 0) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not create the group — a group name is required.'];
+        $_SESSION['message'] = ['type' => 'error', 'text' => $createErr !== '' ? $createErr : 'Could not create the group.'];
         header('Location: ' . $back); exit;
     }
     // The group EXISTS now — send the operator to its detail page on every outcome, success or
