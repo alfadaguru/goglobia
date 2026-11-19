@@ -144,6 +144,10 @@ require_once 'app/routes/users/cardRoutes.php';
 require_once 'app/routes/users/bookingsRoutes.php';
 require_once 'app/routes/users/favouritesRoutes.php';
 require_once 'app/routes/users/supportRoutes.php';
+require_once 'app/routes/users/transactionsRoutes.php'; // customer wallet/payment statement
+require_once 'app/routes/users/savedCardsRoutes.php';   // customer saved-cards (payment methods) page
+require_once 'app/routes/users/loyaltyRoutes.php';      // customer loyalty points page
+require_once 'app/routes/users/offersRoutes.php';       // customer promo codes / offers page
 
 // USERS AGENTS ROUTES
 require_once 'app/routes/users/depositRoutes.php';

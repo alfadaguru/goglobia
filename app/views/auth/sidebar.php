@@ -213,6 +213,20 @@ if (!empty($bookingsChildren)) {
     ];
 }
 
+// CONDITIONAL: "Loyalty" — only when the loyalty programme is enabled in admin.
+if (function_exists('loyalty_config')) {
+    $__loyCfg = loyalty_config($db);
+    if (!empty($__loyCfg['enabled'])) {
+        $sidebarMenu[] = [
+            'type' => 'link',
+            'label' => 'Loyalty',
+            'icon' => 'redeem',
+            'url' => root . 'loyalty',
+            'active' => str_contains($currentPath, 'loyalty')
+        ];
+    }
+}
+
 // CONDITIONAL: "Refer & Earn" — only when the referral program is enabled in admin.
 if (function_exists('referral_config')) {
     $__refCfg = referral_config($db);
@@ -250,6 +264,33 @@ $sidebarMenu = array_merge($sidebarMenu, [
         ]
     ],
 
+    // Transactions - wallet / payment statement (read-only ledger)
+    [
+        'type' => 'link',
+        'label' => T::transactions ?? 'Transactions',
+        'icon' => 'receipt_long',
+        'url' => root . 'transactions',
+        'active' => str_contains($currentPath, 'transactions')
+    ],
+
+    // Payment Methods - saved cards (card-on-file)
+    [
+        'type' => 'link',
+        'label' => T::payment_methods ?? 'Payment Methods',
+        'icon' => 'credit_card',
+        'url' => root . 'my-cards',
+        'active' => str_contains($currentPath, 'my-cards')
+    ],
+
+    // Offers - enter a promo code + see active offers
+    [
+        'type' => 'link',
+        'label' => 'Offers',
+        'icon' => 'local_offer',
+        'url' => root . 'offers',
+        'active' => str_contains($currentPath, 'offers')
+    ],
+
     // Favourites - User's saved items
     [
         'type' => 'link',
@@ -258,38 +299,6 @@ $sidebarMenu = array_merge($sidebarMenu, [
         'url' => root . 'favourites',
         'active' => str_contains($currentPath, 'favourites')
     ],
-
-    // FUTURE FEATURES (currently disabled)
-    // Uncomment when implementing these features:
-    //
-    // [
-    //     'type' => 'link',
-    //     'label' => 'my_posts',
-    //     'icon' => 'article',
-    //     'url' => '#',
-    //     'active' => str_contains($currentPath, 'my_posts')
-    // ],
-    // [
-    //     'type' => 'link',
-    //     'label' => 'price_alerts',
-    //     'icon' => 'notifications',
-    //     'url' => root . 'price_alerts',
-    //     'active' => str_contains($currentPath, 'price_alerts')
-    // ],
-    // [
-    //     'type' => 'link',
-    //     'label' => 'my_cards',
-    //     'icon' => 'credit_card',
-    //     'url' => root . 'my_cards',
-    //     'active' => str_contains($currentPath, 'my_cards')
-    // ],
-    // [
-    //     'type' => 'link',
-    //     'label' => 'promo_codes',
-    //     'icon' => 'local_offer',
-    //     'url' => '#',
-    //     'active' => str_contains($currentPath, 'promo_codes')
-    // ],
 
     // Account Accordion - Profile & Logout
     [
@@ -550,10 +559,17 @@ if (($user['role'] ?? '') === 'agent') {
                            <span class="text-gray-600"><?= T::total_trips ?></span>
                            <span class="font-medium"><?= $dashboardData['total_bookings'] ?></span>
                         </div>
-                        <!-- Loyalty Points (Future Feature - currently hardcoded to 0) -->
+                        <!-- Loyalty Points — real spendable balance (was hardcoded 0). -->
+                        <?php
+                           $__sbLoyalty = 0;
+                           if (function_exists('loyalty_balance')) {
+                               try { $__sbLoyalty = (int) loyalty_balance($db, (string) $_SESSION['user_id']); }
+                               catch (\Throwable $e) { $__sbLoyalty = 0; }
+                           }
+                        ?>
                         <div class="flex justify-between items-center">
                            <span class="text-gray-600"><?= T::loyalty_points ?></span>
-                           <span class="font-medium text-[#3265ff]">0</span>
+                           <a href="<?= root ?>loyalty" class="font-medium text-[#3265ff] hover:underline tabular-nums"><?= number_format($__sbLoyalty) ?></a>
                         </div>
                      </div>
                   </div>
