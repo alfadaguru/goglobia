@@ -154,7 +154,7 @@ if (!function_exists('App\\lib\\ai\\gia_nurture_lead')) {
             if (!$lead) {
                 return false;
             }
-            // Dedup: only nurture once per lead.
+            // Cheap short-circuit: already nurtured (also saves work on the common case).
             if (strpos((string) ($lead['note'] ?? ''), 'nurtured') !== false) {
                 return false;
             }
@@ -163,6 +163,28 @@ if (!function_exists('App\\lib\\ai\\gia_nurture_lead')) {
             $name = trim((string) ($lead['name'] ?? '')) ?: 'there';
             if ($email === '' && $phone === '') {
                 return false;
+            }
+
+            // ATOMIC CLAIM-BEFORE-SEND (audit D12-1): the dedup above is read-then-write,
+            // and /gia_nurture_sweep is a PUBLIC cron — two concurrent triggers could both
+            // pass the strpos before either stamps the note, double-messaging the lead.
+            // Claim the lead FIRST with a conditional UPDATE that stamps 'nurtured' only
+            // while the note does NOT already contain it; if the claim affected 0 rows,
+            // another worker already owns this lead -> bail WITHOUT sending. (Mirrors the
+            // travel-reminders claim-before-send. Fail direction = under-nurture, never
+            // spam.) A thrown claim also bails (fail closed) rather than risk a double-send.
+            $nurtureNote = trim((string) ($lead['note'] ?? ''));
+            $nurtureNote = ($nurtureNote !== '' ? $nurtureNote . '; ' : '') . 'nurtured ' . date('Y-m-d H:i');
+            try {
+                $claim = $db->update('gia_leads',
+                    ['note' => substr($nurtureNote, 0, 255)],
+                    ['id' => $leadId, 'note[!~]' => '%nurtured%']);
+                if (!($claim instanceof \PDOStatement) || $claim->rowCount() < 1) {
+                    return false; // already claimed by another worker (or could not claim)
+                }
+            } catch (\Throwable $e) {
+                error_log('[gia] nurture claim: ' . $e->getMessage());
+                return false; // fail closed — do not send if we could not atomically claim
             }
 
             $settings = $db->get('settings', ['name'], ['id' => 1]) ?: [];
@@ -194,10 +216,13 @@ if (!function_exists('App\\lib\\ai\\gia_nurture_lead')) {
                 try { SENDWHATSAPP($phone, $name, $msg); $sent = true; } catch (\Throwable $e) {}
             }
 
-            if ($sent) {
-                $note = trim((string) ($lead['note'] ?? ''));
-                $note = ($note !== '' ? $note . '; ' : '') . 'nurtured ' . date('Y-m-d H:i');
-                $db->update('gia_leads', ['note' => substr($note, 0, 255)], ['id' => $leadId]);
+            // NOTE: the 'nurtured' stamp was ALREADY written by the atomic claim above
+            // (claim-before-send), so we do NOT re-stamp here. If $sent is false (both
+            // channels no-op'd, e.g. provider unconfigured) the lead stays marked —
+            // the safe under-nurture direction; a provider-config fix is an ops concern,
+            // not a reason to let the public cron re-blast the lead on every tick.
+            if (!$sent) {
+                error_log('[gia] nurture lead ' . $leadId . ' claimed but no channel delivered (provider unconfigured?)');
             }
             return $sent;
         } catch (\Throwable $e) {

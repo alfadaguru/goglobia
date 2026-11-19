@@ -31,17 +31,35 @@ if (!function_exists('gia_render_text_fallback')) {
      */
     function gia_render_text_fallback(array $norm): string
     {
+        // ALIGNMENT INVARIANT (audit D6-1): the numbers shown here MUST line up 1:1 with
+        // the ids gia_channel_store_choices remembers (which keeps ONLY pick/pay ids), or
+        // a bare "2" reply resolves the wrong choice — including a wrong PAY option. So
+        // number ONLY the pickable buttons, exactly as store_choices filters. A non-pick
+        // button (a url/info button, were one ever added) still shows its title as an
+        // unnumbered line, so it can never shift the numbering. Falls back to numbering
+        // all only if the canonical is-pick-id check isn't loaded (it always is on the
+        // channel send path, which requires gia_channel.php before rendering).
+        $isPick = static function (array $b): bool {
+            $id = (string) ($b['id'] ?? '');
+            if ($id === '') { return false; }
+            if (function_exists('App\\lib\\ai\\gia_channel_is_pick_id')) {
+                return \App\lib\ai\gia_channel_is_pick_id($id);
+            }
+            return true; // channel lib not loaded (shouldn't happen on the send path)
+        };
         $lines = [];
         if (($norm['text'] ?? '') !== '') { $lines[] = $norm['text']; }
         $n = 0;
         foreach (($norm['buttons'] ?? []) as $b) {
-            $lines[] = (++$n) . '. ' . $b['title'];
+            if ($isPick($b)) { $lines[] = (++$n) . '. ' . $b['title']; }
+            elseif (($b['title'] ?? '') !== '') { $lines[] = '• ' . $b['title']; } // unnumbered
         }
         foreach (($norm['cards'] ?? []) as $c) {
             $head = trim(($c['title'] ?? '') . (($c['subtitle'] ?? '') !== '' ? ' — ' . $c['subtitle'] : ''));
             if ($head !== '') { $lines[] = "\n" . $head; }
             foreach (($c['buttons'] ?? []) as $b) {
-                $lines[] = (++$n) . '. ' . $b['title'];
+                if ($isPick($b)) { $lines[] = (++$n) . '. ' . $b['title']; }
+                elseif (($b['title'] ?? '') !== '') { $lines[] = '• ' . $b['title']; } // unnumbered
             }
         }
         if ($n > 0) { $lines[] = "\nReply with the number or name of your choice."; }
