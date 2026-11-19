@@ -44,6 +44,40 @@ $ccy  = htmlspecialchars((string)($defaultCurrency ?? 'NGN'));
         </div>
     </div>
 
+    <?php /* AG-G3 — credit utilisation + payment-due (only when a credit line exists) */
+    if (($creditLimit ?? 0) > 0):
+        $used = $creditUsed ?? 0.0; $pct = $creditPct ?? 0;
+        $near = $pct >= 90; $at = $pct >= 100;
+        $barColor = $at ? 'bg-red-500' : ($near ? 'bg-orange-500' : 'bg-violet-500');
+        $overdue = isset($creditDaysLeft) && $creditDaysLeft !== null && $creditDaysLeft < 0;
+    ?>
+    <div class="rounded-xl border <?= $at?'border-red-200 bg-red-50/40':($near?'border-orange-200 bg-orange-50/40':'border-slate-200 bg-white') ?> p-5 mb-6">
+        <div class="flex items-center justify-between mb-2">
+            <h2 class="font-semibold text-slate-800 flex items-center gap-2">
+                <span class="material-symbols-outlined text-[18px] <?= $at?'text-red-600':'text-violet-600' ?>">credit_score</span>
+                Credit line usage
+            </h2>
+            <span class="text-sm font-semibold <?= $at?'text-red-700':'text-slate-700' ?>"><?= $ccy ?> <?= $fmt($used) ?> / <?= $fmt($creditLimit) ?> used (<?= (int)$pct ?>%)</span>
+        </div>
+        <div class="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+            <div class="h-full <?= $barColor ?>" style="width: <?= max(0,min(100,(int)$pct)) ?>%"></div>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-1 mt-3 text-[12px]">
+            <span class="text-slate-500">Available on credit: <strong class="text-slate-700"><?= $ccy ?> <?= $fmt(max(0,$creditLimit - $used)) ?></strong></span>
+            <?php if (!empty($creditDueDate)): ?>
+            <span class="<?= $overdue?'text-red-700 font-semibold':'text-slate-500' ?>">Payment due: <strong><?= htmlspecialchars((string)$creditDueDate) ?></strong>
+                <?php if ($creditDaysLeft !== null): ?>(<?= $overdue ? abs((int)$creditDaysLeft).' days overdue' : (int)$creditDaysLeft.' days left' ?>)<?php endif; ?>
+            </span>
+            <?php endif; ?>
+        </div>
+        <?php if ($at): ?>
+        <p class="mt-3 text-[12.5px] text-red-700 bg-red-100/60 rounded-lg px-3 py-2">Your credit line is fully used. New bookings need wallet funds — top up by bank transfer below.</p>
+        <?php elseif ($near): ?>
+        <p class="mt-3 text-[12.5px] text-orange-700 bg-orange-100/50 rounded-lg px-3 py-2">You're close to your credit limit. Consider topping up to avoid interruptions.</p>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
     <!-- DVA / virtual account -->
     <div class="rounded-xl border border-slate-200 bg-white p-5 mb-6">
         <h2 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">

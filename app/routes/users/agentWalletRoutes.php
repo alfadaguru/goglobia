@@ -35,7 +35,8 @@ $router->get('/agent/wallet', function () use ($SECURE, $db) {
     // Everything shows the OWNER's money (staff view the agency wallet).
     $ownerId = (string) $ctx['owner'];
     $owner   = $db->get('users', ['user_id','first_name','last_name','email','currency','role','status',
-                                  'credit_limits','dva_account_number','dva_bank_name','dva_account_name',
+                                  'credit_limits','credit_payment_days','first_credit_usage_date',
+                                  'dva_account_number','dva_bank_name','dva_account_name',
                                   'agent_tier_id','loyalty_points'], ['user_id' => $ownerId]);
     if (!$owner) { header('Location: ' . root . 'login'); exit; }
 
@@ -58,6 +59,26 @@ $router->get('/agent/wallet', function () use ($SECURE, $db) {
     $balance = function_exists('wallet_balance') ? (float) wallet_balance($db, $ownerId, $defaultCurrency) : 0.0;
     $creditLimit = (float) ($owner['credit_limits'] ?? 0);
     $lifetimeTopup = function_exists('agent_lifetime_topup') ? (float) agent_lifetime_topup($db, $ownerId) : 0.0;
+
+    // AG-G3 — CREDIT UTILIZATION self-view. The credit line is consumed by driving
+    // the wallet balance NEGATIVE (wallet_apply allows a debit while balance +
+    // credit_limits >= amount), so "credit used" is the negative portion of the
+    // balance, capped at the limit. Payment-due mirrors the admin reminder cron
+    // (first_credit_usage_date + credit_payment_days). The HARD stop-sell is already
+    // enforced in wallet_apply (it refuses a debit past balance+limit) — this panel
+    // just surfaces the position so agents aren't surprised.
+    $creditUsed = $balance < 0 ? min($creditLimit, round(-$balance, 2)) : 0.0;
+    $creditPct  = $creditLimit > 0 ? (int) round($creditUsed / $creditLimit * 100) : 0;
+    $creditDueDate = null; $creditDaysLeft = null;
+    $creditDays = (int) ($owner['credit_payment_days'] ?? 0);
+    $firstUse   = (string) ($owner['first_credit_usage_date'] ?? '');
+    if ($creditUsed > 0 && $creditDays > 0 && $firstUse !== '') {
+        try {
+            $due = (new DateTime($firstUse))->modify("+{$creditDays} days");
+            $creditDueDate = $due->format('Y-m-d');
+            $creditDaysLeft = (int) floor(($due->getTimestamp() - time()) / 86400);
+        } catch (\Throwable $e) { $creditDueDate = null; }
+    }
 
     // DVA state + whether DVA is enabled for agents (admin toggle).
     $dvaEnabled = (string) ($GLOBALS['app']['agent_dva_enabled'] ?? '1') === '1';

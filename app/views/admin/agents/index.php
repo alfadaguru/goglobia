@@ -47,7 +47,7 @@ $name = fn($u) => trim(((string)($u['first_name']??'')).' '.((string)($u['last_n
     <div class="rounded-xl border border-slate-200 bg-white overflow-x-auto">
         <table class="w-full text-sm">
             <thead class="bg-slate-50 text-slate-500 text-[11px] uppercase">
-                <tr><th class="text-left px-5 py-2">Name</th><th class="text-left px-5 py-2">Email</th><th class="text-left px-5 py-2">Agency</th><th class="text-left px-5 py-2">Status</th><th class="text-left px-5 py-2">Joined</th></tr>
+                <tr><th class="text-left px-5 py-2">Name</th><th class="text-left px-5 py-2">Email</th><th class="text-left px-5 py-2">Agency</th><th class="text-left px-5 py-2">Status</th><th class="text-left px-5 py-2">Joined</th><th class="text-left px-5 py-2">Actions</th></tr>
             </thead>
             <tbody>
             <?php foreach ($others as $u): $ag = $agencyByUser[(string)$u['user_id']] ?? null; ?>
@@ -55,8 +55,23 @@ $name = fn($u) => trim(((string)($u['first_name']??'')).' '.((string)($u['last_n
                     <td class="px-5 py-2 text-slate-700"><?= htmlspecialchars($name($u)) ?></td>
                     <td class="px-5 py-2 text-slate-500"><?= htmlspecialchars((string)($u['email']??'')) ?></td>
                     <td class="px-5 py-2 text-slate-600"><?= htmlspecialchars((string)($ag['agency_name']??'—')) ?></td>
-                    <td class="px-5 py-2"><span class="px-2 py-0.5 rounded-full text-[11px] <?= ($u['status']??'')==='active'?'bg-emerald-50 text-emerald-700':(($u['status']??'')==='rejected'?'bg-red-50 text-red-700':'bg-slate-100 text-slate-600') ?>"><?= htmlspecialchars((string)($u['status']??'')) ?></span></td>
+                    <?php $st = (string)($u['status']??''); ?>
+                    <td class="px-5 py-2"><span class="px-2 py-0.5 rounded-full text-[11px] <?= $st==='active'?'bg-emerald-50 text-emerald-700':($st==='rejected'?'bg-red-50 text-red-700':($st==='suspended'?'bg-orange-50 text-orange-700':'bg-slate-100 text-slate-600')) ?>"><?= htmlspecialchars($st) ?></span></td>
                     <td class="px-5 py-2 text-slate-400"><?= htmlspecialchars((string)($u['created_at']??'')) ?></td>
+                    <td class="px-5 py-2">
+                        <?php if ($st==='active'): ?>
+                        <form method="post" action="<?= root.admin ?>/agents/suspend/<?= urlencode((string)$u['user_id']) ?>" onsubmit="if(!confirm('Suspend this agency? Login + all actions will be blocked and live API keys revoked.'))return false;this.reason.value=prompt('Reason (optional):')||'';">
+                            <?= CSRF::tokenField() ?>
+                            <input type="hidden" name="reason" value="">
+                            <button class="px-3 py-1 rounded-lg border border-orange-300 text-orange-700 text-xs font-semibold hover:bg-orange-50">Suspend</button>
+                        </form>
+                        <?php elseif ($st==='suspended'): ?>
+                        <form method="post" action="<?= root.admin ?>/agents/unsuspend/<?= urlencode((string)$u['user_id']) ?>" onsubmit="return confirm('Reactivate this agency?');">
+                            <?= CSRF::tokenField() ?>
+                            <button class="px-3 py-1 rounded-lg border border-emerald-300 text-emerald-700 text-xs font-semibold hover:bg-emerald-50">Reactivate</button>
+                        </form>
+                        <?php else: ?><span class="text-slate-300 text-xs">—</span><?php endif; ?>
+                    </td>
                 </tr>
             <?php endforeach; ?>
             <?php if (empty($others)): ?><tr><td colspan="5" class="px-5 py-6 text-center text-slate-400">No agents yet.</td></tr><?php endif; ?>
