@@ -347,6 +347,7 @@ require_once 'app/routes/api/users/dashboardRoutes.php';
 require_once 'app/routes/api/users/logoutRoutes.php';
 require_once 'app/routes/api/users/profileRoutes.php';
 require_once 'app/routes/api/users/deleteAccountRoutes.php';
+require_once 'app/routes/api/users/deviceRoutes.php';
 require_once 'app/routes/api/users/emailVerificationRoutes.php';
 require_once 'app/routes/api/users/passwordResetRoutes.php';
 require_once 'app/routes/api/users/agencyRoutes.php';

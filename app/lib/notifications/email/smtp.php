@@ -174,9 +174,31 @@ class SmtpProvider {
                 $this->cmd($conn, "EHLO $domain", '250', 'EHLO after TLS');
             }
 
+            // NC-4: NEVER send AUTH credentials over a cleartext connection. The
+            // link is encrypted only if we opened implicit SSL ($protocol==='ssl://')
+            // OR STARTTLS was negotiated above ($use_starttls). On any other port/
+            // security combination the AUTH LOGIN base64 user/pass would travel in
+            // the clear. Refuse rather than leak the SMTP credentials. Operators who
+            // truly need an unencrypted relay must set 'allow_cleartext_auth' = true.
+            $encrypted = ($protocol === 'ssl://') || $use_starttls;
+            if (!$encrypted && empty($this->config['allow_cleartext_auth'])) {
+                throw new Exception('Refusing SMTP AUTH over an unencrypted connection (set port 587/465, security=tls/ssl, or allow_cleartext_auth to override).');
+            }
+
             $this->cmd($conn, "AUTH LOGIN", '334', 'AUTH LOGIN begin');
             $this->cmd($conn, base64_encode($username), '334', 'AUTH username');
             $this->cmd($conn, base64_encode($password), '235', 'AUTH password');
+
+            // NC-6: strip CR/LF from all header-bound + envelope fields before they
+            // reach the SMTP command stream / RFC-822 headers, to block header /
+            // command injection (e.g. a \r\n in a name or subject injecting Bcc:,
+            // a second message, or an extra RCPT). from_email is already
+            // FILTER_VALIDATE_EMAIL'd; the rest are not.
+            $hsan = static function ($v) { return str_replace(["\r", "\n", "\0"], '', (string) $v); };
+            $to_email   = $hsan($to_email);
+            $to_name    = $hsan($to_name);
+            $from_name  = $hsan($from_name);
+            $subject    = $hsan($subject);
 
             $this->cmd($conn, "MAIL FROM:<{$from_email}>", '250', 'MAIL FROM');
             $this->cmd($conn, "RCPT TO:<$to_email>", '250', 'RCPT TO');

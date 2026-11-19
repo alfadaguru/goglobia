@@ -143,6 +143,10 @@ if (!function_exists('App\\lib\\ai\\gia_pusher_rest_trigger')) {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 5,
             CURLOPT_CONNECTTIMEOUT => 3,
+            // NC-14: explicit TLS verification (parity with gia_channel_send.php;
+            // was relying on cURL's compiled-in default).
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
         ]);
         curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);

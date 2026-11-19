@@ -1188,8 +1188,8 @@ $messageSuccess = false;
                         </div>
                         <div class="flex items-center space-x-3">
                             <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" name="push_notifications_enabled" value="1" class="sr-only peer"
-                                    <?= getSetting($settingsData, 'push_notifications_enabled', '0') ? 'checked' : '' ?>>
+                                <input type="checkbox" name="push_enabled" value="1" class="sr-only peer"
+                                    <?= getSetting($settingsData, 'push_enabled', '0') == '1' ? 'checked' : '' ?>>
                                 <div
                                     class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600">
                                     </div>
@@ -1221,14 +1221,23 @@ $messageSuccess = false;
                                 $providerData = isset($pushConfig[$providerKey]) ? $pushConfig[$providerKey] : [];
                                 ?>
                                 <?php foreach ($provider['fields'] as $field): ?>
-                                    <div class="form-control">
-                                        <?php if (strpos($field, 'key') !== false || strpos($field, 'secret') !== false || strpos($field, 'token') !== false): ?>
-                                            <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
+                                    <?php
+                                        // A service-account / *_json field is a large multi-line blob
+                                        // (e.g. Firebase FCM v1's service_account_json) — render it as a
+                                        // full-width textarea, not a one-line input it would overflow.
+                                        $isJsonBlob = (strpos($field, 'json') !== false) || (strpos($field, 'service_account') !== false) || (strpos($field, 'private_key') !== false);
+                                        $isSecret   = (strpos($field, 'key') !== false || strpos($field, 'secret') !== false || strpos($field, 'token') !== false);
+                                    ?>
+                                    <div class="form-control <?= $isJsonBlob ? 'md:col-span-2 lg:col-span-3' : '' ?>">
+                                        <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
+                                        <?php if ($isJsonBlob): ?>
+                                            <textarea name="push_providers[<?= $providerKey ?>][<?= $field ?>]" class="input" rows="6"
+                                                placeholder="Paste the full Firebase service-account JSON (Project settings → Service accounts → Generate new private key)"><?= isset($providerData[$field]) ? htmlspecialchars($providerData[$field]) : '' ?></textarea>
+                                        <?php elseif ($isSecret): ?>
                                             <input type="password" name="push_providers[<?= $providerKey ?>][<?= $field ?>]" class="input"
                                                 value="<?= isset($providerData[$field]) ? htmlspecialchars($providerData[$field]) : '' ?>"
                                                 placeholder="<?=T::enter?> <?= str_replace('_', ' ', $field) ?>">
                                         <?php else: ?>
-                                            <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
                                             <input type="text" name="push_providers[<?= $providerKey ?>][<?= $field ?>]" class="input"
                                                 value="<?= isset($providerData[$field]) ? htmlspecialchars($providerData[$field]) : '' ?>"
                                                 placeholder="<?=T::enter?> <?= str_replace('_', ' ', $field) ?>">

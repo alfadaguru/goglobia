@@ -191,7 +191,13 @@ require_once 'app/lib/supplier_requests.php';
 require_once 'app/lib/supplier_groups.php';
 require_once 'app/lib/stays_calendar.php';
 require_once 'app/lib/i18n.php';
-require_once 'app/lib/mailer.php';
+// NC-10: app/lib/mailer.php (EmailService / sendForgotPasswordEmail / mailer())
+// is DEAD — zero live callers (the real reset flow uses passwordResetRoutes.php's
+// reset-token + password_hash, not this class). It was still loaded every request
+// and carried stale "Training Platform" branding + a plaintext-temporary-password
+// email (a foot-gun a future dev could wire up). No longer loaded. The file is kept
+// on disk for history but is not bootstrapped; delete it when convenient.
+// require_once 'app/lib/mailer.php';
 require_once 'app/lib/captcha.php';
 require_once 'app/lib/webhooks.php';
 require_once 'app/lib/umrah/services.php';
@@ -695,6 +701,12 @@ try {
     // P0 wiring was lost once already — the require AND this call must both exist.)
     if (function_exists('ensureAgentPortalSchema')) {
         ensureAgentPortalSchema($db);
+    }
+    // Mobile push: user_devices table + push_enabled/push_provider settings.
+    // Idempotent self-heal; push stays OFF (push_enabled default '0') until an
+    // admin configures a provider.
+    if (function_exists('ensurePushDeviceSchema')) {
+        ensurePushDeviceSchema($db);
     }
     // Employee RBAC consolidation (docs/support/EMPLOYEE_RBAC_CONSOLIDATION.md) —
     // the ONE company-wide RBAC layer: widens users_roles + users with governance

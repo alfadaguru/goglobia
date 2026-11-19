@@ -4323,7 +4323,12 @@ function SENDEMAIL($toEmail, $toName, $subject, $htmlBody, $pdfPath = null, arra
                 );
 
             } else {
-                // Provider doesn't support attachments, fall back to regular send
+                // NC-5: the active provider has no sendWithAttachment(), so the
+                // ticket/invoice PDF is being DROPPED. This used to happen silently —
+                // the customer received a document-less confirmation with no trace.
+                // Log it loudly so the provider gap (sendgrid/mailchimp/amazon_ses)
+                // is visible; the email still goes out (better than nothing).
+                error_log("SENDEMAIL WARNING: provider '$emailProvider' has no sendWithAttachment() — PDF '$pdfPath' DROPPED from email to '$toEmail' (Subject: '$subject'). Switch to smtp/resend/mailgun/postmark, or add attachment support to this provider.");
 
                 $sent = $mailer->send(
                     $toEmail,
@@ -5407,6 +5412,147 @@ function SENDSMS($toPhone, $toName, $message)
 
     } catch (Exception $e) {
         error_log("SENDSMS EXCEPTION: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * ============================================================================
+ * MOBILE PUSH — schema + SENDPUSH primitive + device registration.
+ * ============================================================================
+ * The push providers (firebase/apns/onesignal/expo) shipped but were wired to
+ * NOTHING — no SENDPUSH, no device-token store, no event path. This builds the
+ * server side: a device-token table, a register/unregister pair the mobile app
+ * calls, and a SENDPUSH($userId,...) primitive that mirrors SENDEMAIL/SENDSMS
+ * (resolve the active provider from settings, look up the user's tokens, send to
+ * each, and prune dead tokens the provider reports as invalid).
+ */
+
+/** Idempotent self-heal of the push device-token table. Mirrors the other
+ *  ensure* functions; called from config.php after the DB connects. */
+function ensurePushDeviceSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        $db->query("CREATE TABLE IF NOT EXISTS `user_devices` (
+            `id` bigint(20) NOT NULL AUTO_INCREMENT,
+            `user_id` varchar(255) NOT NULL,
+            `device_token` varchar(512) NOT NULL,
+            `platform` enum('android','ios','web','unknown') NOT NULL DEFAULT 'unknown',
+            `app_version` varchar(40) DEFAULT NULL,
+            `last_seen` datetime NOT NULL DEFAULT current_timestamp(),
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_token` (`device_token`),
+            KEY `idx_user` (`user_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    } catch (\Throwable $e) { error_log('ensurePushDeviceSchema table: ' . $e->getMessage()); }
+
+    // settings toggles: push master switch (default OFF until an admin configures
+    // a provider) + the active push provider name.
+    foreach ([
+        ['push_enabled',  "ALTER TABLE `settings` ADD COLUMN `push_enabled` ENUM('1','0') NOT NULL DEFAULT '0'"],
+        ['push_provider', "ALTER TABLE `settings` ADD COLUMN `push_provider` VARCHAR(40) NOT NULL DEFAULT 'firebase'"],
+    ] as [$col, $sql]) {
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `settings` LIKE '$col'")->fetch()) { $db->query($sql); }
+        } catch (\Throwable $e) { error_log("ensurePushDeviceSchema settings.$col: " . $e->getMessage()); }
+    }
+}
+
+/** Register (upsert) a device token for a user. The token is globally unique —
+ *  if it moves to a different user (shared device / re-login) the row is reassigned. */
+function push_register_device($db, string $userId, string $token, string $platform = 'unknown', ?string $appVersion = null): bool
+{
+    $userId = trim($userId); $token = trim($token);
+    if ($userId === '' || $token === '') { return false; }
+    $platform = in_array($platform, ['android', 'ios', 'web'], true) ? $platform : 'unknown';
+    try {
+        if (function_exists('ensurePushDeviceSchema')) { ensurePushDeviceSchema($db); }
+        $existing = $db->get('user_devices', ['id'], ['device_token' => $token]);
+        if ($existing) {
+            $db->update('user_devices', [
+                'user_id' => $userId, 'platform' => $platform,
+                'app_version' => $appVersion, 'last_seen' => date('Y-m-d H:i:s'),
+            ], ['device_token' => $token]);
+        } else {
+            $db->insert('user_devices', [
+                'user_id' => $userId, 'device_token' => $token, 'platform' => $platform,
+                'app_version' => $appVersion, 'last_seen' => date('Y-m-d H:i:s'),
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+        return true;
+    } catch (\Throwable $e) { error_log('push_register_device: ' . $e->getMessage()); return false; }
+}
+
+/** Remove a device token (logout / app uninstall signal). */
+function push_unregister_device($db, string $token): bool
+{
+    $token = trim($token);
+    if ($token === '') { return false; }
+    try { $db->delete('user_devices', ['device_token' => $token]); return true; }
+    catch (\Throwable $e) { error_log('push_unregister_device: ' . $e->getMessage()); return false; }
+}
+
+/**
+ * SENDPUSH — deliver a push to EVERY registered device of a user. Mirrors
+ * SENDEMAIL/SENDSMS: resolves the active push provider from settings, loads the
+ * provider class, and sends to each of the user's device tokens. Prunes any token
+ * the provider reports as invalid (UNREGISTERED/NOT_FOUND). No-op (returns false)
+ * when push is disabled or the user has no devices. Returns true if ≥1 push sent.
+ */
+function SENDPUSH($userId, string $title, string $message, ?array $data = null): bool
+{
+    global $db;
+    try {
+        $userId = trim((string) $userId);
+        if ($userId === '') { return false; }
+
+        $settings = $db->get('settings', '*');
+        // Master gate — push is opt-in (default OFF).
+        if ((string) ($settings['push_enabled'] ?? '0') !== '1') { return false; }
+
+        $provider = $settings['push_provider'] ?? 'firebase';
+        $config = json_decode($settings['push_providers_config'] ?? '{}', true);
+        if (!is_array($config)) { $config = []; }
+        $providerConfig = $config[$provider] ?? [];
+        if (empty($providerConfig)) {
+            error_log("SENDPUSH: no configuration for push provider '$provider'");
+            return false;
+        }
+
+        $providerFile = __DIR__ . '/notifications/push/' . basename($provider) . '.php';
+        if (!file_exists($providerFile)) { error_log("SENDPUSH: provider file not found '$providerFile'"); return false; }
+        require_once $providerFile;
+        $providerClass = ucfirst($provider) . 'Provider';
+        if (!class_exists($providerClass)) { error_log("SENDPUSH: class '$providerClass' not found"); return false; }
+        $sender = new $providerClass($providerConfig);
+
+        if (function_exists('ensurePushDeviceSchema')) { ensurePushDeviceSchema($db); }
+        $devices = $db->select('user_devices', ['device_token'], ['user_id' => $userId]) ?: [];
+        if (!$devices) { return false; }
+
+        $anySent = false;
+        foreach ($devices as $dev) {
+            $tok = (string) $dev['device_token'];
+            if ($tok === '') { continue; }
+            $ok = (bool) $sender->send($tok, '', $title, $message, $data);
+            if ($ok) { $anySent = true; }
+            else {
+                // Prune a token the provider flagged invalid, so we stop pushing to dead devices.
+                $err = method_exists($sender, 'getLastError') ? (string) $sender->getLastError() : '';
+                if (stripos($err, 'INVALID_TOKEN') !== false || stripos($err, 'UNREGISTERED') !== false || stripos($err, 'NOT_FOUND') !== false) {
+                    try { $db->delete('user_devices', ['device_token' => $tok]); } catch (\Throwable $e) {}
+                }
+            }
+        }
+        return $anySent;
+    } catch (\Throwable $e) {
+        error_log('SENDPUSH EXCEPTION: ' . $e->getMessage());
         return false;
     }
 }

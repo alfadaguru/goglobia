@@ -33107,6 +33107,21 @@ CREATE TABLE IF NOT EXISTS `wallets` (
   KEY `idx_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Mobile push device tokens (FCM/APNs). Populated by /api/devices/register;
+-- consumed by SENDPUSH(). Also self-healed at runtime by ensurePushDeviceSchema().
+CREATE TABLE IF NOT EXISTS `user_devices` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `device_token` varchar(512) NOT NULL,
+  `platform` enum('android','ios','web','unknown') NOT NULL DEFAULT 'unknown',
+  `app_version` varchar(40) DEFAULT NULL,
+  `last_seen` datetime NOT NULL DEFAULT current_timestamp(),
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_token` (`device_token`),
+  KEY `idx_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS `money_transactions` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `txn_ref` varchar(40) NOT NULL,

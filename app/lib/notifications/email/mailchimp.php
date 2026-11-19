@@ -39,12 +39,42 @@ class MailchimpProvider {
         }
     }
 
-    private function sendViaMailchimp($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name) {
+    /**
+     * NC-5: Mailchimp/Mandrill attachment support (was missing → SENDEMAIL silently
+     * dropped the booking/invoice PDF). Mandrill accepts base64 `attachments[]`.
+     */
+    public function sendWithAttachment($to_email, $to_name, $subject, $body_html, $body_text = null, $attachment_path = null, $from_email = null, $from_name = null) {
+        try {
+            if (empty($this->config['api_key']) || empty($this->config['datacenter'])) {
+                throw new Exception('Mailchimp configuration incomplete. Please check API key and datacenter.');
+            }
+            $body_text = $body_text ?? strip_tags($body_html);
+            $from_email = $from_email ?? $this->config['from_email'] ?? 'noreply@example.com';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
+
+            $attachments = [];
+            if ($attachment_path && is_file($attachment_path) && is_readable($attachment_path)) {
+                $attachments[] = [
+                    'type'    => 'application/pdf',
+                    'name'    => basename($attachment_path),
+                    'content' => base64_encode((string) file_get_contents($attachment_path)),
+                ];
+            }
+            $result = $this->sendViaMailchimp($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name, $attachments);
+            return $result['success'];
+        } catch (Exception $e) {
+            $this->lastError = $e->getMessage();
+            error_log("Mailchimp Error (attachment): " . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function sendViaMailchimp($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name, $attachments = []) {
         $apiKey = $this->config['api_key'];
         $datacenter = $this->config['datacenter'];
-        
+
         $endpoint = "https://{$datacenter}.api.mailchimp.com/3.0/messages/send";
-        
+
         $messageData = [
             'key' => $apiKey,
             'message' => [
@@ -68,7 +98,9 @@ class MailchimpProvider {
                 'inline_css' => true,
                 'url_strip_qs' => true,
                 'preserve_recipients' => false,
-                'view_content_link' => false
+                'view_content_link' => false,
+                // NC-5: attach the PDF when provided (Mandrill base64 attachments[]).
+                'attachments' => (!empty($attachments) && is_array($attachments)) ? $attachments : []
             ],
             'async' => false,
             'ip_pool' => 'Main Pool',
@@ -84,8 +116,8 @@ class MailchimpProvider {
             'Content-Type: application/json'
         ]);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -232,8 +264,8 @@ class MailchimpProvider {
                 'Content-Type: application/json'
             ]);
             curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

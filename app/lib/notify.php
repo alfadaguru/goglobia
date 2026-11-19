@@ -443,8 +443,14 @@ class NOTIFY {
             $whatsappConfig = json_decode($settings['whatsapp_providers_config'] ?? '{}', true);
             $smsConfig = json_decode($settings['sms_providers_config'] ?? '{}', true);
 
-            $enableWhatsApp = $whatsappConfig['booking_enabled'] ?? true;
-            $enableSms = $smsConfig['booking_enabled'] ?? true;
+            // NC-9: json_decode returns null on MALFORMED JSON; `null['booking_enabled'] ?? true`
+            // used to resolve to true → a corrupt config would still ATTEMPT WhatsApp/SMS on
+            // every booking (fail-OPEN). Coerce to array first so a broken config fails CLOSED;
+            // a valid-but-key-missing config keeps the historical "enabled by default" intent.
+            if (!is_array($whatsappConfig)) { $whatsappConfig = []; $enableWhatsApp = false; }
+            else { $enableWhatsApp = $whatsappConfig['booking_enabled'] ?? true; }
+            if (!is_array($smsConfig)) { $smsConfig = []; $enableSms = false; }
+            else { $enableSms = $smsConfig['booking_enabled'] ?? true; }
 
             // 4. SEND NOTIFICATIONS WITH INDIVIDUAL ERROR HANDLING
             
@@ -475,7 +481,43 @@ class NOTIFY {
                     error_log("NOTIFY SMS ERROR: " . $e->getMessage());
                 }
             }
-            
+
+            // MOBILE PUSH — short, PRICE-FREE push to the booking owner's registered
+            // devices. Gated by settings.push_enabled (default OFF) + SENDPUSH no-ops
+            // when the user has no devices, so this is inert until push is configured
+            // AND the customer's app has registered a token. Best-effort, never fatal.
+            if ($event !== 'resend'
+                && (string) ($settings['push_enabled'] ?? '0') === '1'
+                && function_exists('SENDPUSH')) {
+                try {
+                    // Owner of the booking = who should get the push (the customer who booked).
+                    $pushUserId = (string) ($templateData['user_id'] ?? '');
+                    if ($pushUserId === '') {
+                        $__bRow = $db->get('bookings', ['user_id'], ['invoice_id' => $invoiceId]);
+                        $pushUserId = (string) ($__bRow['user_id'] ?? '');
+                    }
+                    if ($pushUserId !== '') {
+                        $svcLabel = ucfirst((string) ($moduleType ?: $module));
+                        if ($event === 'payment' || $event === 'payment_received') {
+                            $pTitle = 'Payment received';
+                            $pBody  = "Your $svcLabel booking #$invoiceId is confirmed. Tap to view.";
+                        } elseif ($event === 'booking_cancellation' || $event === 'cancellation') {
+                            $pTitle = 'Booking cancelled';
+                            $pBody  = "Your $svcLabel booking #$invoiceId has been cancelled.";
+                        } else {
+                            $pTitle = 'Booking received';
+                            $pBody  = "We've received your $svcLabel booking #$invoiceId. Tap for details.";
+                        }
+                        SENDPUSH($pushUserId, $pTitle, $pBody, [
+                            'type' => 'booking', 'event' => (string) $event,
+                            'invoice_id' => (string) $invoiceId, 'module' => (string) $moduleType,
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    error_log("NOTIFY PUSH ERROR: " . $e->getMessage());
+                }
+            }
+
         } catch (\Throwable $e) {
             error_log("NOTIFY EXCEPTION: " . $e->getMessage() . " in " . $e->getFile() . " on line " . $e->getLine());
         }
@@ -523,7 +565,12 @@ class NOTIFY {
         $templateFile = '';
         foreach ($candidates as $cand) { if (is_file($cand)) { $templateFile = $cand; break; } }
         if ($templateFile === '') {
-            error_log('NOTIFY: no email template for module=' . $module . ' type=' . $moduleType . ' event=' . $event . ' — tried ' . implode(', ', $candidates));
+            // NC-7: no per-service template resolved — do NOT silently drop the
+            // confirmation. Fall back to the self-contained last-resort body so the
+            // customer/owner/admin always receive SOMETHING. Logged for visibility.
+            error_log('NOTIFY: no email template for module=' . $module . ' type=' . $moduleType . ' event=' . $event . ' — using _fallback.php; tried ' . implode(', ', $candidates));
+            $fallbackTpl = $emailsBase . '_fallback.php';
+            if (is_file($fallbackTpl)) { $templateFile = $fallbackTpl; }
         }
 
         if ($templateFile !== '' && file_exists($templateFile)) {
@@ -548,8 +595,16 @@ class NOTIFY {
                 return ob_get_clean();
             };
 
+            // NC-3: the CUSTOMER must NEVER see supplier/markup pricing in the body
+            // (supplier-hiding mandate). Previously the price-free body was produced
+            // only when a caller passed $customerPdfPath, so the ~20 callers that
+            // omit it (esim/visa/bus bookings + the whole NOTIFY::payment path)
+            // emailed the traveller the full PRICED invoice body. Make price-free the
+            // DEFAULT for the customer regardless; only the ATTACHMENT still varies
+            // (ticket PDF when provided, else the generic $pdfPath). Owner/admin
+            // continue to get the priced body.
             $ownerBody    = $renderBody(false);
-            $customerBody = ($customerPdfPath !== null) ? $renderBody(true) : $ownerBody;
+            $customerBody = $renderBody(true);
             $customerPdf  = ($customerPdfPath !== null) ? $customerPdfPath : $pdfPath;
 
             // Back-compat alias for any later reference in this method.
@@ -599,8 +654,14 @@ class NOTIFY {
                             $prefix = ($event === 'booking_cancellation') ? "[SUPPLIER] Cancellation" : "[SUPPLIER] New Booking";
                             $ownerSubject = "$prefix - " . $subject;
                             $sent = SENDEMAIL($serviceOwner['email'], $serviceOwner['first_name'] . ' ' . $serviceOwner['last_name'], $ownerSubject, $emailBody, $pdfPath);
-                            if ($sent) {
-                            } else {
+                            // NC-8: the owner-email outcome was silently discarded (empty
+                            // if/else) — a supplier who never gets booking emails left zero
+                            // trace. Log + record it like the customer/admin legs do.
+                            if (function_exists('notify_log')) {
+                                notify_log((string) $invoiceId, 'email', (string) $event, (string) $serviceOwner['email'], (bool) $sent, $sent ? null : 'owner SENDEMAIL returned false');
+                            }
+                            if (!$sent) {
+                                error_log("NOTIFY_ERROR: Failed to send OWNER email to {$serviceOwner['email']} (Subject: $ownerSubject)");
                             }
                         } else {
                         }
@@ -775,17 +836,29 @@ class NOTIFY {
      * Send SMS notifications to customer and admins
      */
     private static function sendSmsNotifications($module, $event, $customerName, $formattedPhone, $templateData, $invoiceId, $moduleType, $amount, $currency, $settings, $db) {
-        // Load professional message from template file
-        $msg = self::loadMessageTemplate($module, $event, 'sms', $templateData);
-        
-        if (empty($msg)) {
-            // Fallback to legacy construction
-            $msg = "Hello $customerName, booking #$invoiceId confirmed. Amount: $currency $amount. " . root . "invoice/$module/$invoiceId";
+        // NC-3 (SMS leg): the CUSTOMER SMS must be price-free like the email/WhatsApp
+        // customer copies. Render the customer template with hide_price=1, and keep a
+        // SEPARATE priced copy ($internalMsg) for the supplier/admin legs below.
+        $customerMsg = self::loadMessageTemplate($module, $event, 'sms', $templateData + ['hide_price' => 1]);
+        $internalMsg = self::loadMessageTemplate($module, $event, 'sms', $templateData + ['hide_price' => 0]);
+
+        if (empty($customerMsg)) {
+            // NC-3: price-FREE customer fallback (no "Amount: …").
+            $customerMsg = "Hello $customerName, booking #$invoiceId confirmed. View details: " . root . "invoice/$module/$invoiceId";
         }
-        
-        // Send to Customer
+        if (empty($internalMsg)) {
+            // Internal (supplier/admin) fallback keeps the amount.
+            $internalMsg = "Booking #$invoiceId confirmed. Amount: $currency $amount. " . root . "invoice/$module/$invoiceId";
+        }
+        // $msg = the INTERNAL (priced) copy used by the supplier/admin legs below.
+        $msg = $internalMsg;
+
+        // Send to Customer (price-free) — NC-8: capture + log the outcome.
         if (!empty($formattedPhone)) {
-            SENDSMS($formattedPhone, $customerName, $msg);
+            $smsOk = (bool) SENDSMS($formattedPhone, $customerName, $customerMsg);
+            if (function_exists('notify_log')) {
+                notify_log((string) $invoiceId, 'sms', (string) $event, (string) $formattedPhone, $smsOk, $smsOk ? null : 'SENDSMS returned false');
+            }
         }
         
         // Send to Service Owner (user who created the tour/hotel/flight)
@@ -977,8 +1050,14 @@ class NOTIFY {
             $whatsappConfig = json_decode($settings['whatsapp_providers_config'] ?? '{}', true);
             $smsConfig = json_decode($settings['sms_providers_config'] ?? '{}', true);
 
-            $enableWhatsApp = $whatsappConfig['booking_enabled'] ?? true;
-            $enableSms = $smsConfig['booking_enabled'] ?? true;
+            // NC-9: json_decode returns null on MALFORMED JSON; `null['booking_enabled'] ?? true`
+            // used to resolve to true → a corrupt config would still ATTEMPT WhatsApp/SMS on
+            // every booking (fail-OPEN). Coerce to array first so a broken config fails CLOSED;
+            // a valid-but-key-missing config keeps the historical "enabled by default" intent.
+            if (!is_array($whatsappConfig)) { $whatsappConfig = []; $enableWhatsApp = false; }
+            else { $enableWhatsApp = $whatsappConfig['booking_enabled'] ?? true; }
+            if (!is_array($smsConfig)) { $smsConfig = []; $enableSms = false; }
+            else { $enableSms = $smsConfig['booking_enabled'] ?? true; }
 
             // 4. SEND EMAIL
             // Prepare email subject

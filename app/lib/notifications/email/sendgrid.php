@@ -39,11 +39,44 @@ class SendGridProvider {
         }
     }
 
-    private function sendViaSendGrid($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name) {
+    /**
+     * NC-5: SendGrid attachment support. Previously SendGrid had no
+     * sendWithAttachment(), so SENDEMAIL silently dropped the booking/invoice PDF
+     * when SendGrid was the active provider. Mirror send() but attach the file as a
+     * base64 `attachments[]` entry (SendGrid v3 API).
+     */
+    public function sendWithAttachment($to_email, $to_name, $subject, $body_html, $body_text = null, $attachment_path = null, $from_email = null, $from_name = null) {
+        try {
+            if (empty($this->config['api_key'])) {
+                throw new Exception('SendGrid configuration incomplete. Please check API key.');
+            }
+            $body_text = $body_text ?? strip_tags($body_html);
+            $from_email = $from_email ?? $this->config['from_email'] ?? 'noreply@example.com';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
+
+            $attachments = [];
+            if ($attachment_path && is_file($attachment_path) && is_readable($attachment_path)) {
+                $attachments[] = [
+                    'content'     => base64_encode((string) file_get_contents($attachment_path)),
+                    'filename'    => basename($attachment_path),
+                    'type'        => 'application/pdf',
+                    'disposition' => 'attachment',
+                ];
+            }
+            $result = $this->sendViaSendGrid($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name, $attachments);
+            return $result['success'];
+        } catch (Exception $e) {
+            $this->lastError = $e->getMessage();
+            error_log("SendGrid Error (attachment): " . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function sendViaSendGrid($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name, $attachments = []) {
         $apiKey = $this->config['api_key'];
-        
+
         $endpoint = "https://api.sendgrid.com/v3/mail/send";
-        
+
         $emailData = [
             'personalizations' => [
                 [
@@ -87,9 +120,14 @@ class SendGridProvider {
         ];
 
         if (isset($this->config['categories'])) {
-            $emailData['categories'] = is_array($this->config['categories']) 
-                ? $this->config['categories'] 
+            $emailData['categories'] = is_array($this->config['categories'])
+                ? $this->config['categories']
                 : [$this->config['categories']];
+        }
+
+        // NC-5: attach the PDF when provided (base64 attachments[]).
+        if (!empty($attachments) && is_array($attachments)) {
+            $emailData['attachments'] = $attachments;
         }
 
         $ch = curl_init();
@@ -102,8 +140,8 @@ class SendGridProvider {
             'Authorization: Bearer ' . $apiKey
         ]);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -304,8 +342,8 @@ class SendGridProvider {
                 'Authorization: Bearer ' . $apiKey
             ]);
             curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

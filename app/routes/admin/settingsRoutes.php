@@ -447,6 +447,8 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'whatsapp_provider' => $_POST['whatsapp_provider'] ?? ($existingSettings['whatsapp_provider'] ?? 'official'),
             'sms_provider' => $_POST['sms_provider'] ?? ($existingSettings['sms_provider'] ?? 'twilio'),
             'push_provider' => $_POST['push_provider'] ?? ($existingSettings['push_provider'] ?? 'firebase'),
+            // Mobile-push master switch (default OFF until a provider is configured).
+            'push_enabled' => (isset($_POST['push_enabled']) && $_POST['push_enabled'] == '1') ? '1' : '0',
             'booking_expiry_time' => isset($_POST['booking_expiry_time']) && is_numeric($_POST['booking_expiry_time']) ? max(1, min(120, (int)$_POST['booking_expiry_time'])) : ($existingSettings['booking_expiry_time'] ?? 15),
             'booking_payment_issue' => isset($_POST['booking_payment_issue']) && $_POST['booking_payment_issue'] == '1' ? '1' : '0',
             'app_settings' => isset($_POST['app_settings']) && is_array($_POST['app_settings']) ? json_encode($_POST['app_settings']) : ($existingSettings['app_settings'] ?? '{}'),
@@ -1022,7 +1024,7 @@ $router->post('/admin/test-push', function() use ($db) {
             exit;
         }
 
-        $pushProvider = $input['push_provider'] ?? 'pusher';
+        $pushProvider = $input['push_provider'] ?? 'firebase';
         $providerConfig = $input['provider_config'] ?? [];
 
         $providerFile = _notificationProviderFile('push', (string) $pushProvider);
@@ -1034,28 +1036,37 @@ $router->post('/admin/test-push', function() use ($db) {
 
         require_once $providerFile;
 
-        $push = new PusherProvider($providerConfig);
+        // Instantiate the ACTUAL selected push provider (was hardcoded to
+        // PusherProvider, so "Test Firebase/APNS/OneSignal" tested the wrong class).
+        $pushClass = ucfirst((string) $pushProvider) . 'Provider';
+        if (!class_exists($pushClass)) {
+            echo json_encode(['success' => false, 'message' => "Push provider class '$pushClass' not found."]);
+            exit;
+        }
+        $push = new $pushClass($providerConfig);
 
+        // Prefer the provider's own credential test (e.g. Firebase mints an OAuth
+        // token to validate the service account without needing a device token).
+        if (method_exists($push, 'testConnection')) {
+            $res = $push->testConnection();
+            echo json_encode([
+                'success' => !empty($res['success']),
+                'message' => $res['message'] ?? (!empty($res['success']) ? 'Connection OK.' : 'Connection failed.'),
+            ]);
+            exit;
+        }
+
+        // Fallback: realtime-style providers (Pusher) send a test event directly.
         $sessionId = $input['session_id'] ?? 'test-' . uniqid();
-
         $sent = $push->send(
             $sessionId,
             'Test User',
             $input['title'] ?? 'Test Notification',
             $input['message'] ?? 'Test message'
         );
-
-        if ($sent) {
-            echo json_encode([
-                'success' => true,
-                'message' => 'Test notification sent successfully! Check your notifications.'
-            ]);
-        } else {
-            echo json_encode([
-                'success' => false,
-                'message' => $push->getLastError()
-            ]);
-        }
+        echo json_encode($sent
+            ? ['success' => true, 'message' => 'Test notification sent successfully! Check your notifications.']
+            : ['success' => false, 'message' => $push->getLastError()]);
 
     } catch (Exception $e) {
         echo json_encode([
