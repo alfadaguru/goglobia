@@ -119,13 +119,13 @@ if (isset($_SESSION['error'])) {
                 </a>
                 <div>
                     <h1 class="text-xl font-bold text-slate-800">
-                        <?= $isEdit ? ($user['first_name'] . ' ' . $user['last_name']) : T::add_new_user ?>
+                        <?= $isEdit ? htmlspecialchars($user['first_name'] . ' ' . $user['last_name'], ENT_QUOTES, 'UTF-8') : T::add_new_user ?>
                     </h1>
                     <?php if ($isEdit): ?>
                     <div class="flex flex-wrap items-center gap-2 mt-1 text-sm text-slate-600">
                         <span class="flex items-center gap-1">
                             <span class="material-symbols-outlined text-base">badge</span>
-                            <?= $user['user_id'] ?>
+                            <?= htmlspecialchars((string) $user['user_id'], ENT_QUOTES, 'UTF-8') ?>
                         </span>
                         <span>•</span>
                         <span class="flex items-center gap-1">
@@ -152,8 +152,8 @@ if (isset($_SESSION['error'])) {
                         <select id="role" name="role" class="select input text-sm py-1.5 px-3" required>
                             <!-- <option value=""><?=T::select_role?></option> -->
                             <?php foreach ($roles as $roleItem): ?>
-                            <option value="<?= strtolower($roleItem['type_name']) ?>" <?= (isset($user['role']) && strtolower($user['role']) == strtolower($roleItem['type_name'])) ? 'selected' : '' ?>>
-                                <?= ucfirst($roleItem['type_name']) ?>
+                            <option value="<?= htmlspecialchars(strtolower($roleItem['type_name']), ENT_QUOTES, 'UTF-8') ?>" <?= (isset($user['role']) && strtolower($user['role']) == strtolower($roleItem['type_name'])) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars(ucfirst($roleItem['type_name']), ENT_QUOTES, 'UTF-8') ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
@@ -211,8 +211,8 @@ if (isset($_SESSION['error'])) {
                         <select id="role" name="role" class="select input text-sm py-1.5 px-3" required>
                             <!-- <option value=""><?=T::select_role?></option> -->
                             <?php foreach ($roles as $roleItem): ?>
-                            <option value="<?= strtolower($roleItem['type_name']) ?>">
-                                <?= ucfirst($roleItem['type_name']) ?>
+                            <option value="<?= htmlspecialchars(strtolower($roleItem['type_name']), ENT_QUOTES, 'UTF-8') ?>">
+                                <?= htmlspecialchars(ucfirst($roleItem['type_name']), ENT_QUOTES, 'UTF-8') ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
@@ -234,13 +234,13 @@ if (isset($_SESSION['error'])) {
     <?php if (isset($success)): ?>
     <div class="alert alert-success mb-4">
         <span class="material-symbols-outlined">check_circle</span>
-        <span><?= $success ?></span>
+        <span><?= htmlspecialchars((string) $success, ENT_QUOTES, 'UTF-8') ?></span>
     </div>
     <?php endif; ?>
     <?php if (isset($error)): ?>
     <div class="alert alert-error mb-4">
         <span class="material-symbols-outlined">error</span>
-        <span><?= $error ?></span>
+        <span><?= htmlspecialchars((string) $error, ENT_QUOTES, 'UTF-8') ?></span>
     </div>
     <?php endif; ?>
 
@@ -303,15 +303,15 @@ if (isset($_SESSION['error'])) {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div class="form-control">
                                 <label for="first_name" class="form-label required"><?=T::first_name?></label>
-                                <input type="text" id="first_name" name="first_name" class="input" value="<?= $user['first_name'] ?? '' ?>" required>
+                                <input type="text" id="first_name" name="first_name" class="input" value="<?= htmlspecialchars((string) ($user['first_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" required>
                             </div>
                             <div class="form-control">
                                 <label for="last_name" class="form-label required"><?=T::last_name?></label>
-                                <input type="text" id="last_name" name="last_name" class="input" value="<?= $user['last_name'] ?? '' ?>" required>
+                                <input type="text" id="last_name" name="last_name" class="input" value="<?= htmlspecialchars((string) ($user['last_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" required>
                             </div>
                             <div class="form-control">
                                 <label for="email" class="form-label required"><?=T::email?></label>
-                                <input type="email" id="email" name="email" class="input" value="<?= $user['email'] ?? '' ?>" required>
+                                <input type="email" id="email" name="email" class="input" value="<?= htmlspecialchars((string) ($user['email'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" required>
                             </div>
                             <div class="form-control">
                                 <label for="phone" class="form-label"><?=T::phone?></label>
@@ -332,7 +332,7 @@ if (isset($_SESSION['error'])) {
                                            name="phone"
                                            class="input"
                                            style="flex: 1;"
-                                           value="<?= $user['phone'] ?? '' ?>"
+                                           value="<?= htmlspecialchars((string) ($user['phone'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
                                            placeholder="123456789"
                                            oninput="this.value = this.value.replace(/^0+/, '').replace(/[^0-9]/g, '')">
                                 </div>
@@ -374,15 +374,15 @@ if (isset($_SESSION['error'])) {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div class="form-control md:col-span-2">
                                 <label for="address" class="form-label"><?=T::address?></label>
-                                <textarea id="address" name="address" class="input" rows="2"><?= $user['address'] ?? '' ?></textarea>
+                                <textarea id="address" name="address" class="input" rows="2"><?= htmlspecialchars((string) ($user['address'] ?? ''), ENT_QUOTES, 'UTF-8') ?></textarea>
                             </div>
                             <div class="form-control">
                                 <label for="city" class="form-label"><?=T::city?></label>
-                                <input type="text" id="city" name="city" class="input" value="<?= $user['city'] ?? '' ?>">
+                                <input type="text" id="city" name="city" class="input" value="<?= htmlspecialchars((string) ($user['city'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
                             </div>
                             <div class="form-control">
                                 <label for="state" class="form-label"><?=T::state?></label>
-                                <input type="text" id="state" name="state" class="input" value="<?= $user['state'] ?? '' ?>">
+                                <input type="text" id="state" name="state" class="input" value="<?= htmlspecialchars((string) ($user['state'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
                             </div>
                             <div class="form-control">
                             <label for="country" class="form-label"><?=T::country?></label>
@@ -398,7 +398,7 @@ if (isset($_SESSION['error'])) {
                         </div>
                             <div class="form-control">
                                 <label for="po_box" class="form-label"><?=T::po_box?></label>
-                                <input type="text" id="po_box" name="po_box" class="input" value="<?= $user['po_box'] ?? '' ?>">
+                                <input type="text" id="po_box" name="po_box" class="input" value="<?= htmlspecialchars((string) ($user['po_box'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
                             </div>
                         </div>
                     </div>
@@ -537,15 +537,15 @@ if (isset($_SESSION['error'])) {
                             <tbody>
                                 <?php foreach ($userBookings as $booking): ?>
                                 <tr class="border-b border-slate-100 hover:bg-slate-50">
-                                    <td class="py-2 px-4 font-medium text-sm"><?= $booking['invoice_id'] ?></td>
+                                    <td class="py-2 px-4 font-medium text-sm"><?= htmlspecialchars((string) $booking['invoice_id'], ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="py-2 px-4">
                                         <span class="px-2 py-0.5 rounded-full text-xs font-medium <?= $booking['booking_status'] === 'confirmed' ? 'bg-green-100 text-green-700' : ($booking['booking_status'] === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700') ?>">
-                                            <?= ucfirst($booking['booking_status']) ?>
+                                            <?= htmlspecialchars(ucfirst((string) $booking['booking_status']), ENT_QUOTES, 'UTF-8') ?>
                                         </span>
                                     </td>
                                     <td class="py-2 px-4">
                                         <span class="px-2 py-0.5 rounded-full text-xs font-medium <?= $booking['payment_status'] === 'paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700' ?>">
-                                            <?= ucfirst($booking['payment_status']) ?>
+                                            <?= htmlspecialchars(ucfirst((string) $booking['payment_status']), ENT_QUOTES, 'UTF-8') ?>
                                         </span>
                                     </td>
                                 </tr>
@@ -714,7 +714,7 @@ if (isset($_SESSION['error'])) {
                             </div>
                             <div>
                                 <div class="text-white/80 text-xs font-medium"><?=T::digital_wallet?></div>
-                                <div class="text-white text-sm font-semibold"><?= $user['first_name'] ?? 'User' ?> <?= $user['last_name'] ?? '' ?></div>
+                                <div class="text-white text-sm font-semibold"><?= htmlspecialchars((string) ($user['first_name'] ?? 'User'), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string) ($user['last_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?></div>
                             </div>
                         </div>
 

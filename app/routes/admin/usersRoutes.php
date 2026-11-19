@@ -2,6 +2,31 @@
 // app/routes/admin/usersRoutes.php
 @$SECURE or die('Access Denied!');
 
+if (!function_exists('users_safe_back')) {
+    /**
+     * U-09: a redirect target that is safe to hand to header('Location: ...').
+     * The error branches in this file used to bounce to $_SERVER['HTTP_REFERER']
+     * verbatim — an attacker-influenceable value (open-redirect / header seam).
+     * Accept the referer ONLY when it is a same-origin URL on this host; else
+     * fall back to the admin users list. Returns an absolute app URL.
+     */
+    function users_safe_back(string $fallbackPath = 'admin/users'): string
+    {
+        $fallback = rtrim((string) root, '/') . '/' . ltrim($fallbackPath, '/');
+        $ref = $_SERVER['HTTP_REFERER'] ?? '';
+        if ($ref === '') {
+            return $fallback;
+        }
+        $refHost = parse_url($ref, PHP_URL_HOST);
+        $selfHost = $_SERVER['HTTP_HOST'] ?? parse_url((string) root, PHP_URL_HOST);
+        // Same-host only; reject protocol-relative / cross-host / malformed.
+        if ($refHost !== null && $selfHost !== null && strcasecmp((string) $refHost, (string) $selfHost) === 0) {
+            return $ref;
+        }
+        return $fallback;
+    }
+}
+
 //==============================================================
 // USERS
 $router->get(admin.'/users', function () use ($SECURE,$db) {
@@ -128,6 +153,45 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
             'language' => trim($_POST['language'] ?? 'en'),
         ];
 
+        // --- PRIVILEGE GUARD (U-01 / U-02) -------------------------------------
+        // The identity-critical columns (role, password, status, banned) decide
+        // who is an admin and who can log in. role='admin' is ALL-GRANT, and the
+        // login path copies users.role straight into $_SESSION['user_role'], so
+        // writing role='admin' here mints a real, unrestricted admin. Therefore
+        // ONLY a full admin may (a) assign role='admin' to anyone, or (b) touch
+        // the role/password/status/banned of an account that already IS an admin.
+        // A lower-privileged 'users:edit' employee keeps profile-edit rights but
+        // cannot escalate privilege or take over an admin account.
+        $actorIsFullAdmin = false;
+        if (function_exists('admin_current_role')) {
+            $actorRole = admin_current_role($db);
+            $actorIsFullAdmin = !empty($actorRole['is_admin']);
+        }
+        $requestedRole = strtolower(trim($_POST['role'] ?? ''));
+        // What is the target's CURRENT role? (edit only; new users have none yet)
+        $targetCurrentRole = '';
+        if (!empty($_POST['user_id'])) {
+            $existing = $db->get('users', ['role'], ['user_id' => $_POST['user_id']]);
+            $targetCurrentRole = strtolower((string) ($existing['role'] ?? ''));
+        }
+        $touchesAdmin = ($requestedRole === 'admin' || $targetCurrentRole === 'admin');
+        if (!$actorIsFullAdmin && $touchesAdmin) {
+            // Non-admin actor is trying to create/modify an admin. Strip every
+            // identity-critical field so the attempt silently degrades to a
+            // no-op on those columns (profile fields still save). Also veto the
+            // password reset on an admin target below (handled at the write).
+            unset($data['role'], $data['status'], $data['banned']);
+            $_POST['password'] = ''; // prevent admin-account password takeover
+            $_SESSION['error'] = 'You do not have permission to change an administrator account';
+            header('Location: ' . root . 'admin/users');
+            exit;
+        }
+        // (The $touchesAdmin branch above already covers BOTH create and edit when
+        // role='admin' is requested — $touchesAdmin is true whenever the requested
+        // OR current role is admin — so a non-admin actor can never reach a write
+        // that sets role=admin.)
+        // -----------------------------------------------------------------------
+
         // Booking Manager admin tier (0 staff / 1 admin / 2 super-admin). Only
         // meaningful for role='admin', and — to prevent privilege self-escalation
         // — only a SUPER-ADMIN (the logged-in editor at level 2) may set a level
@@ -157,11 +221,11 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
         // Validation
         if (empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {
             $_SESSION['error'] = 'First name, last name, and email are required';
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         } elseif (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
             $_SESSION['error'] = 'Invalid email format';
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         }
 
@@ -181,7 +245,7 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
             $excludeId = $isEdit ? (string) ($_POST['user_id'] ?? '') : '';
             if (phoneOwnedByOtherUser($db, $data['phone'], $data['phone_country_code'], $excludeId) !== '') {
                 $_SESSION['error'] = 'This phone number is already linked to another account';
-                header('Location: ' . $_SERVER['HTTP_REFERER']);
+                header('Location: ' . users_safe_back());
                 exit;
             }
         }
@@ -197,7 +261,7 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
                 'user_id[!]' => $user_id
             ])) {
                 $_SESSION['error'] = 'This email already used';
-                header('Location: ' . $_SERVER['HTTP_REFERER']);
+                header('Location: ' . users_safe_back());
                 exit;
             }
 
@@ -219,7 +283,7 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
             // Create new user
             if (empty($_POST['password'])) {
                 $_SESSION['error'] = 'Password is required for new users';
-                header('Location: ' . $_SERVER['HTTP_REFERER']);
+                header('Location: ' . users_safe_back());
                 exit;
             }
 
@@ -235,7 +299,7 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
             // Check if email already exists
             if ($db->has('users', ['email' => $data['email']])) {
                 $_SESSION['error'] = 'This email already used';
-                header('Location: ' . $_SERVER['HTTP_REFERER']);
+                header('Location: ' . users_safe_back());
                 exit;
             }
 
@@ -246,7 +310,7 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
                 exit;
             } else {
                 $_SESSION['error'] = 'Failed to create user: ' . implode(', ', $db->error());
-                header('Location: ' . $_SERVER['HTTP_REFERER']);
+                header('Location: ' . users_safe_back());
                 exit;
             }
         }
@@ -269,7 +333,7 @@ $router->post(admin.'/users/notes', function () use ($SECURE,$db) {
         // field or the X-CSRF-TOKEN header (fetch/XHR path).
         if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
             $_SESSION['error'] = 'Invalid CSRF token';
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         }
 
@@ -491,19 +555,19 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
         // Validation
         if (empty($user_id)) {
             $_SESSION['error'] = 'User ID is required';
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         }
 
         if ($amount <= 0) {
             $_SESSION['error'] = 'Amount must be greater than 0';
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         }
 
         if (empty($transaction_type) || !in_array($transaction_type, ['credit', 'debit'])) {
             $_SESSION['error'] = 'Invalid transaction type';
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         }
 
@@ -511,7 +575,7 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
         $user = $db->get('users', ['balance'], ['user_id' => $user_id]);
         if (!$user) {
             $_SESSION['error'] = 'User not found';
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         }
 
@@ -533,11 +597,20 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
             }
         }
 
-        // Prepare description
-        $admin_name = $db->get('users', ['first_name', 'last_name'], ['user_id' => $_SESSION['user_id'], 'role' => 'admin']);
+        // Prepare description. U-10: resolve the ACTOR (admin OR employee) — the
+        // old lookup filtered role='admin', so an employee acting here got null
+        // and the audit trail showed an empty "admin()" name. Drop the role
+        // filter and fall back to a label if the row is somehow missing.
+        $admin_name = $db->get('users', ['first_name', 'last_name'], ['user_id' => $_SESSION['user_id']]);
+        $actor_label = $admin_name
+            ? trim(($admin_name['first_name'] ?? '') . ' ' . ($admin_name['last_name'] ?? ''))
+            : '';
+        if ($actor_label === '') {
+            $actor_label = 'staff';
+        }
 
         $description = !empty($notes) ? $notes :
-                      ($transaction_type === 'credit' ? 'Funds added by admin(' . htmlspecialchars($admin_name['first_name'] . ' ' . $admin_name['last_name']) . ')' : 'Funds deducted by admin(' . htmlspecialchars($admin_name['first_name'] . ' ' . $admin_name['last_name']) . ')');
+                      ($transaction_type === 'credit' ? 'Funds added by admin(' . htmlspecialchars($actor_label) . ')' : 'Funds deducted by admin(' . htmlspecialchars($actor_label) . ')');
 
         // Add conversion details to description
         $conversion_note = " [{$amount} {$currency} = {$final_amount} USD @ rate {$exchange_rate}]";
@@ -571,7 +644,7 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
 
             if ($total_size > $max_total_size) {
                 $_SESSION['error'] = 'Total files size exceeds 20MB limit';
-                header('Location: ' . $_SERVER['HTTP_REFERER']);
+                header('Location: ' . users_safe_back());
                 exit;
             }
 
@@ -638,7 +711,7 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
                 }
             }
             $_SESSION['error'] = 'Failed to create transaction record';
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         }
 
@@ -715,7 +788,7 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
                 }
             }
             $_SESSION['error'] = 'Failed to update wallet balance: ' . ($spineResult['message'] ?? 'unknown error');
-            header('Location: ' . $_SERVER['HTTP_REFERER']);
+            header('Location: ' . users_safe_back());
             exit;
         }
         // Keep the legacy column in sync for any old read path (wallet_apply already
@@ -742,7 +815,7 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
 
     } else {
         $_SESSION['error'] = 'Invalid form submission';
-        header('Location: ' . $_SERVER['HTTP_REFERER']);
+        header('Location: ' . users_safe_back());
         exit;
     }
 });

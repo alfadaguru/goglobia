@@ -39,9 +39,16 @@ $availablePages = [
     ['id' => 'reports', 'name' => T::reports, 'slug' => 'reports'],
 ];
 
+// Valid permission-area keys (U-07): the save handler must only persist
+// permission rows for areas we actually define, never arbitrary POST keys.
+$validPermissionIds = array_column($availablePages, 'id');
+
 // Handle form submission
 if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_role' && !$isAdminRole) {
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+    // CSRF::validateToken does a constant-time hash_equals compare AND enforces
+    // the 1-hour token expiry, unlike the raw !== this replaced (timing-leaky,
+    // never-expiring). Accept the POST field or the X-CSRF-TOKEN header.
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
         $error = T::invalid_csrf_token;
     } else {
         $data = [
@@ -55,6 +62,14 @@ if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_role' && !$i
             $permissions = [];
             if (isset($_POST['permissions']) && is_array($_POST['permissions'])) {
                 foreach ($_POST['permissions'] as $page_id => $actions) {
+                    // U-07: ignore any area key not in our defined set, so a
+                    // crafted POST cannot persist permissions for undefined areas.
+                    if (!in_array($page_id, $validPermissionIds, true)) {
+                        continue;
+                    }
+                    if (!is_array($actions)) {
+                        continue;
+                    }
                     $permissions[$page_id] = [];
                     if (isset($actions['page_access'])) $permissions[$page_id]['page_access'] = '';
                     if (isset($actions['add'])) $permissions[$page_id]['add'] = '';
@@ -97,13 +112,21 @@ if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_role' && !$i
 
 // Handle delete role
 if ($_POST && isset($_POST['action']) && $_POST['action'] === 'delete_role') {
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
         $error = T::invalid_csrf_token;
     } else {
-        $deleteRoleId = $_POST['role_id'] ?? 0;
+        $deleteRoleId = (int) ($_POST['role_id'] ?? 0);
         if ($deleteRoleId) {
-            $db->delete('users_roles', ['id' => $deleteRoleId]);
-            $redirectToList = true;
+            // U-06: never allow the built-in admin role to be deleted — the save
+            // path guards it with !$isAdminRole, but delete did not re-check the
+            // TARGET role (not the currently-edited one). Resolve it fresh.
+            $targetRole = $db->get('users_roles', ['type_name'], ['id' => $deleteRoleId]);
+            if ($targetRole && strtolower((string) $targetRole['type_name']) === 'admin') {
+                $error = T::admin_role_cannot_be_modified;
+            } else {
+                $db->delete('users_roles', ['id' => $deleteRoleId]);
+                $redirectToList = true;
+            }
         }
     }
 }
