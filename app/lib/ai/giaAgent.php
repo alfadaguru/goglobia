@@ -630,15 +630,30 @@ class giaAgent
         //    NGN/SAR/USD) plus common travel codes so a future-added currency can't
         //    silently re-open the gap. Widening is strictly SAFER — it only ever makes
         //    MORE quoted amounts get verified against real tool data, never fewer.
-        // Codes are 3-letter uppercase and only match when ADJACENT to a number, so
-        // they won't hit ordinary prose. We deliberately EXCLUDE 'TRY' (collides with the
-        // English word "try N") — Turkish Lira isn't in the supported set, and the
-        // collision could neutralise a benign reply. Covered: all supported `currencies`
-        // rows (EGP/EUR/GBP/INR/NGN/SAR/USD) + the GCC/Maghreb codes an umrah/Saudi quote
-        // could use (AED/QAR/MAD) + legacy GHS/GHC/KES/ZAR, and the common symbols.
-        $curr = '(?:NGN|USD|EUR|GBP|SAR|AED|QAR|EGP|INR|GHS|GHC|KES|ZAR|MAD|₦|\$|£|€|₹|﷼)';
-        $num  = '\d[\d,]*(?:\.\d+)?';
-        $pattern = '/(?:' . $curr . '\s?' . $num . ')|(?:' . $num . '\s?' . $curr . ')/u';
+        // Codes only match when ADJACENT to a number, so they won't hit ordinary prose.
+        // We deliberately EXCLUDE 'TRY' (collides with the English word "try N") —
+        // Turkish Lira isn't in the supported set, and the collision could neutralise a
+        // benign reply. Covered: all supported `currencies` rows (EGP/EUR/GBP/INR/NGN/
+        // SAR/USD) + the GCC/Maghreb codes an umrah/Saudi quote could use (AED/QAR/MAD)
+        // + legacy GHS/GHC/KES/ZAR, and the common symbols.
+        //
+        // CASE + N-PREFIX (audit D2-1): the model disobeys the prompt's "NGN 1,234"
+        // format exactly as often as it disobeys "don't invent a price" — so a
+        // hallucinated amount can arrive lowercase ("ngn 200,000") or in the common
+        // Nigerian "N200,000" form, both of which the old /u (no /i, no bare-N) regex
+        // let through UNCHECKED. Fix, verified 0-false-positive / 0-false-negative:
+        //   - the 3-letter CODES are matched case-insensitively via an inline (?i:...)
+        //     group (scoped — NOT a global /i, which would make the bare 'N' below match
+        //     the 'n' in words like "in 2 to 3 days" and wrongly neutralise benign prose);
+        //   - the SYMBOLS are literal (no case);
+        //   - a bare 'N' (naira) is accepted ONLY when GLUED to digits (\bN\d…), so it
+        //     catches "N200,000" but never an initial "Mr N" or the word "in".
+        $codes = '(?i:NGN|USD|EUR|GBP|SAR|AED|QAR|EGP|INR|GHS|GHC|KES|ZAR|MAD)';
+        $sym   = '(?:₦|\$|£|€|₹|﷼)';
+        $num   = '\d[\d,]*(?:\.\d+)?';
+        $pattern = '/(?:' . $codes . '\s?' . $num . ')|(?:' . $num . '\s?' . $codes . ')'
+                 . '|(?:' . $sym . '\s?' . $num . ')|(?:' . $num . '\s?' . $sym . ')'
+                 . '|(?:\bN' . $num . ')/u';
         if (!preg_match_all($pattern, $reply, $m) || empty($m[0])) {
             return ['reply' => $reply, 'flagged' => false]; // no money quoted -> nothing to check
         }

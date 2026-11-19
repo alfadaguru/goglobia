@@ -101,7 +101,18 @@ $router->post('/webhooks/gia/telegram', function () use ($db, $giaChLib, $giaChA
     $cfg = gia_channels_config($db)['telegram'] ?? [];
     $secret = (string) ($cfg['webhook_secret'] ?? '');
     $got = (string) ($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '');
-    if ($secret !== '' && !hash_equals($secret, $got)) {
+    // FAIL CLOSED (audit D5-1): this webhook is PUBLIC, so an unset secret must REFUSE,
+    // not wave the request through. Telegram's setWebhook flow (gia_telegram_set_webhook)
+    // already requires a secret before it will connect, so a live install always has one
+    // — but 'enabled' is flagged independently of the secret, and a forged POST to the
+    // public URL during the enabled-but-not-connected window (or if the secret is cleared)
+    // would otherwise be accepted and dispatched to the agent. Match the WhatsApp/Green API
+    // fail-closed pattern below: no secret configured => reject.
+    if ($secret === '') {
+        error_log('[gia] telegram webhook: refused — no webhook_secret configured');
+        $logIt('secret_required', 403); $giaChAck(403, 'secret required'); return;
+    }
+    if (!hash_equals($secret, $got)) {
         $logIt('bad_secret', 403); $giaChAck(403, 'bad secret'); return;
     }
 
