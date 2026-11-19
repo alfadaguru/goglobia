@@ -52,10 +52,11 @@ $router->get('/abandoned_booking_sweep', function () use ($SECURE, $db) {
 
     $out = ['status' => true, 'grace_minutes' => $grace, 'agent_grace_minutes' => $agentGrace, 'scanned' => 0, 'cancelled' => 0, 'holds_released' => 0, 'skipped' => 0, 'agent_held' => 0, 'ran_at' => date('Y-m-d H:i:s')];
 
-    // Widen the SELECT to the MORE LENIENT (agent) cutoff and pull booking_channel,
-    // then apply the correct per-channel cutoff in the loop.
+    // Widen the SELECT to the MORE LENIENT (agent) cutoff and pull the fields needed
+    // to identify an agent booking, then apply the correct per-channel cutoff below.
     $rows = $db->select('bookings', [
-        'invoice_id', 'module_type', 'payment_status', 'booking_status', 'payment_due_at', 'created_at', 'booking_channel',
+        'invoice_id', 'module_type', 'payment_status', 'booking_status', 'payment_due_at', 'created_at',
+        'booking_channel', 'user_id', 'agency_id',
     ], [
         'payment_status'    => 'unpaid',
         'booking_status'    => 'pending',
@@ -65,15 +66,35 @@ $router->get('/abandoned_booking_sweep', function () use ($SECURE, $db) {
         'LIMIT'             => 300,
     ]) ?: [];
 
+    // AG-G2 re-audit FIX: booking_channel='agent' is only stamped at SETTLE (in the
+    // agent pay handler) — an UNPAID agent booking (the state this grace protects)
+    // still carries the 'web' default, so keying on booking_channel alone made the
+    // longer grace never fire for its actual use case. Detect an agent booking
+    // ROBUSTLY: channel='agent' OR the owning user_id/agency_id is a role='agent'
+    // user (user_id is the agent at creation time). Cache the role lookup per uid.
+    $roleCache = [];
+    $isAgentUser = function ($uid) use ($db, &$roleCache) {
+        $uid = (string) $uid;
+        if ($uid === '') { return false; }
+        if (array_key_exists($uid, $roleCache)) { return $roleCache[$uid]; }
+        $r = false;
+        try { $r = strtolower((string) ($db->get('users', 'role', ['user_id' => $uid]) ?: '')) === 'agent'; }
+        catch (\Throwable $e) { $r = false; }
+        return $roleCache[$uid] = $r;
+    };
+
     foreach ($rows as $b) {
         $out['scanned']++;
         $invoiceId = (string) ($b['invoice_id'] ?? '');
         if ($invoiceId === '') { $out['skipped']++; continue; }
 
-        // AG-G2: an AGENT-channel booking is only abandoned past the LONGER agent
-        // grace; inside that window (but past the generic cutoff) it is held, not
-        // cancelled, so a pending bank transfer can still settle it.
-        $isAgent = strtolower((string) ($b['booking_channel'] ?? 'web')) === 'agent';
+        // AG-G2: an AGENT booking is only abandoned past the LONGER agent grace;
+        // inside that window (but past the generic cutoff) it is held, not cancelled,
+        // so a pending bank transfer can still settle it. Agent = channel 'agent' OR
+        // an agency_id OR a role='agent' owner (robust against the late channel stamp).
+        $isAgent = strtolower((string) ($b['booking_channel'] ?? 'web')) === 'agent'
+            || (string) ($b['agency_id'] ?? '') !== ''
+            || $isAgentUser($b['user_id'] ?? '');
         $rowCutoff = $isAgent ? $agentCutoff : $cutoff;
         if ((string) ($b['created_at'] ?? '') >= $rowCutoff) {
             if ($isAgent) { $out['agent_held']++; } else { $out['skipped']++; }

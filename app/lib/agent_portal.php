@@ -524,6 +524,36 @@ if (!function_exists('agent_booking_brand')) {
 // $agentCost to us; the client price is what their BRANDED invoice shows. No-op
 // if self-markup is disabled (settings) or the agency set no markup.
 // ----------------------------------------------------------------------------
+if (!function_exists('agent_service_canonical')) {
+    /**
+     * AG-G4 fix (re-audit): bookings store module_type in MANY shapes — lowercase
+     * plural (flights/stays/cars…), singular (Flight/Stay/Car/Tour/Ferry/Rail…),
+     * capitalised (eSIM), and the stays↔hotels alias. The per-service markup map
+     * (and the service catalogue) is keyed on the lowercase-plural CANONICAL key, so
+     * a plain strtolower() lookup silently MISSES 'Stay'/'Flight'/'Car'/'Ferry'/
+     * 'Rail'/'Tour'/'Umrah'/'hotels'/'visas' and falls back to the default. Normalise
+     * any stored module_type/module to the catalogue key so overrides actually fire.
+     */
+    function agent_service_canonical(string $s): string
+    {
+        $s = strtolower(trim($s));
+        static $map = [
+            'flight' => 'flights', 'flights' => 'flights',
+            'stay' => 'stays', 'stays' => 'stays', 'hotel' => 'stays', 'hotels' => 'stays',
+            'car' => 'cars', 'cars' => 'cars',
+            'tour' => 'tours', 'tours' => 'tours',
+            'umrah' => 'umrah',
+            'visa' => 'visa', 'visas' => 'visa',
+            'bus' => 'bus', 'buses' => 'bus',
+            'rail' => 'rail', 'rails' => 'rail', 'train' => 'rail', 'trains' => 'rail',
+            'ferry' => 'ferries', 'ferries' => 'ferries',
+            'esim' => 'esim', 'esims' => 'esim',
+            'insurance' => 'insurance',
+            'cruise' => 'cruises', 'cruises' => 'cruises',
+        ];
+        return $map[$s] ?? $s;
+    }
+}
 if (!function_exists('agent_service_markup_map')) {
     /** Decode the agency's per-service markup JSON ({service:{value,type}, __floor:n}). */
     function agent_service_markup_map($db, string $ownerId): array
@@ -545,7 +575,9 @@ if (!function_exists('agent_self_markup_value')) {
      */
     function agent_self_markup_value($db, string $ownerId, string $service = ''): array
     {
-        $service = strtolower(trim($service));
+        // Normalise the stored module_type/module to the canonical catalogue key so
+        // per-service overrides actually match (Stay->stays, Flight->flights, etc).
+        $service = function_exists('agent_service_canonical') ? agent_service_canonical($service) : strtolower(trim($service));
         if ($service !== '') {
             $map = agent_service_markup_map($db, $ownerId);
             if (isset($map[$service]) && is_array($map[$service])) {
