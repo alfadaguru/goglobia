@@ -419,6 +419,7 @@ $selectedPaymentStatus = $_GET['payment_status'] ?? '';
             ->where($whereCondition)
             ->title($tableTitle)
             ->col($bookingCols)
+            ->extra_fetch('cancellation_request')
             ->label($bookingLabels)
             ->order('id', 'DESC')
             ->actions([
@@ -464,7 +465,24 @@ $selectedPaymentStatus = $_GET['payment_status'] ?? '';
                   } elseif ($row['booking_status'] === 'cancelled') {
                      $statusClass = 'bg-red-100 text-red-800 border-red-300 uppercase text-xs font-semibold border';
                   }
-                  return '<span class="inline-block px-2 py-1 rounded ' . $statusClass . '">' . htmlspecialchars($row['booking_status']) . '</span>';
+                  $html = '<span class="inline-block px-2 py-1 rounded ' . $statusClass . '">' . htmlspecialchars($row['booking_status']) . '</span>';
+
+                  // SELF-SERVICE MANAGE (cancel request): show a "Request cancellation"
+                  // link for bookings that are still live and not already requested.
+                  // The actual refund stays staff-decided (money-safe). Dispatches to the
+                  // shared Alpine modal defined at the bottom of this view.
+                  $st = strtolower((string) ($row['booking_status'] ?? ''));
+                  $alreadyRequested = (int) ($row['cancellation_request'] ?? 0) === 1;
+                  $cancellable = in_array($st, ['confirmed', 'pending', 'held'], true) && !$alreadyRequested;
+                  $inv = htmlspecialchars((string) ($row['invoice_id'] ?? ''), ENT_QUOTES);
+                  if ($alreadyRequested) {
+                     $html .= '<div class="mt-1 text-[11px] text-amber-600 flex items-center gap-0.5"><span class="material-symbols-outlined text-xs">hourglass_top</span>Cancellation requested</div>';
+                  } elseif ($cancellable) {
+                     $html .= '<div class="mt-1"><button type="button" class="text-[11px] text-red-600 hover:underline inline-flex items-center gap-0.5"'
+                           . ' @click="$dispatch(\'open-cancel\', { invoice: \'' . $inv . '\' })">'
+                           . '<span class="material-symbols-outlined text-xs">cancel</span>Request cancellation</button></div>';
+                  }
+                  return $html;
                },
                'pnr' => function ($row) {
                   if (!$row['pnr']) {
@@ -500,4 +518,85 @@ $selectedPaymentStatus = $_GET['payment_status'] ?? '';
 
       </div>
    </div>
+
+   <!-- ======================================================================
+        SELF-SERVICE CANCELLATION MODAL
+        Listens for the `open-cancel` event dispatched by the per-row
+        "Request cancellation" button. POSTs to the module-agnostic
+        /booking/request-cancellation endpoint (ownership + CSRF guarded).
+        The refund itself is staff-decided — this only files the request.
+   ====================================================================== -->
+   <div x-data="bookingCancel()" x-cloak
+        @open-cancel.window="open($event.detail.invoice)"
+        x-show="show"
+        class="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4"
+        style="display:none">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6" @click.outside="show=false">
+         <div class="flex items-start gap-3 mb-4">
+            <span class="material-symbols-outlined text-red-500 text-3xl">cancel</span>
+            <div>
+               <h3 class="font-bold text-lg text-gray-900">Request cancellation</h3>
+               <p class="text-sm text-gray-500 mt-0.5">Booking <span class="font-mono" x-text="invoice"></span></p>
+            </div>
+         </div>
+         <template x-if="!done">
+            <div>
+               <p class="text-sm text-gray-600 mb-3">Tell us briefly why you'd like to cancel (optional). Our team will review your request and process any eligible refund to your original payment method or wallet.</p>
+               <textarea x-model="reason" rows="3" maxlength="500" class="input w-full" placeholder="Reason (optional)"></textarea>
+               <p class="text-sm text-red-600 mt-2" x-show="err" x-text="err"></p>
+               <div class="flex justify-end gap-2 mt-4">
+                  <button type="button" class="btn light" @click="show=false">Keep booking</button>
+                  <button type="button" class="btn primary bg-red-600 border-red-600 hover:bg-red-700 inline-flex items-center gap-2" :disabled="busy" @click="submit()">
+                     <span class="material-symbols-outlined text-lg" x-show="!busy">send</span>
+                     <span x-text="busy ? 'Submitting…' : 'Submit request'"></span>
+                  </button>
+               </div>
+            </div>
+         </template>
+         <template x-if="done">
+            <div class="text-center py-4">
+               <span class="material-symbols-outlined text-emerald-500 text-5xl mb-2">task_alt</span>
+               <p class="text-gray-700" x-text="msg"></p>
+               <button type="button" class="btn primary mt-4" @click="window.location.reload()">Done</button>
+            </div>
+         </template>
+      </div>
+   </div>
 </div>
+
+<script>
+function bookingCancel() {
+   return {
+      show: false, busy: false, done: false, err: '', msg: '',
+      invoice: '', reason: '',
+      open(inv) { this.invoice = inv || ''; this.reason = ''; this.err = ''; this.done = false; this.show = true; },
+      async submit() {
+         if (!this.invoice) return;
+         this.busy = true; this.err = '';
+         try {
+            const res = await fetch('<?= root ?>booking/request-cancellation', {
+               method: 'POST',
+               headers: {
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json',
+                  'X-Requested-With': 'XMLHttpRequest',
+                  'X-CSRF-TOKEN': '<?= CSRF::getToken() ?>'
+               },
+               body: JSON.stringify({ invoice_id: this.invoice, reason: this.reason, csrf_token: '<?= CSRF::getToken() ?>' })
+            });
+            const data = await res.json();
+            if (data.success) {
+               this.done = true;
+               this.msg = data.message || 'Your cancellation request has been submitted.';
+            } else {
+               this.err = data.message || 'Could not submit your request. Please try again.';
+            }
+         } catch (e) {
+            this.err = 'Network error. Please try again.';
+         } finally {
+            this.busy = false;
+         }
+      }
+   };
+}
+</script>
