@@ -115,10 +115,74 @@ if (!function_exists('price_alert_current_price')) {
      */
     function price_alert_current_price($db, array $alert): ?float
     {
-        // No module currently exposes a cron-cheap single-item re-price without a
-        // full supplier search, so we return null (skip) by default. Wiring a module
-        // is a one-line addition here when its cached-price lookup lands.
-        return null;
+        $module = strtolower((string) ($alert['module'] ?? ''));
+        switch ($module) {
+            case 'flights':
+                return price_alert_price_flights($db, $alert);
+            default:
+                // Not wired yet for this module → skip (no false drop).
+                return null;
+        }
+    }
+}
+
+if (!function_exists('price_alert_price_flights')) {
+    /**
+     * Cheap re-price for an OWN-INVENTORY flight watch. Mirrors the customer flight
+     * search (app/routes/api/flights/homeRoutes.php /api/flights/search): query the
+     * `flights` table by from/to airport (+ date when set), apply the module markup
+     * + FX into the alert's currency, and return the CHEAPEST economy adult fare.
+     * DB-only (no external supplier call) so it's cron-cheap. Returns null when the
+     * watch lacks the needed params, no matching flight exists, or pricing helpers
+     * are absent — so an alert never fires on a guess.
+     *
+     * Covers GoGlobia own-inventory flights. Real-supplier (e.g. Adivaha) live
+     * re-pricing would need a full external search and is intentionally NOT done
+     * from the cron; such a watch stays "watching" until own-inventory matches.
+     */
+    function price_alert_price_flights($db, array $alert): ?float
+    {
+        $p = [];
+        if (!empty($alert['params'])) {
+            $decoded = json_decode((string) $alert['params'], true);
+            if (is_array($decoded)) { $p = $decoded; }
+        }
+        $from = (int) ($p['from_airport_id'] ?? 0);
+        $to   = (int) ($p['to_airport_id'] ?? 0);
+        $date = trim((string) ($p['departure_date'] ?? ''));
+        if ($from <= 0 || $to <= 0) { return null; } // not enough to re-price → skip
+        if (!function_exists('MARKUP')) { return null; }
+
+        try {
+            $where = ['from_airport_id' => $from, 'to_airport_id' => $to, 'economy_adult_price[>]' => 0];
+            if ($date !== '') { $where['departure_date'] = $date; }
+            $where['ORDER'] = ['economy_adult_price' => 'ASC'];
+            $where['LIMIT'] = 5;
+
+            $rows = $db->select('flights', ['economy_adult_price', 'currency'], $where) ?: [];
+            if (!$rows) { return null; }
+
+            $module = $db->get('modules', '*', ['name' => 'flights', 'type' => 'flights']);
+            $target = strtoupper((string) ($alert['currency'] ?? 'USD'));
+
+            $cheapest = null;
+            foreach ($rows as $r) {
+                $base = (float) ($r['economy_adult_price'] ?? 0);
+                if ($base <= 0) { continue; }
+                $fromCcy = strtoupper((string) ($r['currency'] ?? 'USD'));
+                // Marked-up + converted into the alert's currency — exactly what the
+                // customer saw on the results card (applyFlightMarkup()).
+                $mk = MARKUP($base, $module, $db, $fromCcy, $target);
+                $price = round((float) ($mk['price'] ?? 0), 2);
+                if ($price > 0 && ($cheapest === null || $price < $cheapest)) {
+                    $cheapest = $price;
+                }
+            }
+            return $cheapest; // null when nothing priced cleanly → skip
+        } catch (\Throwable $e) {
+            error_log('price_alert_price_flights: ' . $e->getMessage());
+            return null;
+        }
     }
 }
 

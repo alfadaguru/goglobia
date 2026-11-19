@@ -94,6 +94,43 @@ $router->post('/price-alerts/delete', function () use ($SECURE, $db) {
     exit;
 });
 
+// ---- GET /price-alerts/airport-suggest?q= : local airport lookup for the flight
+// watch picker. Returns {id, code, label} from flights_airports — the SAME local
+// ids flights.from_airport_id/to_airport_id use, so a watch created here can be
+// re-priced by the sweep. Login-only; read-only. ----
+$router->get('/price-alerts/airport-suggest', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) { echo json_encode([]); exit; }
+    $q = trim((string) ($_GET['q'] ?? ''));
+    if (strlen($q) < 2) { echo json_encode([]); exit; }
+    try {
+        // Medoo [~] won't auto-wrap % when the needle has _ etc. (known gotcha), so
+        // wrap the wildcards ourselves and match code / city / airport name.
+        $like = '%' . $q . '%';
+        $rows = $db->select('flights_airports', ['id', 'code', 'city', 'airport'], [
+            'OR' => [
+                'code[~]'    => $like,
+                'city[~]'    => $like,
+                'airport[~]' => $like,
+            ],
+            'status' => '1',
+            'ORDER'  => ['code' => 'ASC'],
+            'LIMIT'  => 12,
+        ]) ?: [];
+        echo json_encode(array_map(static function ($r) {
+            return [
+                'id'    => (int) $r['id'],
+                'code'  => (string) $r['code'],
+                'label' => trim(((string) $r['code']) . ' — ' . ((string) $r['city']) . ' (' . ((string) $r['airport']) . ')'),
+            ];
+        }, $rows));
+    } catch (\Throwable $e) {
+        error_log('PRICE_ALERTS_AIRPORT_SUGGEST: ' . $e->getMessage());
+        echo json_encode([]);
+    }
+    exit;
+});
+
 // ---- GET /price_alerts_sweep : cron worker (idempotent, best-effort 200) ----
 // Public like the other cron endpoints (no session; triggered by the scheduler).
 // See docs/CRON.md. Does no harm if hit by anyone — it only re-checks prices.

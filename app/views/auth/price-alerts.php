@@ -107,8 +107,42 @@ $statusChip = static function ($s) {
             </div>
             <div>
                <label class="text-xs font-medium text-slate-600">Describe it</label>
-               <input type="text" x-model="form.label" class="input w-full" maxlength="255" placeholder="e.g. Lagos → London, 12–19 Dec">
+               <input type="text" x-model="form.label" class="input w-full" maxlength="255" placeholder="e.g. Lagos → London, 12 Dec">
             </div>
+
+            <!-- FLIGHTS: capture the route so the cron can actually re-price it. -->
+            <template x-if="form.module === 'flights'">
+               <div class="space-y-3 rounded-lg bg-slate-50 border border-slate-200 p-3">
+                  <p class="text-[11px] text-slate-500">We'll watch GoGlobia fares on this exact route and notify you when they drop.</p>
+                  <div class="grid grid-cols-2 gap-3">
+                     <div class="relative">
+                        <label class="text-xs font-medium text-slate-600">From (airport)</label>
+                        <input type="text" x-model="fromQuery" @input.debounce.250ms="suggest('from')" @focus="suggest('from')"
+                               class="input w-full" placeholder="City or code" autocomplete="off">
+                        <div x-show="fromOpen && fromOptions.length" x-cloak class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                           <template x-for="o in fromOptions" :key="o.id">
+                              <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @click="pick('from', o)" x-text="o.label"></button>
+                           </template>
+                        </div>
+                     </div>
+                     <div class="relative">
+                        <label class="text-xs font-medium text-slate-600">To (airport)</label>
+                        <input type="text" x-model="toQuery" @input.debounce.250ms="suggest('to')" @focus="suggest('to')"
+                               class="input w-full" placeholder="City or code" autocomplete="off">
+                        <div x-show="toOpen && toOptions.length" x-cloak class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                           <template x-for="o in toOptions" :key="o.id">
+                              <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @click="pick('to', o)" x-text="o.label"></button>
+                           </template>
+                        </div>
+                     </div>
+                  </div>
+                  <div>
+                     <label class="text-xs font-medium text-slate-600">Departure date (optional — leave blank for any date on this route)</label>
+                     <input type="date" x-model="form.departure_date" class="input w-full">
+                  </div>
+               </div>
+            </template>
+
             <div class="grid grid-cols-2 gap-3">
                <div>
                   <label class="text-xs font-medium text-slate-600">Price you saw (<?= $__ccy ?>)</label>
@@ -122,7 +156,7 @@ $statusChip = static function ($s) {
             <p class="text-sm text-red-600" x-show="err" x-text="err"></p>
             <div class="flex justify-end gap-2 pt-1">
                <button type="button" class="btn light" @click="modal=false">Cancel</button>
-               <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="busy || !form.module || !form.label.trim() || !(form.baseline_price > 0)" @click="save()">
+               <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="busy || !form.module || !form.label.trim() || !(form.baseline_price > 0) || !flightReady()" @click="save()">
                   <span class="material-symbols-outlined text-lg" x-show="!busy">add_alert</span>
                   <span x-text="busy ? 'Saving…' : 'Start watching'"></span>
                </button>
@@ -141,19 +175,59 @@ function priceAlerts(initial, watchable, ccy) {
       ccy: ccy || 'USD',
       modal: false, busy: false, err: '',
       form: {},
-      blank() { return { module:'', label:'', baseline_price:'', target_price:'' }; },
-      openAdd() { this.form = this.blank(); this.err=''; this.modal = true; },
+      // Flight airport picker state.
+      fromQuery: '', toQuery: '', fromOptions: [], toOptions: [], fromOpen: false, toOpen: false,
+      blank() { return { module:'', label:'', baseline_price:'', target_price:'', from_airport_id:0, to_airport_id:0, departure_date:'' }; },
+      openAdd() {
+         this.form = this.blank();
+         this.fromQuery = ''; this.toQuery = '';
+         this.fromOptions = []; this.toOptions = []; this.fromOpen = false; this.toOpen = false;
+         this.err=''; this.modal = true;
+      },
+      async suggest(which) {
+         const q = (which === 'from' ? this.fromQuery : this.toQuery).trim();
+         if (q.length < 2) { if (which === 'from') { this.fromOpen = false; } else { this.toOpen = false; } return; }
+         try {
+            const res = await fetch('<?= root ?>price-alerts/airport-suggest?q=' + encodeURIComponent(q), { credentials: 'same-origin' });
+            const data = await res.json();
+            if (which === 'from') { this.fromOptions = Array.isArray(data) ? data : []; this.fromOpen = true; }
+            else { this.toOptions = Array.isArray(data) ? data : []; this.toOpen = true; }
+         } catch(e) {}
+      },
+      pick(which, o) {
+         if (which === 'from') { this.form.from_airport_id = o.id; this.fromQuery = o.label; this.fromOpen = false; }
+         else { this.form.to_airport_id = o.id; this.toQuery = o.label; this.toOpen = false; }
+      },
+      flightReady() {
+         return this.form.module !== 'flights' || (this.form.from_airport_id > 0 && this.form.to_airport_id > 0);
+      },
       async save() {
          if (!this.form.module || !this.form.label.trim() || !(this.form.baseline_price > 0)) return;
+         if (this.form.module === 'flights' && !this.flightReady()) {
+            this.err = 'Pick both airports from the suggestions.'; return;
+         }
          if (this.form.target_price && this.form.target_price >= this.form.baseline_price) {
             this.err = 'Your target should be below the price you saw.'; return;
          }
          this.busy = true; this.err='';
+         // For flights, pass the route as structured params so the cron can re-price.
+         const params = this.form.module === 'flights'
+            ? { from_airport_id: this.form.from_airport_id, to_airport_id: this.form.to_airport_id, departure_date: this.form.departure_date || '' }
+            : null;
+         const payload = {
+            module: this.form.module,
+            label: this.form.label,
+            baseline_price: this.form.baseline_price,
+            target_price: this.form.target_price || '',
+            currency: this.ccy,
+            params: params,
+            csrf_token: '<?= CSRF::getToken() ?>'
+         };
          try {
             const res = await fetch('<?= root ?>price-alerts/create', {
                method:'POST',
                headers:{'Content-Type':'application/json','X-CSRF-TOKEN':'<?= CSRF::getToken() ?>'},
-               body: JSON.stringify(Object.assign({ currency: this.ccy, csrf_token: '<?= CSRF::getToken() ?>' }, this.form))
+               body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (data.ok) { this.list = data.alerts || []; this.modal = false; }
