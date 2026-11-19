@@ -468,6 +468,18 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                 $agent->registerTool(new registerAccountTool());
             }
             $agent->setToolContext($toolContext);
+            // CROSS-TURN TOOL-STATE MEMORY: channel history is text-only (no tool
+            // results) and there's no PHP session here, so remind GIA what it DID
+            // earlier (route searched, option picked, booking held) from the running
+            // tool_state. Applies to EVERY conversation (incl. a guest mid-booking),
+            // not just account-linked ones. Grounded + fail-soft.
+            if ($convId > 0 && function_exists('App\\lib\\ai\\gia_toolstate_load')) {
+                try {
+                    require_once $aiDir . 'gia_toolstate.php';
+                    $__ts = gia_toolstate_note(gia_toolstate_load($db, $convId));
+                    if ($__ts !== '') { $agent->addSystemNote($__ts); }
+                } catch (\Throwable $e) { error_log('[gia] channel toolstate note: ' . $e->getMessage()); }
+            }
             // Teach GIA how to act on a tapped option button ('pick|module|ref').
             $agent->addSystemNote(gia_channel_pick_note());
             // Payment on channels is handled OUTSIDE the model: once the booking is
@@ -717,6 +729,14 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         // --- Persist the turn (cross-device resume + admin reporting). ---
         if ($convId > 0 && function_exists('gia_log_turn')) {
             gia_log_turn($db, $convId, $text, $reply, is_array($result['usage'] ?? null) ? $result['usage'] : []);
+        }
+
+        // --- Persist the compact cross-turn tool-state (what GIA did this turn) so the
+        //     next turn continues without re-searching. Merges onto the running state;
+        //     no-op on a turn with no tool results. Grounded + fail-soft. ---
+        if ($convId > 0 && is_array($result['tool_runs'] ?? null) && function_exists('App\\lib\\ai\\gia_toolstate_save')) {
+            try { gia_toolstate_save($db, $convId, $result['tool_runs']); }
+            catch (\Throwable $e) { error_log('[gia] channel toolstate save: ' . $e->getMessage()); }
         }
 
         return ['ok' => true, 'skip' => false, 'handoff' => false, 'conv_key' => $convKey, 'reply' => $reply, 'rich' => $rich];

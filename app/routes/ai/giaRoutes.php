@@ -338,6 +338,18 @@ $router->post('/api/gia/chat', function () use ($db) {
             }
         }
 
+        // CROSS-TURN TOOL-STATE MEMORY: the replayed history is text-only (no tool
+        // results), so remind GIA what it DID earlier this conversation (route
+        // searched, option picked, booking held) from the running tool_state. Grounded
+        // (from this chat's own tool outputs) + guest/empty => no-op. Fail-soft.
+        require_once $aiDir . 'gia_toolstate.php';
+        if ($convId > 0 && function_exists('App\\lib\\ai\\gia_toolstate_load')) {
+            try {
+                $__ts = \App\lib\ai\gia_toolstate_note(\App\lib\ai\gia_toolstate_load($db, $convId));
+                if ($__ts !== '') { $agent->addSystemNote($__ts); }
+            } catch (\Throwable $e) { error_log('[gia] toolstate note: ' . $e->getMessage()); }
+        }
+
         // --- AD-CAMPAIGN ATTRIBUTION (Support P4, spec §7) -------------------
         //     If this visitor arrived from a registered ad, resolve the campaign,
         //     first-touch stamp it onto the conversation, and hand GIA a short
@@ -435,6 +447,14 @@ $router->post('/api/gia/chat', function () use ($db) {
             (string) ($result['reply'] ?? ''),
             is_array($result['usage'] ?? null) ? $result['usage'] : []
         );
+    }
+
+    // --- Persist the compact cross-turn tool-state (what GIA did this turn) so the
+    //     NEXT turn can continue without re-searching. Merges onto the running state;
+    //     no-op on a chatty turn with no tool results. Grounded + fail-soft. ---
+    if ($convId > 0 && is_array($result['tool_runs'] ?? null) && function_exists('App\\lib\\ai\\gia_toolstate_save')) {
+        try { \App\lib\ai\gia_toolstate_save($db, $convId, $result['tool_runs']); }
+        catch (\Throwable $e) { error_log('[gia] toolstate save: ' . $e->getMessage()); }
     }
 
     // --- PER-ROUTE FLIGHT ATTRIBUTION (web parity with the channel path) ----------

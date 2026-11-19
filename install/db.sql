@@ -27478,6 +27478,7 @@ CREATE TABLE IF NOT EXISTS `gia_conversations` (
   `revenue` decimal(14,2) NOT NULL DEFAULT 0.00,
   `revenue_currency` varchar(10) DEFAULT NULL,
   `last_message` varchar(500) DEFAULT NULL,
+  `tool_state` text DEFAULT NULL,
   `closed` tinyint(1) NOT NULL DEFAULT 0,
   `needs_human` tinyint(1) NOT NULL DEFAULT 0,
   `staff_active` tinyint(1) NOT NULL DEFAULT 0,
