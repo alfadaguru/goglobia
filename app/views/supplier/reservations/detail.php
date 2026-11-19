@@ -638,13 +638,18 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
     <h2 class="text-sm font-semibold text-gray-900 mb-3">Actions</h2>
     <p class="text-xs text-gray-500 mb-3">Operational status only. Refunds and payouts are handled by the platform and are not changed here.</p>
     <div class="flex flex-wrap items-center gap-3">
-      <?php if (!$isCancelled): ?>
+      <?php // A checked-out stay has already recognised its revenue; a plain cancel neither
+            // refunds money nor reverses the books, so it's hidden once checked out — reverse
+            // via a folio refund / credit note instead (owner policy). ?>
+      <?php if (!$isCancelled && $ss !== 'checked_out'): ?>
         <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST"
               onsubmit="return confirm('Cancel this reservation? The guest and admin will be notified of the cancellation request.');">
           <?= CSRF::tokenField() ?>
           <input type="hidden" name="action" value="cancel">
           <button type="submit" class="btn rose text-sm">Cancel reservation</button>
         </form>
+      <?php elseif (!$isCancelled && $ss === 'checked_out'): ?>
+        <span class="text-xs text-gray-500">Checked out — to reverse charges, add a refund or credit note on the folio above.</span>
       <?php endif; ?>
 
       <?php if (!$isNoShow): ?>

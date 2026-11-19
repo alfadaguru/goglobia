@@ -582,6 +582,14 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
         if ($action === 'cancel') {
             if (strtolower((string) $booking['booking_status']) === 'cancelled') {
                 $_SESSION['message'] = ['type' => 'error', 'text' => 'This reservation is already cancelled.'];
+            } elseif (($bd['pms_stay_state'] ?? '') === 'checked_out') {
+                // POLICY (owner decision): a CHECKED-OUT stay has already recognised its
+                // revenue to the books (DR Guest-AR / CR Revenue at checkout). A plain
+                // "cancel" neither returns money nor reverses the GL, so it would leave a
+                // misleading "cancelled" booking with its revenue still booked. Refuse it
+                // and point the operator at the explicit money-reversal path (refund /
+                // credit-note on the folio), which unwinds the books correctly.
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'This stay is already checked out — cancel is not available. To reverse charges, add a refund or credit note on the folio.'];
             } else {
                 // Operational cancel by the property owner. We DO NOT process refunds
                 // here — money is the platform spine (a later increment). We mark the
