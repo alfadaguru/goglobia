@@ -757,7 +757,7 @@ $svcIcons = [
         <?php endif; ?>
         <div class="space-y-2">
           <template x-for="(p,i) in pax" :key="i">
-            <div class="grid sm:grid-cols-4 gap-2 items-end border border-slate-200 rounded-lg p-2">
+            <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 items-end border border-slate-200 rounded-lg p-2">
               <label class="form-control"><span class="form-label" x-text="p.type==='infant'?'Infant':(p.type==='child'?'Child':'Adult')"></span>
                 <select class="select input" x-model="p.title"><option>Mr</option><option>Mrs</option><option>Ms</option><option>Miss</option><option>Mstr</option></select></label>
               <label class="form-control"><span class="form-label">First</span><input class="input" x-model="p.first_name"></label>
