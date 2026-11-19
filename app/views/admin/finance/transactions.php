@@ -76,7 +76,15 @@ if ($user_id) {
             'client_email' => function ($row) use ($db) {
                 $user = $db->get('users', '*', ['email' => $row['client_email']]);
                 if (!empty($user)) {
-                    return $user['first_name'] . ' ' . $user['last_name'] . ' <br /> ' . htmlspecialchars($user['email']) . '';
+                    // T-05 (admin-transactions audit): first_name/last_name are
+                    // customer-controlled and were emitted RAW from this closure
+                    // (CRUD runs closures through its is_callable branch, which does
+                    // NOT escape — unlike the simple-{{column}} path). Escape them so
+                    // a booking name like <img onerror> cannot fire in the admin
+                    // session. The email was already escaped.
+                    return htmlspecialchars((string) $user['first_name'], ENT_QUOTES, 'UTF-8')
+                        . ' ' . htmlspecialchars((string) $user['last_name'], ENT_QUOTES, 'UTF-8')
+                        . ' <br /> ' . htmlspecialchars((string) $user['email'], ENT_QUOTES, 'UTF-8');
                 } else {
                     return htmlspecialchars($row['client_email'] ?? 'N/A');
                 }

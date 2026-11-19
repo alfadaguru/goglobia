@@ -32,7 +32,9 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
     // so it must carry a valid token. Was previously unguarded.
     if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid or expired form token. Please try again.'];
-        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/finance/transactions');
+        // T-04 (admin-transactions audit): redirect to a FIXED in-app target, not
+        // the attacker-influenceable Referer (open-redirect / header-injection).
+        redirect(root . admin . '/finance/transactions');
         return;
     }
 
@@ -122,7 +124,10 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
             'type' => 'error',
             'text' => implode('<br>', $errors)
         ];
-        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/finance/transactions/' . $user_id);
+        // T-04: fixed in-app target (not Referer). Re-append the posted user_id so
+        // the admin lands back on the same user's transactions; the GET route treats
+        // it as a bound where value / never echoes it, so this is safe.
+        redirect(root . admin . '/finance/transactions/' . rawurlencode((string) $user_id));
         return;
     }
 
@@ -150,7 +155,11 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
         'gateway_id' => $payment_gateway,
         'attachment' => $attachment_path,
         'status' => 'approved',
-        'created_by' => $_SESSION['admin_id'] ?? 'Admin',
+        // T-06 (admin-transactions audit): the real admin login path sets
+        // user_id/user_role/admin_logged_in but NEVER admin_id, so the old
+        // `$_SESSION['admin_id'] ?? 'Admin'` recorded the literal 'Admin' on every
+        // money adjustment — losing which admin acted. Use the actual actor id.
+        'created_by' => (string) ($_SESSION['user_id'] ?? ($_SESSION['admin_id'] ?? 'Admin')),
         'date' => date('Y-m-d H:i:s'),
         'created_at' => date('Y-m-d H:i:s'),
     ];
@@ -180,7 +189,18 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
             // the unified money spine too, so it is traceable (money_transactions +
             // wallet_ledger + journey) and the agent's wallet + member-tier reflect
             // it. Runs AFTER commit (wallet_apply opens its own transaction — must
-            // not nest). Best-effort: never fail the admin action on a mirror error.
+            // not nest).
+            //
+            // T-01 (admin-transactions audit): the spine IS the authoritative
+            // spendable balance (wallet_balance reads money_transactions, NOT this
+            // `transactions` audit row). The old code swallowed a mirror failure and
+            // still reported "processed successfully" — so a spine error left the
+            // paper trail claiming a money move the wallet never recorded, with the
+            // admin none the wiser. Now the mirror outcome drives the flash: a
+            // failure is surfaced as an error + logged as a reconciliation alert so
+            // it can be re-applied (idempotency_key makes a retry safe).
+            $mirrorOk = true;
+            $mirrorErr = '';
             try {
                 if (!function_exists('wallet_refund')) {
                     require_once dirname(__DIR__, 2) . '/lib/wallet.php';
@@ -194,19 +214,41 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
                     ]);
                     if (function_exists('agent_recompute_tier')) { agent_recompute_tier($db, (string) $user_id); }
                 } elseif (in_array($transaction_type, ['debit', 'purchase'], true) && function_exists('wallet_spend')) {
+                    // T-02 (admin-transactions audit): a MANUAL admin debit must not
+                    // silently dip into the agent's credit LINE (users.credit_limits).
+                    // The pre-check above already validates against pure wallet balance,
+                    // so allow_credit_line=false keeps the spine consistent with it.
                     wallet_spend($db, (string) $user_id, (float) $amount, (string) $mirrorCur, [
-                        'reason' => 'adjustment', 'method' => 'manual', 'allow_credit_line' => true,
+                        'reason' => 'adjustment', 'method' => 'manual', 'allow_credit_line' => false,
                         'ref_type' => 'admin_txn', 'ref_id' => $trx_id,
                         'idempotency_key' => 'ADMINTXN-' . $trx_id,
                         'note' => 'Admin ' . $transaction_type . ($description !== '' ? ': ' . $description : ''),
                     ]);
                 }
-            } catch (\Throwable $eMirror) { error_log('admin transaction spine mirror: ' . $eMirror->getMessage()); }
+            } catch (\Throwable $eMirror) {
+                $mirrorOk = false;
+                $mirrorErr = $eMirror->getMessage();
+                // Reconciliation alert: the audit row (trx_id) is committed but the
+                // authoritative wallet move did NOT land — flag it loudly.
+                error_log('RECONCILE admin transaction spine mirror FAILED trx=' . $trx_id
+                    . ' user=' . $user_id . ' type=' . $transaction_type . ' amount=' . $amount
+                    . ' : ' . $mirrorErr);
+            }
 
-            $_SESSION['message'] = [
-                'type' => 'success',
-                'text' => T::transaction_processed_successfully
-            ];
+            if ($mirrorOk) {
+                $_SESSION['message'] = [
+                    'type' => 'success',
+                    'text' => T::transaction_processed_successfully
+                ];
+            } else {
+                // Do NOT claim success: the spendable wallet balance was not updated.
+                $_SESSION['message'] = [
+                    'type' => 'error',
+                    'text' => T::failed_to_process_transaction
+                        . ' (ref ' . htmlspecialchars((string) $trx_id, ENT_QUOTES, 'UTF-8')
+                        . '): the audit record was saved but the wallet balance was NOT updated. Please retry — it is safe to re-submit.'
+                ];
+            }
 
         } else {
             $db->pdo->rollBack();
@@ -229,7 +271,7 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
     }
 
     // REDIRECT BACK TO transactions PAGE WITH USER_ID
-    redirect(root . admin . '/finance/transactions/' . $user_id);
+    redirect(root . admin . '/finance/transactions/' . rawurlencode((string) $user_id));
 });
 
 // ================================ USER SEARCH SUGGESTION - AJAX
