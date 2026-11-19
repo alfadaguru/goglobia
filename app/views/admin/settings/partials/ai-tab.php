@@ -367,7 +367,7 @@ $aiFallbacksSaved = is_array($ai['ai_fallbacks'] ?? null) ? $ai['ai_fallbacks'] 
                                 autocomplete="new-password"
                                 @input="setProviderKey('<?= $key ?>', $event.target.value)"
                                 placeholder="Enter API key"
-                                value="<?= htmlspecialchars((string) $saved['api_key']) ?>">
+                                value="<?= $saved['api_key'] !== '' ? htmlspecialchars(passportAiMaskSecret((string)$saved['api_key'])) : '' ?>">
                         </div>
 
                         <?php if (!empty($meta['needs_model']) || $defaultModel !== '' || (string) $saved['model'] !== ''): ?>
@@ -406,7 +406,7 @@ $aiFallbacksSaved = is_array($ai['ai_fallbacks'] ?? null) ? $ai['ai_fallbacks'] 
                         <input type="password" name="providers[<?= $key ?>][api_secret]" class="input"
                             autocomplete="new-password"
                             placeholder="Enter API secret"
-                            value="<?= htmlspecialchars((string) $saved['api_secret']) ?>">
+                            value="<?= $saved['api_secret'] !== '' ? htmlspecialchars(passportAiMaskSecret((string)$saved['api_secret'])) : '' ?>">
                     </div>
                     <?php else: ?>
                         <input type="hidden" name="providers[<?= $key ?>][api_secret]" value="">
@@ -482,7 +482,7 @@ $aiFallbacksSaved = is_array($ai['ai_fallbacks'] ?? null) ? $ai['ai_fallbacks'] 
                                 <label class="text-xs text-gray-500">API key</label>
                                 <input type="password" name="ai_fallbacks[<?= $fbI ?>][api_key]" class="input w-full"
                                     autocomplete="new-password" placeholder="Enter backup API key"
-                                    value="<?= htmlspecialchars($fbKey) ?>">
+                                    value="<?= $fbKey !== '' ? htmlspecialchars(passportAiMaskSecret((string)$fbKey)) : '' ?>">
                             </div>
                             <div class="form-control sm:col-span-4">
                                 <label class="text-xs text-gray-500">Model <span class="text-gray-400">(optional)</span></label>

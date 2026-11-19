@@ -43,6 +43,53 @@ if (!function_exists('_moduleLogsSafeSegments')) {
  * reject any name with path/./null chars, then require realpath() to still live
  * under that channel directory. Returns the safe absolute path or null.
  */
+// SET-3: egress guard for the test-connection endpoints. They open an outbound
+// connection to a host taken from admin-submitted config, so an admin (or a lower-
+// trust settings:edit employee / a CSRF-tricked admin) could point them at internal
+// hosts (127.0.0.1, 10.x, cloud metadata 169.254.169.254) and use the response as an
+// internal port scanner / reach internal services. Resolve a host and reject any
+// private / loopback / link-local / CGNAT / reserved IP. Returns true if BLOCKED.
+if (!function_exists('_settings_host_is_blocked')) {
+    function _settings_host_is_blocked(string $host): bool
+    {
+        $host = strtolower(trim($host));
+        // Strip scheme/path/port if a URL or host:port slipped in.
+        $host = preg_replace('#^[a-z]+://#', '', $host);
+        $host = explode('/', $host)[0];
+        $host = explode('?', $host)[0];
+        if (strpos($host, ':') !== false && substr_count($host, ':') === 1) { $host = explode(':', $host)[0]; }
+        if ($host === '') { return true; }
+
+        // Collect candidate IPs (literal, or resolved A/AAAA).
+        $ips = [];
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ips[] = $host;
+        } else {
+            $a = @gethostbynamel($host);
+            if (is_array($a)) { $ips = array_merge($ips, $a); }
+            $aaaa = @dns_get_record($host, DNS_AAAA);
+            if (is_array($aaaa)) { foreach ($aaaa as $r) { if (!empty($r['ipv6'])) { $ips[] = $r['ipv6']; } } }
+            // Cannot resolve → refuse rather than risk it.
+            if (empty($ips)) { return true; }
+        }
+        foreach ($ips as $ip) {
+            // Not in the public range (blocks 10/8,172.16/12,192.168/16,127/8,::1,
+            // 169.254/16 incl. metadata, fe80::/10 and reserved).
+            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                return true;
+            }
+            // CGNAT 100.64.0.0/10 is not covered by NO_PRIV_RANGE.
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $long = ip2long($ip);
+                if ($long !== false && ($long & 0xFFC00000) === (ip2long('100.64.0.0') & 0xFFC00000)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+}
+
 if (!function_exists('_notificationProviderFile')) {
     function _notificationProviderFile(string $channel, string $provider): ?string
     {
@@ -407,12 +454,59 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'push_providers_config' => $_POST['push_providers'] ?? []
         ];
 
+        // SET-2 (pairs with the view masking in SET-1): the settings view renders
+        // stored provider secrets MASKED (••••) and the Firebase service-account
+        // JSON BLANK. So when a secret field comes back masked, or a known secret
+        // field comes back empty while a value is already stored, RESTORE the stored
+        // secret instead of overwriting it — otherwise every save would wipe the
+        // real SMTP/Twilio/SendGrid/Firebase credentials. Non-secret fields
+        // (host/user/port/region/model/endpoint) are saved as-posted.
+        $isSecretField = static function (string $f): bool {
+            $f = strtolower($f);
+            return strpos($f, 'password') !== false || strpos($f, 'key') !== false
+                || strpos($f, 'token') !== false || strpos($f, 'secret') !== false
+                || strpos($f, 'json') !== false || strpos($f, 'service_account') !== false
+                || strpos($f, 'private_key') !== false;
+        };
         foreach ($providerConfigs as $configKey => $configData) {
             if (!is_array($configData)) {
                 $configData = [];
             }
+            $storedAll = json_decode((string) ($existingSettings[$configKey] ?? '{}'), true);
+            if (!is_array($storedAll)) { $storedAll = []; }
+            foreach ($configData as $providerKey => &$fields) {
+                if (!is_array($fields)) { continue; }
+                $storedFields = (isset($storedAll[$providerKey]) && is_array($storedAll[$providerKey])) ? $storedAll[$providerKey] : [];
+                foreach ($fields as $fname => $fval) {
+                    if (!$isSecretField((string) $fname)) { continue; }
+                    $posted = (string) $fval;
+                    $hadStored = isset($storedFields[$fname]) && (string) $storedFields[$fname] !== '';
+                    // Masked round-trip OR left blank while a secret is already stored → keep stored.
+                    if ($hadStored && ($posted === '' || passportAiIsMaskedSecret($posted))) {
+                        $fields[$fname] = (string) $storedFields[$fname];
+                    }
+                }
+            }
+            unset($fields);
             $validatedData[$configKey] = json_encode($configData);
         }
+
+        // SET-6: app_settings holds the mobile X-Api-Key (and theme/app config).
+        // Previously the whole blob was replaced by $_POST['app_settings'] wholesale,
+        // so a save that omitted/blanked api_key would WIPE it — and per CLAUDE.md §6
+        // an empty server key means ALL /api/* access is permitted (opens the mobile
+        // API). MERGE posted keys over the stored blob and NEVER overwrite api_key
+        // from a blank/absent value.
+        $appSettingsStored = json_decode((string) ($existingSettings['app_settings'] ?? '{}'), true);
+        if (!is_array($appSettingsStored)) { $appSettingsStored = []; }
+        $appSettingsPosted = (isset($_POST['app_settings']) && is_array($_POST['app_settings'])) ? $_POST['app_settings'] : [];
+        $appSettingsMerged = array_merge($appSettingsStored, $appSettingsPosted);
+        // Preserve the stored api_key if the posted one is blank/missing.
+        if ((!isset($appSettingsPosted['api_key']) || trim((string) $appSettingsPosted['api_key']) === '')
+            && isset($appSettingsStored['api_key']) && (string) $appSettingsStored['api_key'] !== '') {
+            $appSettingsMerged['api_key'] = $appSettingsStored['api_key'];
+        }
+        $appSettingsJson = json_encode($appSettingsMerged);
 
         $settingsData = array_merge($validatedData, [
             'site_offline' => isset($_POST['site_offline']) && $_POST['site_offline'] == '1' ? '1' : '0',
@@ -451,7 +545,7 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'push_enabled' => (isset($_POST['push_enabled']) && $_POST['push_enabled'] == '1') ? '1' : '0',
             'booking_expiry_time' => isset($_POST['booking_expiry_time']) && is_numeric($_POST['booking_expiry_time']) ? max(1, min(120, (int)$_POST['booking_expiry_time'])) : ($existingSettings['booking_expiry_time'] ?? 15),
             'booking_payment_issue' => isset($_POST['booking_payment_issue']) && $_POST['booking_payment_issue'] == '1' ? '1' : '0',
-            'app_settings' => isset($_POST['app_settings']) && is_array($_POST['app_settings']) ? json_encode($_POST['app_settings']) : ($existingSettings['app_settings'] ?? '{}'),
+            'app_settings' => $appSettingsJson,
         ]);
 
         // AI settings (same form / settings#ai tab)
@@ -787,6 +881,14 @@ $router->post('/admin/test-email', function() use ($db) {
             exit;
         }
 
+        // SET-3: for SMTP, the test opens a raw socket to the configured host — block
+        // internal/metadata targets so the test can't be used as an internal scanner.
+        if (strtolower((string) $emailProvider) === 'smtp' && !empty($providerConfig['host'])
+            && _settings_host_is_blocked((string) $providerConfig['host'])) {
+            echo json_encode(['success' => false, 'message' => 'That SMTP host resolves to a non-public (internal/loopback/metadata) address and is not allowed.']);
+            exit;
+        }
+
         $providerFile = _notificationProviderFile('email', (string) $emailProvider);
 
         if ($providerFile === null) {
@@ -862,6 +964,12 @@ $router->post('/admin/test-whatsapp', function() use ($db) {
 
         if (empty($phone)) {
             echo json_encode(['success' => false, 'message' => 'Phone number is required']);
+            exit;
+        }
+
+        // SET-3: Green API allows an api_url host override — block internal/metadata targets.
+        if (!empty($providerConfig['api_url']) && _settings_host_is_blocked((string) $providerConfig['api_url'])) {
+            echo json_encode(['success' => false, 'message' => 'That api_url resolves to a non-public (internal/loopback/metadata) address and is not allowed.']);
             exit;
         }
 
@@ -1192,6 +1300,14 @@ $router->post(admin.'/settings/ai/test', function() use ($db) {
     $secret = $_POST['api_secret'] ?? ''; // Some providers might use this
 
     if ($key === 'saved_key') {
+        // SET-4: using the STORED key (which the actor may not be allowed to read)
+        // is a validity oracle for a secret. Restrict that path to a FULL admin —
+        // a settings:edit employee can still test a key they typed, but cannot probe
+        // the stored one.
+        if (strtolower((string) ($_SESSION['user_role'] ?? '')) !== 'admin') {
+            echo json_encode(['success' => false, 'message' => 'Only a full administrator can test the stored key. Paste the key to test it.']);
+            exit;
+        }
         $aiExisting = passportAiSettings($db);
         if (isset($aiExisting['providers_config'][$provider]['api_key'])) {
             $key = $aiExisting['providers_config'][$provider]['api_key'];
@@ -1574,7 +1690,7 @@ $router->post(admin.'/settings/countries/edit/(.*)', function ($id) use ($SECURE
                 redirect(root . admin . '/settings/countries');
             } else {
                 // Get database error if available
-                $error = $db();
+                $error = $db->error();
                 if (is_array($error) && isset($error[2]) && !empty($error[2])) {
                     throw new Exception('Database error: ' . $error[2]);
                 } else {
@@ -1802,11 +1918,12 @@ $router->post(admin.'/settings/currencies/add', function () use ($SECURE,$db) {
                 $errors[] = 'Country name must not exceed 255 characters';
             }
 
-            // if (empty($data['rate'])) {
-            //     $errors[] = T::exchange_rate_required ?? 'Exchange rate is required';
-            // } elseif (!is_numeric($data['rate']) || $data['rate'] <= 0) {
-            //     $errors[] = T::invalid_exchange_rate ?? 'Exchange rate must be a valid positive number';
-            // }
+            // SET-9: reject a non-numeric / zero / negative exchange rate (was commented
+            // out, so "abc"/0 could persist and break conversion). An EMPTY rate is
+            // allowed — the rate API fills it in — but a present value must be valid.
+            if (($data['rate'] ?? '') !== '' && (!is_numeric($data['rate']) || (float) $data['rate'] <= 0)) {
+                $errors[] = 'Exchange rate must be a valid positive number.';
+            }
 
             // If there are validation errors, throw them
             if (!empty($errors)) {
@@ -1841,7 +1958,7 @@ $router->post(admin.'/settings/currencies/add', function () use ($SECURE,$db) {
                 redirect(root . admin . '/settings/currencies');
             } else {
                 // Get database error if available
-                $error = $db();
+                $error = $db->error();
                 if (is_array($error) && isset($error[2]) && !empty($error[2])) {
                     throw new Exception('Database error: ' . $error[2]);
                 } else {
@@ -1918,11 +2035,12 @@ $router->post(admin.'/settings/currencies/edit/(.*)', function ($id) use ($SECUR
                 $errors[] = 'Country name must not exceed 255 characters';
             }
 
-            // if (empty($data['rate'])) {
-            //     $errors[] = T::exchange_rate_required ?? 'Exchange rate is required';
-            // } elseif (!is_numeric($data['rate']) || $data['rate'] <= 0) {
-            //     $errors[] = T::invalid_exchange_rate ?? 'Exchange rate must be a valid positive number';
-            // }
+            // SET-9: reject a non-numeric / zero / negative exchange rate (was commented
+            // out, so "abc"/0 could persist and break conversion). An EMPTY rate is
+            // allowed — the rate API fills it in — but a present value must be valid.
+            if (($data['rate'] ?? '') !== '' && (!is_numeric($data['rate']) || (float) $data['rate'] <= 0)) {
+                $errors[] = 'Exchange rate must be a valid positive number.';
+            }
 
             // If there are validation errors, throw them
             if (!empty($errors)) {
@@ -2628,13 +2746,13 @@ $router->post(admin.'/settings/ai-suggestions/edit/(.*)', function ($id) use ($S
 });
 
 // Legacy underscore URLs → dashed (bookmarks / old links)
-$router->get(admin.'/settings/ai_suggestions(.*)', function ($rest) {
+$router->get(admin.'/settings/ai_suggestions(.*)', function ($rest) use ($SECURE, $db) {
     ADMIN_AUTH();
     admin_require($db, 'settings', 'view');
     header('Location: ' . root . admin . '/settings/ai-suggestions' . (string)$rest, true, 301);
     exit;
 });
-$router->post(admin.'/settings/ai_suggestions(.*)', function ($rest) {
+$router->post(admin.'/settings/ai_suggestions(.*)', function ($rest) use ($SECURE, $db) {
     ADMIN_AUTH();
     admin_require($db, 'settings', 'edit');
     header('Location: ' . root . admin . '/settings/ai-suggestions' . (string)$rest, true, 307);
@@ -2777,6 +2895,10 @@ $router->post(admin.'/settings/modules/log-action', function () use ($SECURE,$db
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
     admin_require($db, 'settings', 'edit');
+    // SET-5: this POST deletes supplier log files (delete / delete_all → unlink).
+    // It had no anti-CSRF token — a cross-site auto-POST from an admin's browser
+    // could delete logs. Guard it like every other state-changing handler here.
+    CSRF::guard();
 
     try {
         // Get parameters from POST
@@ -3086,12 +3208,16 @@ $router->get(admin.'/settings/modules/log-action', function () use ($SECURE,$db)
             return;
         }
 
-        // Validate action
-        if (!in_array($action, ['view', 'download', 'delete', 'delete_all'])) {
+        // Validate action — SET-5: GET is a SAFE method and only requires
+        // settings:view, so it must NOT delete files. delete/delete_all were
+        // removed from the GET whitelist; they are destructive and go through the
+        // POST handler (CSRF-guarded + settings:edit). A GET that unlinks files is
+        // a CSRF-via-<img> footgun and a safe-method violation.
+        if (!in_array($action, ['view', 'download'], true)) {
             header('Content-Type: application/json');
             echo json_encode([
                 'success' => false,
-                'message' => 'Invalid action. Allowed: view, download, delete, delete_all'
+                'message' => 'Invalid action. Allowed via GET: view, download. Use the POST endpoint for delete.'
             ]);
             return;
         }

@@ -75,11 +75,25 @@ class FirebaseProvider {
             return $cache[$key]['token'];
         }
 
+        // SET-3 (SSRF): token_uri comes from the admin-pasted service-account JSON and
+        // was used verbatim as the OAuth cURL URL — an attacker-chosen host would
+        // receive the signed JWT (and be an outbound-request primitive). Pin it to
+        // Google's token endpoint; only accept an override on a *.googleapis.com host.
+        $tokenUri = 'https://oauth2.googleapis.com/token';
+        $claimed = trim((string) ($sa['token_uri'] ?? ''));
+        if ($claimed !== '') {
+            $h = strtolower((string) parse_url($claimed, PHP_URL_HOST));
+            if (stripos($claimed, 'https://') === 0 && ($h === 'oauth2.googleapis.com' || substr($h, -15) === '.googleapis.com')) {
+                $tokenUri = $claimed;
+            }
+            // else: silently fall back to the canonical endpoint (do NOT fetch the override).
+        }
+
         $now = time();
         $claim = [
             'iss'   => $sa['client_email'],
             'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
-            'aud'   => $sa['token_uri'] ?? 'https://oauth2.googleapis.com/token',
+            'aud'   => $tokenUri,
             'iat'   => $now,
             'exp'   => $now + 3600,
         ];
@@ -94,7 +108,7 @@ class FirebaseProvider {
         }
         $jwt = $signingInput . '.' . $b64($signature);
 
-        $ch = curl_init($sa['token_uri'] ?? 'https://oauth2.googleapis.com/token');
+        $ch = curl_init($tokenUri);
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_RETURNTRANSFER => true,

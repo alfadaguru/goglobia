@@ -1008,10 +1008,13 @@ $messageSuccess = false;
                                                 <option value="mailgun.eu" <?= isset($providerData[$field]) && $providerData[$field] == 'mailgun.eu' ? 'selected' : '' ?>><?=T::mailgun_eu?></option>
                                             </select>
                                         <?php elseif (strpos($field, 'password') !== false || strpos($field, 'key') !== false || strpos($field, 'token') !== false || strpos($field, 'secret') !== false): ?>
+                                            <?php // SET-1: never render the stored secret into value= (leaks to View-Source).
+                                                  // Show a masked display of the stored value; the save handler restores the
+                                                  // stored secret when the posted value is masked (SET-2). ?>
                                             <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
                                             <input type="password" name="email_providers[<?= $providerKey ?>][<?= $field ?>]"
                                                 class="input <?= $isDefault ? 'border-yellow-500' : '' ?>"
-                                                value="<?= htmlspecialchars($fieldValue) ?>"
+                                                value="<?= htmlspecialchars($fieldValue !== '' ? passportAiMaskSecret((string)$fieldValue) : '') ?>"
                                                 placeholder="<?=T::enter?> <?= str_replace('_', ' ', $field) ?>"
                                                 oninput="validateDefaultValue(this, 'smtp_<?= $field ?>')">
                                             <div class="default-warning <?= $isDefault ? '' : 'hidden' ?>">
@@ -1090,7 +1093,7 @@ $messageSuccess = false;
                                             <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
                                             <input type="password" name="whatsapp_providers[<?= $providerKey ?>][<?= $field ?>]"
                                                 class="input"
-                                                value="<?= isset($providerData[$field]) ? htmlspecialchars($providerData[$field]) : '' ?>"
+                                                value="<?= isset($providerData[$field]) && $providerData[$field] !== '' ? htmlspecialchars(passportAiMaskSecret((string)$providerData[$field])) : '' ?>"
                                                 placeholder="<?=T::enter?> <?= str_replace('_', ' ', $field) ?>">
                                         <?php else: ?>
                                             <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
@@ -1159,7 +1162,7 @@ $messageSuccess = false;
                                         <?php if (strpos($field, 'key') !== false || strpos($field, 'secret') !== false || strpos($field, 'token') !== false): ?>
                                             <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
                                             <input type="password" name="sms_providers[<?= $providerKey ?>][<?= $field ?>]" class="input"
-                                                value="<?= isset($providerData[$field]) ? htmlspecialchars($providerData[$field]) : '' ?>"
+                                                value="<?= isset($providerData[$field]) && $providerData[$field] !== '' ? htmlspecialchars(passportAiMaskSecret((string)$providerData[$field])) : '' ?>"
                                                 placeholder="<?=T::enter?> <?= str_replace('_', ' ', $field) ?>">
                                         <?php else: ?>
                                             <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
@@ -1175,9 +1178,6 @@ $messageSuccess = false;
                 </div>
 
                 <!-- Push Notifications -->
-                <?php
-                /*
-
                 <div class="section my-6">
                     <div class="flex items-center justify-between mb-4">
                         <div class="flex items-center">
@@ -1230,12 +1230,17 @@ $messageSuccess = false;
                                     ?>
                                     <div class="form-control <?= $isJsonBlob ? 'md:col-span-2 lg:col-span-3' : '' ?>">
                                         <label class="capitalize"><?= ucwords(str_replace('_', ' ', $field)) ?></label>
+                                        <?php $__hasVal = isset($providerData[$field]) && $providerData[$field] !== ''; ?>
                                         <?php if ($isJsonBlob): ?>
+                                            <?php // SET-1: never render the stored service-account JSON (contains the
+                                                  // private key) back into the page. Leave it BLANK when configured; the
+                                                  // save handler keeps the stored JSON when this is submitted empty (SET-2). ?>
                                             <textarea name="push_providers[<?= $providerKey ?>][<?= $field ?>]" class="input" rows="6"
-                                                placeholder="Paste the full Firebase service-account JSON (Project settings → Service accounts → Generate new private key)"><?= isset($providerData[$field]) ? htmlspecialchars($providerData[$field]) : '' ?></textarea>
+                                                placeholder="<?= $__hasVal ? 'A service account is already saved. Paste a new JSON here only to replace it.' : 'Paste the full Firebase service-account JSON (Project settings → Service accounts → Generate new private key)' ?>"></textarea>
+                                            <?php if ($__hasVal): ?><p class="text-xs text-green-600 mt-1">✓ Service account configured.</p><?php endif; ?>
                                         <?php elseif ($isSecret): ?>
                                             <input type="password" name="push_providers[<?= $providerKey ?>][<?= $field ?>]" class="input"
-                                                value="<?= isset($providerData[$field]) ? htmlspecialchars($providerData[$field]) : '' ?>"
+                                                value="<?= $__hasVal ? htmlspecialchars(passportAiMaskSecret((string)$providerData[$field])) : '' ?>"
                                                 placeholder="<?=T::enter?> <?= str_replace('_', ' ', $field) ?>">
                                         <?php else: ?>
                                             <input type="text" name="push_providers[<?= $providerKey ?>][<?= $field ?>]" class="input"
@@ -1248,9 +1253,6 @@ $messageSuccess = false;
                         </div>
                     <?php endforeach; ?>
                 </div>
-
-                */
-                ?>
 
                 <?php /*
                 <!-- Notification Preferences Matrix -->
@@ -2906,10 +2908,13 @@ document.addEventListener('DOMContentLoaded', function () {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                // SET-10: explicit CSRF token (don't rely solely on the global interceptor).
+                'X-CSRF-TOKEN': '<?= CSRF::getToken() ?>'
             },
             body: JSON.stringify({
                 type: type,
-                enabled: isEnabled
+                enabled: isEnabled,
+                csrf_token: '<?= CSRF::getToken() ?>'
             })
         })
         .then(response => response.json())
@@ -3021,9 +3026,12 @@ document.getElementById('generateSitemapBtn')?.addEventListener('click', functio
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            // SET-10: explicit CSRF token for this state-changing AJAX.
+            'X-CSRF-TOKEN': '<?= CSRF::getToken() ?>'
         },
         body: JSON.stringify({
-            action: 'generate_sitemap'
+            action: 'generate_sitemap',
+            csrf_token: '<?= CSRF::getToken() ?>'
         })
     })
     .then(response => response.json())
