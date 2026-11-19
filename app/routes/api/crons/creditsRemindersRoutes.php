@@ -1,10 +1,26 @@
 <?php
 // app/routes/api/crons/creditsRemindersRoutes.php
+//
+// READ-ONLY sibling of /send_credits_reminders: returns the overdue-agent list as
+// JSON (no emails sent). Because that list is agent PII + financial data, this is
+// gated on the SAME cron secret (_cron_secret_ok) — see
+// app/routes/crons/creditsRemindersRoutes.php for the shared gate + the AG-F1/F2/F3
+// rationale. Keep the two files' credit math (floatval) + gate in sync.
 @$SECURE or die('Access Denied!');
 
 $router->get('/api/credits/reminders', function () use ($SECURE, $db) {
 
     header('Content-Type: application/json');
+
+    // AG-F3/AG-F1: this endpoint returns overdue-agent data (PII). Gate it on the
+    // cron secret just like /send_credits_reminders (fail-open only when no secret
+    // is configured, so an existing schedule isn't broken). _cron_secret_ok lives
+    // in app/routes/crons/creditsRemindersRoutes.php; guard for load order.
+    if (function_exists('_cron_secret_ok') && !_cron_secret_ok($db)) {
+        http_response_code(403);
+        echo json_encode(['status' => false, 'message' => 'Forbidden']);
+        exit;
+    }
 
     try {
         $users = $db->select('users', [
@@ -26,11 +42,13 @@ $router->get('/api/credits/reminders', function () use ($SECURE, $db) {
 
         foreach ($users as $user) {
 
-            // Calculate used credits from credits table
-            $used_credits = intval($db->sum('credits', 'credits', [
+            // Calculate used credits from credits table.
+            // AG-F2: floatval+round (was intval, which truncated sub-unit amounts —
+            // inconsistent with the admin credits page's money-integrity fix).
+            $used_credits = round((float) ($db->sum('credits', 'credits', [
                 'user_id' => $user['user_id'],
                 'type'    => 'debit',
-            ]) ?: 0);
+            ]) ?: 0), 2);
 
             if ($used_credits <= 0) continue;
 
@@ -67,11 +85,12 @@ $router->get('/api/credits/reminders', function () use ($SECURE, $db) {
         ], JSON_PRETTY_PRINT);
 
     } catch (Exception $e) {
+        // AG-F3: do NOT leak the raw exception message to the client; log it.
+        error_log('api/credits/reminders: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode([
             'status'  => false,
             'message' => 'Something went wrong',
-            'error'   => $e->getMessage()
         ]);
     }
 });

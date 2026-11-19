@@ -11,14 +11,61 @@
  * Amount due is always SUM(debits) — actual credits used.
  *
  * CRON SETUP (on the server run this daily):
- *   0 9 * * * curl -s "https://yourdomain.com/send_credits_reminders" > /dev/null 2>&1
+ *   0 9 * * * curl -s -H "X-Cron-Secret: <value>" "https://yourdomain.com/send_credits_reminders" > /dev/null 2>&1
+ *   (or append ?key=<value>)
+ *
+ * SECURITY (AG-F1): this endpoint SENDS real reminder emails to agents + admins
+ * and (previously) echoed every overdue agent's name/email/amount-due in its JSON
+ * response — so unauthenticated it was both a notification-spam primitive and a
+ * PII/financial info leak. Two fixes:
+ *   (1) gate on a cron secret (CRON_SECRET in .env, or settings.cron_secret). If a
+ *       secret IS configured, the request MUST present it (X-Cron-Secret header or
+ *       ?key=). If NONE is configured it still runs (so an existing live schedule
+ *       does not silently break on deploy) — set CRON_SECRET to fully lock it.
+ *   (2) the JSON response NEVER returns per-agent rows — counts only.
  *
  * ROUTE: GET /send_credits_reminders
  */
 
 @$SECURE or die('Access Denied!');
 
+if (!function_exists('_cron_secret_ok')) {
+    /**
+     * Shared cron gate. Returns true when the request is authorised to run a cron
+     * endpoint: either no secret is configured (fail-OPEN, so existing schedules
+     * keep working) OR the presented secret matches (constant-time). Accepts the
+     * X-Cron-Secret header or a ?key= query param. Reusable by other cron routes.
+     */
+    function _cron_secret_ok($db = null): bool
+    {
+        $expected = (string) (getenv('CRON_SECRET') ?: '');
+        if ($expected === '') {
+            // Fallback to a DB-held secret (settings.cron_secret) if present.
+            try {
+                $expected = (string) ($GLOBALS['app']['cron_secret']
+                    ?? ($db ? ($db->get('settings', 'cron_secret', ['id' => 1]) ?? '') : ''));
+            } catch (\Throwable $e) { $expected = ''; }
+        }
+        if ($expected === '') {
+            return true; // no secret configured → do not break an existing schedule
+        }
+        $presented = (string) (
+            $_SERVER['HTTP_X_CRON_SECRET']
+            ?? ($_GET['key'] ?? ($_GET['cron_secret'] ?? ''))
+        );
+        return $presented !== '' && hash_equals($expected, $presented);
+    }
+}
+
 $router->get('/send_credits_reminders', function () use ($SECURE, $db) {
+
+    // AG-F1 gate: require the cron secret when one is configured.
+    if (!_cron_secret_ok($db)) {
+        http_response_code(403);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => 'Forbidden']);
+        exit;
+    }
 
     $results        = [];
     $emails_sent    = 0;
@@ -68,24 +115,26 @@ $router->get('/send_credits_reminders', function () use ($SECURE, $db) {
         $first_usage  = $agent['first_credit_usage_date'] ?? null;
         $usage_pct    = max(0, min(100, intval($agent['credit_usage_reminder_percent'] ?? 0)));
 
-        $used_credits = intval($db->sum('credits', 'credits', [
+        // AG-F2: floatval+round (was intval, which truncated sub-unit credit
+        // amounts — inconsistent with the admin credits page's floatval fix).
+        $used_credits = round((float) ($db->sum('credits', 'credits', [
             'user_id' => $user_id,
             'type'    => 'debit',
-        ]) ?: 0);
+        ]) ?: 0), 2);
 
         if ($used_credits <= 0) {
             $skipped++;
             continue;
         }
 
-        $total_added = intval($db->sum('credits', 'credits', [
+        $total_added = round((float) ($db->sum('credits', 'credits', [
             'user_id' => $user_id,
             'type'    => 'credit',
-        ]) ?: 0);
+        ]) ?: 0), 2);
 
-        $threshold = 0;
+        $threshold = 0.0;
         if ($usage_pct > 0 && $total_added > 0) {
-            $threshold = (int) floor($total_added * $usage_pct / 100);
+            $threshold = round($total_added * $usage_pct / 100, 2);
         }
         $usage_hit = ($usage_pct > 0 && $threshold > 0 && $used_credits >= $threshold);
 
@@ -247,6 +296,9 @@ $router->get('/send_credits_reminders', function () use ($SECURE, $db) {
         }
     }
 
+    // AG-F1: COUNTS ONLY — never return per-agent rows (name/email/amount-due).
+    // The cron caller needs a run summary, not a PII dump; the detail is in the
+    // emails + agent_audit, not in this HTTP response.
     header('Content-Type: application/json');
     echo json_encode([
         'success'         => true,
@@ -255,7 +307,6 @@ $router->get('/send_credits_reminders', function () use ($SECURE, $db) {
         'overdue_agents'  => count($overdue_agents),
         'skipped'         => $skipped,
         'emails_sent'     => $emails_sent,
-        'results'         => $results,
     ]);
     exit;
 });
