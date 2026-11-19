@@ -34,10 +34,13 @@ if (!function_exists('_report_stream_csv')) {
 
 // Booking Logs
 $router->get(admin.'/reports/booking-logs(.*)', function () use ($SECURE, $db) {
-    if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== admin) {
-        header('Location: ' . root);
-        exit;
-    }
+    // R-01 (admin-reports audit): use the SAME gate as the computed reports
+    // (finance / agent-commissions) below. The old `user_role !== admin` check
+    // was full-admin-only and bounced an employee holding reports:view to root,
+    // silently defeating the RBAC grant on these 7 log/report pages. ADMIN_AUTH()
+    // admits a full admin OR an active employee; admin_require then enforces the
+    // reports:view permission uniformly.
+    ADMIN_AUTH();
     admin_require($db, 'reports', 'view');
 
     $title = 'Booking Logs - ' . $GLOBALS['app']['home_title'];
@@ -50,10 +53,13 @@ $router->get(admin.'/reports/booking-logs(.*)', function () use ($SECURE, $db) {
 
 // Search Logs
 $router->get(admin.'/reports/search-logs(.*)', function () use ($SECURE, $db) {
-    if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== admin) {
-        header('Location: ' . root);
-        exit;
-    }
+    // R-01 (admin-reports audit): use the SAME gate as the computed reports
+    // (finance / agent-commissions) below. The old `user_role !== admin` check
+    // was full-admin-only and bounced an employee holding reports:view to root,
+    // silently defeating the RBAC grant on these 7 log/report pages. ADMIN_AUTH()
+    // admits a full admin OR an active employee; admin_require then enforces the
+    // reports:view permission uniformly.
+    ADMIN_AUTH();
     admin_require($db, 'reports', 'view');
 
     $title = 'Search Logs - ' . $GLOBALS['app']['home_title'];
@@ -66,10 +72,13 @@ $router->get(admin.'/reports/search-logs(.*)', function () use ($SECURE, $db) {
 
 // Webhook Logs
 $router->get(admin.'/reports/webhook-logs(.*)', function () use ($SECURE, $db) {
-    if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== admin) {
-        header('Location: ' . root);
-        exit;
-    }
+    // R-01 (admin-reports audit): use the SAME gate as the computed reports
+    // (finance / agent-commissions) below. The old `user_role !== admin` check
+    // was full-admin-only and bounced an employee holding reports:view to root,
+    // silently defeating the RBAC grant on these 7 log/report pages. ADMIN_AUTH()
+    // admits a full admin OR an active employee; admin_require then enforces the
+    // reports:view permission uniformly.
+    ADMIN_AUTH();
     admin_require($db, 'reports', 'view');
 
     $title = 'Webhook Logs - ' . $GLOBALS['app']['home_title'];
@@ -82,10 +91,13 @@ $router->get(admin.'/reports/webhook-logs(.*)', function () use ($SECURE, $db) {
 
 // Booking Reports
 $router->get(admin.'/reports/bookings(.*)', function () use ($SECURE, $db) {
-    if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== admin) {
-        header('Location: ' . root);
-        exit;
-    }
+    // R-01 (admin-reports audit): use the SAME gate as the computed reports
+    // (finance / agent-commissions) below. The old `user_role !== admin` check
+    // was full-admin-only and bounced an employee holding reports:view to root,
+    // silently defeating the RBAC grant on these 7 log/report pages. ADMIN_AUTH()
+    // admits a full admin OR an active employee; admin_require then enforces the
+    // reports:view permission uniformly.
+    ADMIN_AUTH();
     admin_require($db, 'reports', 'view');
 
     $title = 'Booking Reports - ' . $GLOBALS['app']['home_title'];
@@ -98,10 +110,13 @@ $router->get(admin.'/reports/bookings(.*)', function () use ($SECURE, $db) {
 
 // Users Reports
 $router->get(admin.'/reports/users(.*)', function () use ($SECURE, $db) {
-    if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== admin) {
-        header('Location: ' . root);
-        exit;
-    }
+    // R-01 (admin-reports audit): use the SAME gate as the computed reports
+    // (finance / agent-commissions) below. The old `user_role !== admin` check
+    // was full-admin-only and bounced an employee holding reports:view to root,
+    // silently defeating the RBAC grant on these 7 log/report pages. ADMIN_AUTH()
+    // admits a full admin OR an active employee; admin_require then enforces the
+    // reports:view permission uniformly.
+    ADMIN_AUTH();
     admin_require($db, 'reports', 'view');
 
     $title = 'Users Reports - ' . $GLOBALS['app']['home_title'];
@@ -114,10 +129,13 @@ $router->get(admin.'/reports/users(.*)', function () use ($SECURE, $db) {
 
 // transactions Reports
 $router->get(admin.'/reports/transactions(.*)', function () use ($SECURE, $db) {
-    if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== admin) {
-        header('Location: ' . root);
-        exit;
-    }
+    // R-01 (admin-reports audit): use the SAME gate as the computed reports
+    // (finance / agent-commissions) below. The old `user_role !== admin` check
+    // was full-admin-only and bounced an employee holding reports:view to root,
+    // silently defeating the RBAC grant on these 7 log/report pages. ADMIN_AUTH()
+    // admits a full admin OR an active employee; admin_require then enforces the
+    // reports:view permission uniformly.
+    ADMIN_AUTH();
     admin_require($db, 'reports', 'view');
 
     $title = 'Transactions Reports - ' . $GLOBALS['app']['home_title'];
@@ -130,10 +148,13 @@ $router->get(admin.'/reports/transactions(.*)', function () use ($SECURE, $db) {
 
 // Deposit Reports
 $router->get(admin.'/reports/deposit(.*)', function () use ($SECURE, $db) {
-    if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== admin) {
-        header('Location: ' . root);
-        exit;
-    }
+    // R-01 (admin-reports audit): use the SAME gate as the computed reports
+    // (finance / agent-commissions) below. The old `user_role !== admin` check
+    // was full-admin-only and bounced an employee holding reports:view to root,
+    // silently defeating the RBAC grant on these 7 log/report pages. ADMIN_AUTH()
+    // admits a full admin OR an active employee; admin_require then enforces the
+    // reports:view permission uniformly.
+    ADMIN_AUTH();
     admin_require($db, 'reports', 'view');
 
     $title = 'Deposit Reports - ' . $GLOBALS['app']['home_title'];
