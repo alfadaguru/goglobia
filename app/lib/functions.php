@@ -4582,11 +4582,16 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
     //               behaviour, so this change is backward-compatible).
     //   'ticket'  — the no-price travel document (e-ticket / voucher). Templates
     //               read $docType and suppress all price blocks when it is 'ticket'.
-    // Any unknown value falls back to 'invoice' so a bad caller never produces a
-    // price-less document by accident.
+    //   'client_invoice' (AG-G5) — an AGENCY's invoice TO ITS CLIENT at the client
+    //               price (agent_client_price = agent cost + the agency's self-markup),
+    //               branded as the agency. Renders exactly like 'invoice' (so it stays
+    //               template-compatible) but the displayed price is swapped to the
+    //               client price below. Falls back to the normal price if no
+    //               self-markup was recorded.
     $docType = strtolower(trim((string) $docType));
+    $clientInvoice = ($docType === 'client_invoice');
     if ($docType !== 'ticket') {
-        $docType = 'invoice';
+        $docType = 'invoice'; // client_invoice renders via the invoice template
     }
 
     try {
@@ -4599,6 +4604,20 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
         if (!$booking) {
             error_log("GENERATE_BOOKING_PDF ERROR: Booking not found for invoice ID '$invoiceId'");
             return false;
+        }
+
+        // AG-G5: for the agency CLIENT invoice, display the CLIENT price (agent cost
+        // + the agency's self-markup) rather than the agent's B2B cost. We swap the
+        // price the invoice template reads (price_markup); the stored row is
+        // untouched. Fall back to the normal price when no self-markup was recorded.
+        if (!empty($clientInvoice)) {
+            $__clientPrice = (float) ($booking['agent_client_price'] ?? 0);
+            if ($__clientPrice > 0) {
+                $booking['price_markup'] = $__clientPrice;
+                // Keep price_original consistent so any "you saved / net" line in a
+                // template never shows the agent's confidential B2B cost to the client.
+                $booking['price_original'] = $__clientPrice;
+            }
         }
 
         // Parse JSON fields
@@ -4726,7 +4745,9 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
         // Define PDF file path — ticket and invoice are stored as separate files
         // so both can coexist for the same booking (client gets the ticket, the
         // priced invoice stays available separately).
-        $pdfFileName = ($docType === 'ticket' ? 'ticket_' : 'invoice_') . $invoiceId . '.pdf';
+        // AG-G5: the client invoice gets its OWN filename so it never overwrites the
+        // agent's (B2B-priced) invoice PDF for the same booking.
+        $pdfFileName = (!empty($clientInvoice) ? 'client_invoice_' : ($docType === 'ticket' ? 'ticket_' : 'invoice_')) . $invoiceId . '.pdf';
         $pdfFilePath = $invoiceDir . $pdfFileName;
 
         // ====================================================================

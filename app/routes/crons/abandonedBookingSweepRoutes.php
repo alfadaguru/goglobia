@@ -35,16 +35,33 @@ $router->get('/abandoned_booking_sweep', function () use ($SECURE, $db) {
     $grace = max(60, min(10080, $grace)); // never below 1h, never above 7d
     $cutoff = date('Y-m-d H:i:s', time() - ($grace * 60));
 
-    $out = ['status' => true, 'grace_minutes' => $grace, 'scanned' => 0, 'cancelled' => 0, 'holds_released' => 0, 'skipped' => 0, 'ran_at' => date('Y-m-d H:i:s')];
+    // AG-G2 — FUNDING-AWARE AGENT GRACE. Agents pay from their wallet, funded by a
+    // bank transfer into their DVA (NUBAN) — which can take minutes to hours to
+    // land. The generic grace (default 3h) would auto-cancel an agent's booking out
+    // from under them while they're waiting on the transfer. Give agent-channel
+    // bookings a longer window (default 48h) so a transfer can settle, while STILL
+    // releasing inventory eventually (no indefinite hold). DB-overridable via
+    // settings.abandoned_agent_grace_minutes; clamped grace..20160 (1h..14d).
+    $agentGrace = 2880; // 48h
+    try {
+        $acfg = $db->get('settings', 'abandoned_agent_grace_minutes', ['id' => 1]);
+        if ($acfg !== null && $acfg !== '' && is_numeric($acfg)) { $agentGrace = (int) $acfg; }
+    } catch (\Throwable $e) { /* column variance -> default */ }
+    $agentGrace = max($grace, min(20160, $agentGrace)); // never shorter than the generic grace
+    $agentCutoff = date('Y-m-d H:i:s', time() - ($agentGrace * 60));
 
+    $out = ['status' => true, 'grace_minutes' => $grace, 'agent_grace_minutes' => $agentGrace, 'scanned' => 0, 'cancelled' => 0, 'holds_released' => 0, 'skipped' => 0, 'agent_held' => 0, 'ran_at' => date('Y-m-d H:i:s')];
+
+    // Widen the SELECT to the MORE LENIENT (agent) cutoff and pull booking_channel,
+    // then apply the correct per-channel cutoff in the loop.
     $rows = $db->select('bookings', [
-        'invoice_id', 'module_type', 'payment_status', 'booking_status', 'payment_due_at', 'created_at',
+        'invoice_id', 'module_type', 'payment_status', 'booking_status', 'payment_due_at', 'created_at', 'booking_channel',
     ], [
         'payment_status'    => 'unpaid',
         'booking_status'    => 'pending',
         'payment_due_at'    => null,                 // excludes Pay-Later (it sets a due date)
         'module_type[!]'    => ['umrah', 'ai_trip'], // excludes Umrah + GIA (own sweeps)
-        'created_at[<]'     => $cutoff,
+        'created_at[<]'     => $agentCutoff,         // candidates at the widest window
         'LIMIT'             => 300,
     ]) ?: [];
 
@@ -52,6 +69,16 @@ $router->get('/abandoned_booking_sweep', function () use ($SECURE, $db) {
         $out['scanned']++;
         $invoiceId = (string) ($b['invoice_id'] ?? '');
         if ($invoiceId === '') { $out['skipped']++; continue; }
+
+        // AG-G2: an AGENT-channel booking is only abandoned past the LONGER agent
+        // grace; inside that window (but past the generic cutoff) it is held, not
+        // cancelled, so a pending bank transfer can still settle it.
+        $isAgent = strtolower((string) ($b['booking_channel'] ?? 'web')) === 'agent';
+        $rowCutoff = $isAgent ? $agentCutoff : $cutoff;
+        if ((string) ($b['created_at'] ?? '') >= $rowCutoff) {
+            if ($isAgent) { $out['agent_held']++; } else { $out['skipped']++; }
+            continue;
+        }
 
         // Belt-and-braces: never cancel a booking on an active installment / PaySmallSmall
         // plan (those legitimately sit unpaid/pending and are driven by their own ledger).
@@ -79,10 +106,12 @@ $router->get('/abandoned_booking_sweep', function () use ($SECURE, $db) {
                 } catch (\Throwable $e) { error_log('abandoned_sweep hold-release ' . $invoiceId . ': ' . $e->getMessage()); }
             }
 
+            $appliedGrace = $isAgent ? $agentGrace : $grace;
             $db->update('bookings', [
                 'booking_status'        => 'cancelled',
                 'cancellation_status'   => 1,
-                'cancellation_response' => 'Auto-cancelled: payment not completed within ' . $grace . ' minutes of booking (abandoned-booking sweep).',
+                'cancellation_response' => 'Auto-cancelled: payment not completed within ' . $appliedGrace . ' minutes of booking (abandoned-booking sweep'
+                    . ($isAgent ? ', agent grace' : '') . ').',
             ], ['invoice_id' => $invoiceId]);
             $out['cancelled']++;
         } catch (\Throwable $e) {

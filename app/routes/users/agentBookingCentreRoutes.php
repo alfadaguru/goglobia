@@ -277,6 +277,40 @@ $router->get('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($SE
     require_once views."agent/layout-bottom.php";
 });
 
+// ---- GET /agent/booking/{inv}/client-invoice  (AG-G5) ----------------------
+// Download the agency's branded invoice TO ITS CLIENT, priced at the client price
+// (agent cost + the agency's self-markup), NOT the agent's B2B cost. Owner-scoped;
+// reuses GENERATE_BOOKING_PDF('client_invoice') which swaps the price + applies the
+// agency brand. Agents hand this to the traveller; the agent's own cost stays
+// confidential.
+$router->get('/agent/booking/([A-Za-z0-9]+)/client-invoice', function ($invoiceId) use ($SECURE, $db) {
+    AGENT_OR_STAFF_AUTH($db);
+    if (!agent_can($db, 'bookings', 'view')) { header('Location: ' . root . 'agent/dashboard'); exit; }
+    [$booking, $ctx] = _agent_booking_for_settle($db, (string)$invoiceId); // ownership guard (agency-scoped)
+
+    // Only meaningful once the booking is paid (there's a real sale to invoice).
+    if (($booking['payment_status'] ?? '') !== 'paid') {
+        $_SESSION['message'] = ['type'=>'error','text'=>'The client invoice is available once the booking is paid.'];
+        header('Location: ' . root . 'agent/bookings'); exit;
+    }
+    if (!function_exists('GENERATE_BOOKING_PDF')) { require_once 'app/lib/functions.php'; }
+    $pdfPath = GENERATE_BOOKING_PDF((string)$invoiceId, 'client_invoice');
+    if (!$pdfPath || !is_file($pdfPath)) {
+        $_SESSION['message'] = ['type'=>'error','text'=>'Could not generate the client invoice. Please try again.'];
+        header('Location: ' . root . 'agent/bookings'); exit;
+    }
+    if (function_exists('agent_audit_log')) {
+        agent_audit_log($db, (string)$ctx['owner'], (string)$ctx['actor'], 'booking.client_invoice', (string)$invoiceId);
+    }
+    if (ob_get_length()) { ob_clean(); }
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: inline; filename="client-invoice-' . preg_replace('/[^A-Za-z0-9_\-]/','_', (string)$invoiceId) . '.pdf"');
+    header('Content-Length: ' . filesize($pdfPath));
+    header('X-Content-Type-Options: nosniff');
+    readfile($pdfPath);
+    exit;
+});
+
 // ---- POST /agent/booking/{inv}/pay  (settle from wallet) -------------------
 $router->post('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($SECURE, $db) {
     AGENT_OR_STAFF_AUTH($db);
@@ -327,7 +361,7 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($S
     // Stored for the branded invoice + agent margin reporting. Agent still PAYS
     // $agentCost to us; the client price is what their branded invoice shows.
     if (function_exists('agent_apply_self_markup')) {
-        try { agent_apply_self_markup($db, $owner, (string)$invoiceId, $agentCost, $currency); }
+        try { agent_apply_self_markup($db, $owner, (string)$invoiceId, $agentCost, $currency, $service); }
         catch (\Throwable $e) { error_log('agent self-markup: ' . $e->getMessage()); }
     }
 

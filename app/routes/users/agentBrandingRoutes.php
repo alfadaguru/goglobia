@@ -37,6 +37,10 @@ $router->get('/agent/branding', function () use ($SECURE, $db) {
     } catch (\Throwable $e) {}
 
     $selfMarkupEnabled = (string) ($GLOBALS['app']['agent_self_markup_enabled'] ?? '1') === '1';
+    // AG-G4: per-service markup overrides + floor for the form.
+    $svcMarkup = function_exists('agent_service_markup_map') ? agent_service_markup_map($db, $owner) : [];
+    $markupFloor = isset($svcMarkup['__floor']) ? (float) $svcMarkup['__floor'] : 0.0;
+    $bcServices = function_exists('agent_bc_services') ? agent_bc_services($db) : [];
     $canEdit = agent_can($db, 'branding', 'edit');
     // Only the OWNER controls pricing (not a branding-only staff member).
     $canPrice = !empty($ctx['is_owner']);
@@ -116,8 +120,36 @@ $router->post('/agent/branding/save', function () use ($SECURE, $db) {
         $mt = ($_POST['markup_type'] ?? 'percentage') === 'fixed' ? 'fixed' : 'percentage';
         if ($mv < 0) { $mv = 0; }
         if ($mt === 'percentage' && $mv > 100) { $mv = 100; } // sane cap for a % markup
+
+        // AG-G4: per-service overrides + min-margin floor. Form posts
+        // svc_markup_value[service] + svc_markup_type[service] (blank value = no
+        // override → falls back to the default above) and markup_floor. Store as
+        // {service:{value,type}, __floor:n}; whitelist services against the catalogue.
+        $svcMap = [];
+        $svcVals  = (array) ($_POST['svc_markup_value'] ?? []);
+        $svcTypes = (array) ($_POST['svc_markup_type'] ?? []);
+        $knownSvcs = function_exists('agent_bc_services')
+            ? array_column(agent_bc_services($db), 'key')
+            : ['flights','stays','tours','cars','umrah','visa','bus','rail','ferries','esim','insurance'];
+        foreach ($svcVals as $svc => $v) {
+            $svc = strtolower(trim((string)$svc));
+            if (!in_array($svc, $knownSvcs, true)) { continue; }
+            if (trim((string)$v) === '') { continue; } // blank → use the default
+            $vv = max(0.0, (float)$v);
+            $tt = (($svcTypes[$svc] ?? 'percentage') === 'fixed') ? 'fixed' : 'percentage';
+            if ($tt === 'percentage' && $vv > 100) { $vv = 100; }
+            $svcMap[$svc] = ['value' => $vv, 'type' => $tt];
+        }
+        $floor = isset($_POST['markup_floor']) && trim((string)$_POST['markup_floor']) !== ''
+            ? max(0.0, (float)$_POST['markup_floor']) : 0.0;
+        if ($floor > 0) { $svcMap['__floor'] = $floor; }
+
         try {
-            $db->update('users', ['agent_customer_markup' => $mv, 'agent_customer_markup_type' => $mt], ['user_id' => $owner]);
+            $db->update('users', [
+                'agent_customer_markup'      => $mv,
+                'agent_customer_markup_type' => $mt,
+                'agent_service_markup'       => !empty($svcMap) ? json_encode($svcMap) : null,
+            ], ['user_id' => $owner]);
         } catch (\Throwable $e) { error_log('agent markup save: ' . $e->getMessage()); }
     }
 

@@ -192,6 +192,12 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 if (!$db->query("SHOW COLUMNS FROM `users` LIKE 'agent_customer_markup_type'")->fetch()) {
                     $db->query("ALTER TABLE `users` ADD COLUMN `agent_customer_markup_type` VARCHAR(20) DEFAULT 'percentage'");
                 }
+                // AG-G4: per-service markup overrides + a min-margin floor, stored as
+                // JSON: {"service":{"value":n,"type":"percentage|fixed"},...,"__floor":n}.
+                // The flat agent_customer_markup above stays the DEFAULT/fallback.
+                if (!$db->query("SHOW COLUMNS FROM `users` LIKE 'agent_service_markup'")->fetch()) {
+                    $db->query("ALTER TABLE `users` ADD COLUMN `agent_service_markup` TEXT DEFAULT NULL");
+                }
             } catch (\Throwable $e) { error_log('ensureAgentPortalSchema markup: ' . $e->getMessage()); }
 
             // --- bookings attribution + agent client-price columns -----------
@@ -518,10 +524,38 @@ if (!function_exists('agent_booking_brand')) {
 // $agentCost to us; the client price is what their BRANDED invoice shows. No-op
 // if self-markup is disabled (settings) or the agency set no markup.
 // ----------------------------------------------------------------------------
-if (!function_exists('agent_self_markup_value')) {
-    function agent_self_markup_value($db, string $ownerId): array
+if (!function_exists('agent_service_markup_map')) {
+    /** Decode the agency's per-service markup JSON ({service:{value,type}, __floor:n}). */
+    function agent_service_markup_map($db, string $ownerId): array
     {
-        // [value, type] — type 'percentage'|'fixed'. Zero value => none.
+        try {
+            $raw = $db->get('users', 'agent_service_markup', ['user_id' => $ownerId]);
+        } catch (\Throwable $e) { return []; }
+        if (empty($raw)) { return []; }
+        $m = json_decode((string) $raw, true);
+        return is_array($m) ? $m : [];
+    }
+}
+if (!function_exists('agent_self_markup_value')) {
+    /**
+     * Resolve the agency's markup [value, type] for a given service. AG-G4: a
+     * per-service override (agent_service_markup[service]) wins; otherwise fall back
+     * to the flat default (users.agent_customer_markup[_type]). $service '' / unknown
+     * => the default. Zero value => none.
+     */
+    function agent_self_markup_value($db, string $ownerId, string $service = ''): array
+    {
+        $service = strtolower(trim($service));
+        if ($service !== '') {
+            $map = agent_service_markup_map($db, $ownerId);
+            if (isset($map[$service]) && is_array($map[$service])) {
+                $v = (float) ($map[$service]['value'] ?? 0);
+                $t = (string) ($map[$service]['type'] ?? 'percentage');
+                if ($v > 0) { return [$v, $t === 'fixed' ? 'fixed' : 'percentage']; }
+                // an explicit 0 override means "no markup for this service" — honour it.
+                if (array_key_exists('value', $map[$service])) { return [0.0, 'percentage']; }
+            }
+        }
         try {
             $u = $db->get('users', ['agent_customer_markup','agent_customer_markup_type'], ['user_id' => $ownerId]);
         } catch (\Throwable $e) { return [0.0, 'percentage']; }
@@ -531,12 +565,24 @@ if (!function_exists('agent_self_markup_value')) {
     }
 }
 if (!function_exists('agent_apply_self_markup')) {
-    function agent_apply_self_markup($db, string $ownerId, string $invoiceId, float $agentCost, string $currency): void
+    /**
+     * Stamp the client price + margin on a booking from the agency's markup.
+     * AG-G4: $service selects a per-service override (else the flat default), and a
+     * configured min-margin floor (agent_service_markup.__floor) guarantees at least
+     * that margin. The agent still PAYS $agentCost; this only sets the client-facing
+     * numbers (agent_client_price / agent_client_margin).
+     */
+    function agent_apply_self_markup($db, string $ownerId, string $invoiceId, float $agentCost, string $currency, string $service = ''): void
     {
         if ((string) ($GLOBALS['app']['agent_self_markup_enabled'] ?? '1') !== '1') { return; }
-        [$val, $type] = agent_self_markup_value($db, $ownerId);
-        if ($val <= 0) { return; }
-        $margin = $type === 'fixed' ? $val : round($agentCost * $val / 100, 2);
+        [$val, $type] = agent_self_markup_value($db, $ownerId, $service);
+        $margin = $val > 0 ? ($type === 'fixed' ? $val : round($agentCost * $val / 100, 2)) : 0.0;
+
+        // Min-margin floor (applies regardless of the % / fixed rule).
+        $map = agent_service_markup_map($db, $ownerId);
+        $floor = isset($map['__floor']) ? (float) $map['__floor'] : 0.0;
+        if ($floor > 0 && $margin < $floor) { $margin = round($floor, 2); }
+
         if ($margin <= 0) { return; }
         $clientPrice = round($agentCost + $margin, 2);
         try {

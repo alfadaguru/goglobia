@@ -70,20 +70,50 @@ $accent  = (string)($agency['brand_accent'] ?? '') ?: '#f59e0b';
             <p class="text-sm text-slate-500 mb-4">Add your own margin on top of the net price you pay us. Your client sees the higher price on their branded invoice; you keep the difference.</p>
             <div class="flex flex-wrap items-end gap-3">
                 <div>
-                    <label class="block text-[11px] uppercase text-slate-400 mb-1">Markup type</label>
+                    <label class="block text-[11px] uppercase text-slate-400 mb-1">Default markup type</label>
                     <select name="markup_type" x-model="mtype" class="rounded-lg border border-slate-300 px-3 py-2 text-sm">
                         <option value="percentage">Percentage (%)</option>
                         <option value="fixed">Fixed amount</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-[11px] uppercase text-slate-400 mb-1">Value</label>
+                    <label class="block text-[11px] uppercase text-slate-400 mb-1">Default value</label>
                     <input type="number" name="markup_value" x-model="mval" step="0.01" min="0" class="w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="block text-[11px] uppercase text-slate-400 mb-1">Min margin (floor)</label>
+                    <input type="number" name="markup_floor" value="<?= (float)($markupFloor ?? 0) ?: '' ?>" step="0.01" min="0" placeholder="0" class="w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm">
                 </div>
             </div>
             <div class="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
                 On a sample net of <strong>100,000</strong>: you pay <strong>100,000</strong> · client price <strong class="text-slate-800" x-text="client.toLocaleString()"></strong> · your margin <strong class="text-emerald-700" x-text="margin.toLocaleString()"></strong>.
             </div>
+
+            <!-- AG-G4: per-service overrides (optional — blank = use the default above) -->
+            <?php if (!empty($bcServices)): ?>
+            <details class="mt-5">
+                <summary class="cursor-pointer text-sm font-semibold text-violet-700">Per-service markup (optional)</summary>
+                <p class="text-xs text-slate-400 mt-1 mb-3">Override the default for specific services. Leave a value blank to use your default. The min-margin floor applies to every service.</p>
+                <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <?php foreach ($bcServices as $s): $k = (string)$s['key'];
+                        $ov = (isset($svcMarkup[$k]) && is_array($svcMarkup[$k])) ? $svcMarkup[$k] : null;
+                        $ovV = $ov ? (float)($ov['value'] ?? 0) : null;
+                        $ovT = $ov ? (string)($ov['type'] ?? 'percentage') : 'percentage';
+                    ?>
+                    <div class="rounded-lg border border-slate-200 p-2.5">
+                        <div class="text-xs font-medium text-slate-600 mb-1.5"><?= htmlspecialchars((string)$s['label']) ?></div>
+                        <div class="flex gap-2">
+                            <input type="number" name="svc_markup_value[<?= htmlspecialchars($k) ?>]" value="<?= $ovV !== null ? htmlspecialchars((string)$ovV) : '' ?>" step="0.01" min="0" placeholder="default" class="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+                            <select name="svc_markup_type[<?= htmlspecialchars($k) ?>]" class="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs">
+                                <option value="percentage" <?= $ovT==='percentage'?'selected':'' ?>>%</option>
+                                <option value="fixed" <?= $ovT==='fixed'?'selected':'' ?>>Fixed</option>
+                            </select>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </details>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
 

@@ -71,6 +71,10 @@ $fmt = fn($n) => number_format((float)$n, 2);
                                     <?php if ($__mt !== ''): ?>
                                         <a href="<?= root ?>invoice/<?= urlencode($__mt) ?>/<?= urlencode($inv) ?>" target="_blank" class="text-xs text-violet-600 hover:underline mr-2">View</a>
                                     <?php endif; ?>
+                                    <?php // AG-G5: branded client invoice at the CLIENT price (paid bookings only).
+                                    if (($b['payment_status']??'')==='paid'): ?>
+                                        <a href="<?= root ?>agent/booking/<?= urlencode($inv) ?>/client-invoice" target="_blank" class="text-xs text-violet-600 hover:underline mr-2">Client invoice</a>
+                                    <?php endif; ?>
                                     <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','resend')" class="text-xs text-slate-600 hover:underline mr-2">Resend</button>
                                 <?php endif; ?>
                                 <?php if (($b['booking_status']??'') !== 'cancelled' && agent_can($db,'bookings','refund')): ?>
