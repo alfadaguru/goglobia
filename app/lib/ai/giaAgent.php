@@ -620,6 +620,51 @@ class giaAgent
             if (is_array($tr['output'] ?? null)) { $scan($tr['output']); }
         }
 
+        // 1b) FABRICATED CONFIRMATION / PNR (audit D2-4). The price guard below only
+        //     polices MONEY, but the other high-harm lie is telling a traveller their
+        //     booking is "confirmed" / "issued" / "ticketed" — or quoting a PNR — when
+        //     no tool this turn actually produced that. (gia_commit_order_state gates the
+        //     structured state field, but a chatty free-text "you're all set, PNR ABC123"
+        //     rides alongside it ungated.) So: did ANY tool this turn return real evidence
+        //     of a confirmed booking / PNR? If NOT, and the reply asserts confirmation or
+        //     states a PNR-shaped token, neutralise it (same fail-closed deflection).
+        $hasConfirmEvidence = false;
+        $realPnrs = [];
+        $scanEvidence = function ($node) use (&$scanEvidence, &$hasConfirmEvidence, &$realPnrs): void {
+            if (!is_array($node)) { return; }
+            foreach ($node as $k => $v) {
+                if (is_array($v)) { $scanEvidence($v); continue; }
+                $key = is_string($k) ? strtolower($k) : '';
+                if ($key === 'pnr' || $key === 'booking_ref') {
+                    $pnr = trim((string) $v);
+                    if ($pnr !== '') { $realPnrs[] = strtoupper($pnr); $hasConfirmEvidence = true; }
+                }
+                // A tool that reports the authoritative state as CONFIRMED is real evidence.
+                if ($key === 'state' && strtoupper((string) $v) === 'CONFIRMED') { $hasConfirmEvidence = true; }
+            }
+        };
+        foreach ($toolRuns as $tr) {
+            if (is_array($tr['output'] ?? null)) { $scanEvidence($tr['output']); }
+        }
+        if (!$hasConfirmEvidence) {
+            // Does the reply CLAIM success? Match explicit, present-tense assertions —
+            // not conditional/future ("once confirmed", "I'll get you booked"). Also catch
+            // a stated PNR token ("PNR ABC123", "reference: ABC1234").
+            $claimsConfirmed = (bool) preg_match(
+                '/\b(?:your\s+)?(?:booking|flight|ticket|trip|hotel|stay|seat|room)\b[^.?!]{0,40}\b(?:is|are|has been|have been|now)\b[^.?!]{0,20}\b(?:confirmed|issued|ticketed|booked|secured)\b/i',
+                $reply
+            ) || (bool) preg_match('/\b(?:you(?:\'re| are)\s+(?:all\s+)?(?:set|booked|confirmed))\b/i', $reply);
+            $statesPnr = (bool) preg_match('/\b(?:PNR|booking\s+(?:ref(?:erence)?|code)|confirmation\s+(?:code|number))\b[:\s#]*[A-Z0-9]{5,8}\b/i', $reply);
+            if ($claimsConfirmed || $statesPnr) {
+                error_log('[gia][containment] blocked reply asserting confirmation/PNR with NO tool evidence this turn'
+                    . ' (claimsConfirmed=' . ($claimsConfirmed ? '1' : '0') . ' statesPnr=' . ($statesPnr ? '1' : '0') . ')');
+                return [
+                    'reply' => "Let me check the real status of your booking in our system before I confirm anything — one moment.",
+                    'flagged' => true,
+                ];
+            }
+        }
+
         // 2) Pull every monetary figure the MODEL stated. Match "NGN 1,617,250.67",
         //    "₦58,400", "$500", "150000 USD", "SAR 2,800", etc. — a currency marker
         //    adjacent to a number. Bare numbers (dates, counts, "2 adults") are ignored.
@@ -648,7 +693,15 @@ class giaAgent
         //   - the SYMBOLS are literal (no case);
         //   - a bare 'N' (naira) is accepted ONLY when GLUED to digits (\bN\d…), so it
         //     catches "N200,000" but never an initial "Mr N" or the word "in".
-        $codes = '(?i:NGN|USD|EUR|GBP|SAR|AED|QAR|EGP|INR|GHS|GHC|KES|ZAR|MAD)';
+        // ENABLED-CURRENCY UNION (audit D2-3): the hardcoded list below covered today's
+        // enabled currencies, but enabling a NEW one (e.g. CNY/JPY) in admin would
+        // silently re-open the gap (a code we don't list carries no marker, so a
+        // hallucinated price in it slips through). Union the hardcoded travel codes with
+        // the live `currencies` rows so a future-added currency is covered automatically.
+        // 3-letter codes only match ADJACENT to a number, so adding more never hits
+        // prose; still exclude TRY (collides with the word "try"). Cached per request.
+        $codeList = $this->containmentCurrencyCodes();
+        $codes = '(?i:' . implode('|', $codeList) . ')';
         $sym   = '(?:₦|\$|£|€|₹|﷼)';
         $num   = '\d[\d,]*(?:\.\d+)?';
         $pattern = '/(?:' . $codes . '\s?' . $num . ')|(?:' . $num . '\s?' . $codes . ')'
@@ -688,6 +741,42 @@ class giaAgent
             : "Let me pull the live options from our system so I can give you exact, up-to-date prices. One moment — could you confirm what you're looking for?";
 
         return ['reply' => $safe, 'flagged' => true];
+    }
+
+    /**
+     * The 3-letter currency CODES the containment guard recognises (audit D2-3).
+     * Union of a hardcoded travel set (so the guard works even before any DB read /
+     * on a bare install) with the live, enabled `currencies` rows (so enabling a new
+     * currency in admin auto-extends coverage instead of silently re-opening the gap).
+     * Only uppercase A–Z codes of length 3; TRY excluded (collides with the English
+     * word "try" adjacent to a number). Cached per request; fail-soft to the hardcoded
+     * set. Widening is strictly SAFER — more quoted amounts get verified, never fewer.
+     *
+     * @return array<int,string>
+     */
+    private function containmentCurrencyCodes(): array
+    {
+        static $cached = null;
+        if ($cached !== null) { return $cached; }
+        // Hardcoded baseline: supported rows + GCC/Maghreb (umrah) + legacy codes.
+        $codes = ['NGN', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'QAR', 'EGP', 'INR', 'GHS', 'GHC', 'KES', 'ZAR', 'MAD'];
+        try {
+            if ($this->db !== null) {
+                $rows = $this->db->select('currencies', ['name'], ['status' => 1]) ?: [];
+                foreach ($rows as $r) {
+                    $c = strtoupper(trim((string) ($r['name'] ?? '')));
+                    // Only a clean 3-letter ISO alpha code; skip TRY (prose collision).
+                    if ($c !== '' && $c !== 'TRY' && preg_match('/^[A-Z]{3}$/', $c)) {
+                        $codes[] = $c;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // fail-soft: keep the hardcoded baseline so the guard never weakens on error.
+            error_log('[gia][containment] currency list: ' . $e->getMessage());
+        }
+        $cached = array_values(array_unique($codes));
+        return $cached;
     }
 
     /** Trim one real result card to the handful of fields a model talks about. */
