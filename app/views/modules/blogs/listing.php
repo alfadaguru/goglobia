@@ -57,7 +57,7 @@
                             </h2>
 
                             <p class="text-gray-600 text-sm line-clamp-3 mb-6">
-                                <?= strip_tags($post_desc) ?>
+                                <?= htmlspecialchars(strip_tags((string) $post_desc), ENT_QUOTES, 'UTF-8') ?>
                             </p>
 
                             <a href="<?= root ?>blog/<?= htmlspecialchars((string) $blog['post_slug'], ENT_QUOTES, 'UTF-8') ?>" 

@@ -61,10 +61,10 @@ $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
     
     if (!empty($errors)) {
         $_SESSION['message'] = ['type' => 'error', 'text' => implode('<br>', $errors)];
-        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/blogs/add');
+        redirect(root . admin . '/blogs/add'); // B-05: fixed target, not Referer
         return;
     }
-    
+
     // Generate slug
     $post_slug = generateUniqueSlug($post_title, 'blogs', 'post_slug', $db);
     
@@ -101,10 +101,13 @@ $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
     foreach ($all_lang_codes as $lang_code) {
         $lang_data = [];
         if (!empty(trim($title_translations[$lang_code] ?? ''))) $lang_data['title'] = trim($title_translations[$lang_code]);
-        if (!empty(trim($desc_translations[$lang_code] ?? ''))) $lang_data['desc'] = trim($desc_translations[$lang_code]);
+        // B-01 (admin-blogs audit): translation bodies are published HTML too (web
+        // re-sanitizes on render, but the mobile API returns them RAW). Sanitize at
+        // the source, mirroring the main post_desc, so every consumer gets clean HTML.
+        if (!empty(trim($desc_translations[$lang_code] ?? ''))) $lang_data['desc'] = cleanBlogHtml((string) $desc_translations[$lang_code]);
         if (!empty($lang_data)) $translations[$lang_code] = $lang_data;
     }
-    
+
     $blog_data = [
         'post_title' => $post_title,
         'post_slug' => $post_slug,
@@ -117,7 +120,9 @@ $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
         'featured' => $featured,
         'status' => $status,
         'published_at' => $published_at,
-        'author_id' => $_SESSION['admin_id'] ?? null,
+        // B-04 (admin-blogs audit): the login path sets user_id, never admin_id, so
+        // author_id was always null. Record the real actor.
+        'author_id' => $_SESSION['user_id'] ?? ($_SESSION['admin_id'] ?? null),
         'translations' => !empty($translations) ? json_encode($translations) : null,
         'created_at' => date('Y-m-d H:i:s')
     ];
@@ -130,11 +135,11 @@ $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
             redirect(root . admin . '/blogs/edit/' . $new_blog_id);
         } else {
             $_SESSION['message'] = ['type' => 'error', 'text' => T::failed_to_add_blog ?? 'Failed to add blog'];
-            redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/blogs/add');
+            redirect(root . admin . '/blogs/add'); // B-05: fixed target, not Referer
         }
     } catch (Exception $e) {
         $_SESSION['message'] = ['type' => 'error', 'text' => T::database_error . ': ' . $e->getMessage()];
-        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/blogs/');
+        redirect(root . admin . '/blogs/'); // B-05: fixed target, not Referer
     }
 });
 
@@ -209,7 +214,7 @@ $router->post(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
     
     if (!empty($errors)) {
         $_SESSION['message'] = ['type' => 'error', 'text' => implode('<br>', $errors)];
-        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/blogs/edit/' . $blog_id);
+        redirect(root . admin . '/blogs/edit/' . $blog_id); // B-05: fixed target, not Referer
         return;
     }
     
@@ -274,10 +279,11 @@ $router->post(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
     foreach ($all_lang_codes as $lang_code) {
         $lang_data = [];
         if (!empty(trim($title_translations[$lang_code] ?? ''))) $lang_data['title'] = trim($title_translations[$lang_code]);
-        if (!empty(trim($desc_translations[$lang_code] ?? ''))) $lang_data['desc'] = trim($desc_translations[$lang_code]);
+        // B-01 (admin-blogs audit): sanitize translation bodies on save (see add path).
+        if (!empty(trim($desc_translations[$lang_code] ?? ''))) $lang_data['desc'] = cleanBlogHtml((string) $desc_translations[$lang_code]);
         if (!empty($lang_data)) $translations[$lang_code] = $lang_data;
     }
-    
+
     $blog_data = [
         'post_title' => $post_title,
         'post_slug' => $post_slug,
