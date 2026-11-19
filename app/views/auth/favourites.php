@@ -176,8 +176,8 @@ $enabledModulesMap = array_flip($enabledModules);
          <?php if (empty($favRows)): ?>
             <div class="flex flex-col items-center justify-center py-16 text-center">
                <span class="material-symbols-outlined text-5xl text-gray-300 mb-3">favorite</span>
-               <p class="text-gray-600 font-medium"><?= T::no_favourites ?? 'No favourites yet' ?></p>
-               <p class="text-gray-400 text-sm mt-1"><?= T::no_favourites_hint ?? 'Tap the heart on any flight, stay, tour or deal to save it here.' ?></p>
+               <p class="text-gray-600 font-medium"><?= 'No favourites yet' ?></p>
+               <p class="text-gray-400 text-sm mt-1"><?= 'Tap the heart on any flight, stay, tour or deal to save it here.' ?></p>
             </div>
          <?php else: ?>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" id="favGrid">
