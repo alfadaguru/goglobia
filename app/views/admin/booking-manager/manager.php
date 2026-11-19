@@ -50,7 +50,7 @@ $svcIcons = [
   </div>
 
   <!-- Mode toggle (live hidden for manual-only services) -->
-  <div class="flex gap-2 mb-5">
+  <div class="flex flex-wrap gap-2 mb-5">
     <button class="btn" :class="mode==='manual' ? 'primary' : 'outline'" @click="mode='manual'">
       <span class="material-symbols-outlined">edit_note</span><span>Manual / offline booking</span>
     </button>
@@ -735,9 +735,9 @@ $svcIcons = [
                 person — so the flight/hotel-style passenger+passport grid is hidden
                 for eSIM. Only the Customer contact fields above apply. */ ?>
         <?php if (!$isEsim): ?>
-        <div class="flex items-center justify-between mt-4 mb-2">
+        <div class="flex flex-wrap items-center justify-between gap-2 mt-4 mb-2">
           <h3 class="text-sm font-semibold text-slate-700"><?= $svc === 'visa' ? 'Applicants' : 'Passengers / guests' ?></h3>
-          <div class="flex gap-2 items-center">
+          <div class="flex flex-wrap gap-2 items-center">
             <?php if ($svc === 'flights'): ?>
             <label class="flex items-center gap-1 text-xs text-slate-600 mr-1 select-none cursor-pointer">
               <input type="checkbox" x-model="intl"> International trip
