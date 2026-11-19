@@ -544,7 +544,18 @@ if (!function_exists('gia_bp_confirm')) {
             if ($claim instanceof \PDOStatement && $claim->rowCount() < 1) {
                 return ['ok' => true, 'status' => 'already'];
             }
-        } catch (\Throwable $e) { error_log('[gia_bp] confirm claim: ' . $e->getMessage()); }
+        } catch (\Throwable $e) {
+            // FAIL CLOSED (audit D3-1): the claim is the single-flight gate that serialises
+            // concurrent webhook deliveries before the (non-idempotent-at-the-supplier)
+            // issue loopback. If the claim UPDATE itself THROWS we have NOT claimed — so
+            // proceeding would let two concurrent confirms both reach gia_bp_issue_ai_trip
+            // and double-ticket the supplier (the issue endpoint's re-issue guard is
+            // read-then-skip, not atomic). Return a RETRYABLE error so Paystack re-delivers;
+            // the retry re-enters here and a single attempt serialises cleanly. A transient
+            // DB error thus delays settlement by one webhook cycle — never double-issues.
+            error_log('[gia_bp] confirm claim THREW — failing closed for retry: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'confirm claim unavailable — will retry'];
+        }
         // Helper: restore the pre-claim status so a retryable failure can be re-driven.
         $releaseClaim = function () use ($db, $bp) {
             try { $db->update('gia_booking_payments', ['status' => $bp['status'], 'updated_at' => date('Y-m-d H:i:s')], ['id' => $bp['id'], 'status' => 'paying']); }
@@ -1323,7 +1334,16 @@ if (!function_exists('gia_bp_refund')) {
             if ($claim instanceof \PDOStatement && $claim->rowCount() < 1) {
                 return ['ok' => true, 'message' => 'Refund already claimed by another worker'];
             }
-        } catch (\Throwable $e) { /* if the claim fails we still try below, guarded by status re-read */ }
+        } catch (\Throwable $e) {
+            // FAIL CLOSED (audit D3-2): the 'refunding' claim is the single-flight gate
+            // before the NON-idempotent gateway refund call (refund_gateway_payment). If
+            // the claim UPDATE THROWS we have NOT claimed — proceeding would let two
+            // concurrent late-payment refunds both hit the gateway and double-refund.
+            // Return retryable so the webhook re-delivers; the retry claims cleanly (and
+            // gia_bp_refund's own early-returns on 'refunded'/'refunding' finish it once).
+            error_log('[gia_bp] refund claim THREW — failing closed for retry: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Refund claim unavailable — will retry'];
+        }
 
         try {
             require_once dirname(__DIR__) . '/payment-gateway.php';

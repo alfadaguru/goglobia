@@ -320,6 +320,27 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                 if ($convId > 0 && function_exists('gia_log_turn')) { gia_log_turn($db, $convId, $text, $reply, []); }
                 return ['ok' => true, 'skip' => false, 'handoff' => false, 'conv_key' => $convKey, 'reply' => $reply, 'rich' => ['text' => $reply, 'buttons' => [], 'cards' => []]];
             };
+            // OWNERSHIP GUARD (audit D5-2): the invoice comes from the tapped/typed
+            // button payload, so a sender could pass an ARBITRARY invoice id and learn
+            // its amount due (+ have us mint a Paystack DVA/customer for it). Bind it:
+            // the booking must belong to THIS conversation (booking_data.gia_conv_key)
+            // or to the identified account (user_id). Same-reply-either-way so a miss
+            // never reveals whether the invoice exists.
+            $__payB = $db->get('bookings', ['user_id', 'booking_data'], ['invoice_id' => $invoiceId]);
+            $__ownsPay = false;
+            if (is_array($__payB)) {
+                if ($accountId !== '' && (string) ($__payB['user_id'] ?? '') === $accountId) {
+                    $__ownsPay = true;
+                } elseif ($convKey !== '') {
+                    $__bd = json_decode((string) ($__payB['booking_data'] ?? ''), true);
+                    if (is_array($__bd) && (string) ($__bd['gia_conv_key'] ?? '') === $convKey) {
+                        $__ownsPay = true;
+                    }
+                }
+            }
+            if (!$__ownsPay) {
+                return $logReply("I couldn't find that booking on this chat. Let me know what you'd like to book and I'll set it up.");
+            }
             try {
                 if ($payKind === 'paybank') {
                     $r = gia_bp_create_dva($db, $invoiceId, $channel, $channelUserId);

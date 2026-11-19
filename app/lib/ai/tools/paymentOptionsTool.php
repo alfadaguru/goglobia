@@ -51,14 +51,24 @@ class paymentOptionsTool implements giaToolInterface
         if ($db === null) {
             return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Payment options are unavailable right now.'];
         }
+        // OWNERSHIP GUARD (audit D10-1): a booking's amount + payment options are
+        // private. Only the IDENTIFIED account that owns the invoice may read them —
+        // never an anonymous visitor (who could enumerate invoice refs to learn the
+        // amount due on any booking) or a different user. Mirror the hard tool-level
+        // guard get_order_status / get_my_booking_detail already enforce.
+        $accountId = (string) ($context['account_id'] ?? '');
+        if ($accountId === '') {
+            return ['ok' => false, 'error_code' => 'AI_NOT_IDENTIFIED', 'message' => 'Please sign in (or link your account) so I can check your booking\'s payment options.'];
+        }
         $invoiceId = preg_replace('/[^A-Za-z0-9]/', '', (string) ($input['invoice_id'] ?? ''));
         if ($invoiceId === '') {
             return ['ok' => false, 'error_code' => 'AI_BAD_INVOICE', 'message' => 'Which booking? I need its reference.'];
         }
 
-        $b = $db->get('bookings', ['module_type', 'module', 'price_markup', 'currency_markup'], ['invoice_id' => $invoiceId]);
-        if (!$b) {
-            return ['ok' => false, 'error_code' => 'AI_ORDER_NOT_FOUND', 'message' => 'I couldn\'t find that booking.'];
+        $b = $db->get('bookings', ['user_id', 'module_type', 'module', 'price_markup', 'currency_markup'], ['invoice_id' => $invoiceId]);
+        if (!$b || (string) ($b['user_id'] ?? '') !== $accountId) {
+            // Same reply whether the invoice is missing or simply not theirs (no enumeration).
+            return ['ok' => false, 'error_code' => 'AI_ORDER_NOT_FOUND', 'message' => 'I couldn\'t find that booking on your account.'];
         }
         // The service drives which rules apply. For GIA ai_trip bookings the real
         // service is in `module` (e.g. flights/umrah); module_type is 'ai_trip'.
