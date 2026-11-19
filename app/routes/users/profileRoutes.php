@@ -107,8 +107,9 @@ $router->post('/profile', function () use ($SECURE,$db) {
 
             $_SESSION['profile_success'] = 'Password updated successfully';
         } catch (Exception $e) {
+            // Don't leak DB/internal detail to the customer (audit — info disclosure).
             error_log('Password update error: ' . $e->getMessage());
-            $_SESSION['profile_error'] = 'Database error: ' . $e->getMessage();
+            $_SESSION['profile_error'] = 'We could not update your password. Please try again.';
         }
 
         header('Location: ' . root . 'profile');
@@ -205,8 +206,9 @@ $router->post('/profile', function () use ($SECURE,$db) {
         exit;
 
     } catch (Exception $e) {
+        // Don't leak DB/internal detail to the customer (audit — info disclosure).
         error_log('Profile update error: ' . $e->getMessage());
-        $_SESSION['profile_error'] = 'Database error: ' . $e->getMessage();
+        $_SESSION['profile_error'] = 'We could not update your profile. Please try again.';
         header('Location: ' . root . 'profile');
         exit;
     }

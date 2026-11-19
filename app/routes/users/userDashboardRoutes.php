@@ -265,8 +265,29 @@ $router->post('/wallet/topup', function () use ($SECURE, $db) {
         exit;
     }
 
+    // DOUBLE-SUBMIT GUARD (audit LOW): a double-click used to mint a fresh TOP-
+    // invoice + a new pending booking every time, cluttering history with orphan
+    // rows. Reuse a still-unpaid wallet_topup booking for the SAME user+amount+
+    // currency created in the last 2 minutes instead of inserting another.
+    $invoiceId = '';
+    $ok = true;
+    $__recentTopup = $db->get('bookings', ['invoice_id'], [
+        'user_id'        => $userId,
+        'module_type'    => 'wallet_topup',
+        'payment_status' => 'unpaid',
+        'booking_status' => 'pending',
+        'price_markup'   => $amount,
+        'currency_markup'=> $currency,
+        'created_at[>=]' => date('Y-m-d H:i:s', time() - 120),
+        'ORDER'          => ['id' => 'DESC'],
+    ]);
+    if ($__recentTopup && !empty($__recentTopup['invoice_id'])) {
+        $invoiceId = (string) $__recentTopup['invoice_id'];
+    }
+
     // Create the synthetic top-up booking (module=wallet_topup). Fills every
     // NOT-NULL bookings column. price_markup is the amount charged.
+    if ($invoiceId === '') {
     $invoiceId = 'TOP' . strtoupper(substr(bin2hex(random_bytes(5)), 0, 9));
     $ok = $db->insert('bookings', [
         'invoice_id'        => $invoiceId,
@@ -294,6 +315,7 @@ $router->post('/wallet/topup', function () use ($SECURE, $db) {
         'booking_date'      => date('Y-m-d'),
         'created_at'        => date('Y-m-d H:i:s'),
     ]);
+    } // end: create only when not reusing a fresh unpaid top-up
     if (!$ok) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not start the top-up. Please try again.'];
         header('Location: ' . root . 'dashboard');

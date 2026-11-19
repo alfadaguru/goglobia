@@ -8,6 +8,12 @@ $referrerAmt = number_format((float) ($cfg['referrer_amount'] ?? 0), 0);
 $refereeAmt  = number_format((float) ($cfg['referee_amount'] ?? 0), 0);
 $code = htmlspecialchars((string) ($d['code'] ?? ''));
 $link = htmlspecialchars((string) ($d['link'] ?? ''));
+// JS-context-safe forms (audit — XSS hardening): htmlspecialchars is for HTML text,
+// not JS string literals. json_encode produces a correctly-quoted/escaped JS string
+// for the copy() handlers below. Codes are system-generated today, so this is
+// defense-in-depth, but it's the correct belt for any future format.
+$codeJs = json_encode((string) ($d['code'] ?? ''), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$linkJs = json_encode((string) ($d['link'] ?? ''), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 $statusChip = function (string $s): string {
     $map = ['pending'=>'bg-gray-100 text-gray-600','qualified'=>'bg-blue-100 text-blue-700','hold'=>'bg-amber-100 text-amber-800','rewarded'=>'bg-green-100 text-green-800','reversed'=>'bg-red-100 text-red-700'];
     $label = ['pending'=>'Invited','qualified'=>'Booked','hold'=>'Reward pending','rewarded'=>'Rewarded','reversed'=>'Cancelled'];
@@ -42,7 +48,7 @@ $statusChip = function (string $s): string {
         <label class="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Your referral code</label>
         <div class="flex items-center gap-2 mb-4">
             <div class="flex-1 font-mono text-lg font-extrabold tracking-wider text-gray-900 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5"><?= $code ?></div>
-            <button type="button" @click="copy('<?= $code ?>')" class="btn-outline px-3 py-2.5 rounded-lg border border-gray-200 text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-gray-50">
+            <button type="button" @click="copy(<?= $codeJs ?>)" class="btn-outline px-3 py-2.5 rounded-lg border border-gray-200 text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-gray-50">
                 <span class="material-symbols-outlined !text-[18px]">content_copy</span> Copy
             </button>
         </div>
@@ -50,7 +56,7 @@ $statusChip = function (string $s): string {
         <label class="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Your invite link</label>
         <div class="flex items-center gap-2">
             <div class="flex-1 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 truncate"><?= $link ?></div>
-            <button type="button" @click="copy('<?= $link ?>')" class="btn px-3 py-2.5 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5">
+            <button type="button" @click="copy(<?= $linkJs ?>)" class="btn px-3 py-2.5 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5">
                 <span class="material-symbols-outlined !text-[18px]" x-text="copied ? 'check' : 'content_copy'"></span>
                 <span x-text="copied ? 'Copied!' : 'Copy link'"></span>
             </button>
