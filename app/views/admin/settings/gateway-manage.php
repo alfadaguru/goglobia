@@ -301,7 +301,7 @@ try {
         <span class="material-icon material-symbols-outlined">
             <?= $_SESSION['message']['type'] === 'success' ? 'check_circle' : 'error' ?>
         </span>
-        <p><?= isset($_SESSION['message']['key']) ? constant('T::' . $_SESSION['message']['key']) : $_SESSION['message']['text'] ?></p>
+        <p><?= isset($_SESSION['message']['key']) ? constant('T::' . $_SESSION['message']['key']) : htmlspecialchars((string) $_SESSION['message']['text'], ENT_QUOTES, 'UTF-8') ?></p>
     </div>
     <?php unset($_SESSION['message']); ?>
 <?php endif; ?>
@@ -317,7 +317,7 @@ try {
             </div>
             <div>
                 <h1 class="text-2xl font-bold text-slate-800">
-                    <?= ucwords(str_replace('_', ' ', $gateway['name'])) ?> <?=T::configuration?>
+                    <?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) $gateway['name'])), ENT_QUOTES, 'UTF-8') ?> <?=T::configuration?>
                 </h1>
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-sm text-slate-600">
                     <span class="flex items-center gap-1">
@@ -404,7 +404,7 @@ try {
                                     <h3 class="text-sm font-semibold text-gray-900"><?=T::api_credentials?></h3>
                                 </div>
                                 <span class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
-                                    <?= ucfirst($gateway['name']) ?> <?=T::integration?>
+                                    <?= htmlspecialchars(ucfirst((string) $gateway['name']), ENT_QUOTES, 'UTF-8') ?> <?=T::integration?>
                                 </span>
                             </div>
                         </div>
@@ -415,9 +415,19 @@ try {
                                     $required = is_array($config) ? ($config['required'] ?? false) : true;
                                     $placeholder = is_array($config) ? ($config['placeholder'] ?? '') : '';
                                 ?>
+                                <?php
+                                    // G-01 (payment-gateways audit): NEVER render the real secret into
+                                    // the DOM. c1..c5 hold live secret keys (Stripe sk_live_…, Adyen HMAC
+                                    // webhook key, etc.). Show a masked placeholder when a value is set;
+                                    // the field is submitted blank-or-masked and the update handler keeps
+                                    // the existing secret unless the admin types a NEW one. Same
+                                    // mask/keep round-trip used for the AI provider keys.
+                                    $credStored = trim((string) ($gateway[$field] ?? ''));
+                                    $credMasked = function_exists('passportAiMaskSecret') ? passportAiMaskSecret($credStored) : ($credStored !== '' ? str_repeat('•', 12) : '');
+                                ?>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">
-                                        <?= $label ?>
+                                        <?= htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8') ?>
                                         <?php if ($required): ?>
                                             <span class="text-red-500">*</span>
                                         <?php else: ?>
@@ -426,10 +436,15 @@ try {
                                     </label>
                                     <input type="text"
                                            name="<?= $field ?>"
-                                           value="<?= htmlspecialchars($gateway[$field] ?? '') ?>"
+                                           value="<?= htmlspecialchars($credMasked, ENT_QUOTES, 'UTF-8') ?>"
+                                           data-secret-field="1"
+                                           autocomplete="off"
                                            class="input w-full"
-                                           placeholder="<?= $placeholder ?: 'Enter ' . strtolower($label) ?>"
-                                           <?= $required ? 'required' : '' ?>>
+                                           placeholder="<?= htmlspecialchars((string) ($placeholder ?: 'Enter ' . strtolower((string) $label)), ENT_QUOTES, 'UTF-8') ?>"
+                                           <?= ($required && $credStored === '') ? 'required' : '' ?>>
+                                    <?php if ($credStored !== ''): ?>
+                                        <p class="text-gray-400 text-xs mt-1"><?=T::leave_blank_to_keep_current ?? 'Leave unchanged to keep the saved value'?></p>
+                                    <?php endif; ?>
                                 </div>
                             <?php endforeach; ?>
                         </div>
@@ -553,11 +568,11 @@ try {
                         </div>
                         <div class="flex justify-between text-sm">
                             <span class="text-gray-500"><?=T::type?>:</span>
-                            <span class="font-medium capitalize"><?= $gateway['type'] ?></span>
+                            <span class="font-medium capitalize"><?= htmlspecialchars((string) $gateway['type'], ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                         <div class="flex justify-between text-sm">
                             <span class="text-gray-500"><?=T::name?>:</span>
-                            <span class="font-medium capitalize"><?= ucwords(str_replace('_', ' ', $gateway['name'])) ?></span>
+                            <span class="font-medium capitalize"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) $gateway['name'])), ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                         <div class="flex justify-between text-sm">
                             <span class="text-gray-500"><?=T::status?>:</span>
@@ -573,7 +588,7 @@ try {
                         </div>
                         <div class="flex justify-between text-sm">
                             <span class="text-gray-500"><?=T::currency?>:</span>
-                            <span class="font-medium text-gray-900"><?= $gateway['currency'] ?></span>
+                            <span class="font-medium text-gray-900"><?= htmlspecialchars((string) $gateway['currency'], ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                         <div class="flex justify-between text-sm">
                             <span class="text-gray-500"><?=T::order?>:</span>
@@ -782,7 +797,7 @@ function testGatewayCredentials() {
     gwTermStatus('testing…', 'text-yellow-400');
     gwTermLine('$ test-gateway-credentials');
 
-    fetch('<?= root.admin ?>/settings/gateway/test/<?= strtolower(str_replace(' ', '_', $gateway['name'])) ?>', { method: 'POST', body: fd })
+    fetch('<?= root.admin ?>/settings/gateway/test/<?= rawurlencode(strtolower(str_replace(' ', '_', (string) $gateway['name']))) ?>', { method: 'POST', body: fd })
         .then(function (r) { return r.json(); })
         .then(function (d) {
             const steps = Array.isArray(d.steps) ? d.steps : [];

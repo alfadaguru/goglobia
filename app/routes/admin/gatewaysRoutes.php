@@ -88,7 +88,20 @@ if (!function_exists('gw_test_http')) {
     {
         $g = $db->get('payment_gateways', '*', ['name' => $name]) ?: ['name' => $name];
         foreach (['c1', 'c2', 'c3', 'c4', 'c5', 'dev_mode', 'currency'] as $f) {
-            if (array_key_exists($f, $_POST)) { $g[$f] = trim((string) $_POST[$f]); }
+            if (!array_key_exists($f, $_POST)) { continue; }
+            $v = trim((string) $_POST[$f]);
+            // G-01 (payment-gateways audit): the edit form now submits a MASKED value
+            // for an unchanged secret. For a credential field, an empty-or-masked POST
+            // means "use the stored key" — so don't overlay it (that would test the
+            // mask, not the real secret). Non-secret fields (dev_mode/currency) overlay
+            // as before.
+            if (in_array($f, ['c1', 'c2', 'c3', 'c4', 'c5'], true)) {
+                $isMasked = function_exists('passportAiIsMaskedSecret')
+                    ? passportAiIsMaskedSecret($v)
+                    : (strpos($v, '•') !== false || strpos($v, '*') !== false);
+                if ($v === '' || $isMasked) { continue; }
+            }
+            $g[$f] = $v;
         }
         return $g;
     }
@@ -126,13 +139,14 @@ $router->post(admin.'/settings/gateway/update/(\d+)', function ($gatewayId) use 
         }
         ob_start();
 
+        // G-04 (payment-gateways audit): gate this ajax branch the SAME way as the
+        // sibling /gateway/ajax-update route — ADMIN_AUTH() (admits a full admin OR
+        // an active employee) + admin_require. The old `user_role === 'admin'` check
+        // made this status/dev_mode toggle full-admin-only, silently denying an
+        // employee who holds payment_gateways:edit. admin_require is fail-closed for
+        // anon/unauthorized, so no separate "Authentication required" branch is needed.
+        ADMIN_AUTH();
         admin_require($db, 'payment_gateways', 'edit');
-        if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
-            ob_clean();
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'message' => 'Authentication required']);
-            exit;
-        }
         // CSRF: this ajax branch toggles gateway status/dev_mode — it was unguarded
         // while the sibling form branch (below, ~line 180) and /gateway/ajax-update
         // both validate. Accepts the POST token or the X-CSRF-TOKEN header app.js sends.
@@ -204,12 +218,27 @@ $router->post(admin.'/settings/gateway/update/(\d+)', function ($gatewayId) use 
             'order' => (isset($_POST['order']) && is_numeric($_POST['order'])) ? (int)$_POST['order'] : (int)($gateway['order'] ?? 0)
         ];
 
-        // Add credential fields (c1-c5)
+        // Add credential fields (c1-c5).
+        // G-01 (payment-gateways audit): the edit form now renders a MASKED value
+        // for an already-set secret (never the cleartext key). So on save, a field
+        // that comes back EMPTY or still equal to the mask means "keep the existing
+        // secret" — only write a credential the admin actually re-typed. This both
+        // keeps the real key out of the DOM and prevents an edit of other fields
+        // from wiping/round-tripping the stored secret.
         for ($i = 1; $i <= 5; $i++) {
             $field = 'c' . $i;
-            if (isset($_POST[$field])) {
-                $updateData[$field] = $_POST[$field];
+            if (!isset($_POST[$field])) {
+                continue;
             }
+            $posted = trim((string) $_POST[$field]);
+            $isMasked = function_exists('passportAiIsMaskedSecret')
+                ? passportAiIsMaskedSecret($posted)
+                : (strpos($posted, '•') !== false || strpos($posted, '*') !== false);
+            if ($posted === '' || $isMasked) {
+                // keep whatever is stored — do not overwrite with blank/mask
+                continue;
+            }
+            $updateData[$field] = $posted;
         }
 
         // Add note if provided
