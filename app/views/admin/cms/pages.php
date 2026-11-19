@@ -4,7 +4,7 @@
 <?php if (isset($_SESSION['message'])): ?>
     <div class="<?= $_SESSION['message']['type'] === 'success' ? 'alert-success' : 'alert-error' ?> mb-4">
         <span class="material-symbols-outlined"><?= $_SESSION['message']['type'] === 'success' ? 'check_circle' : 'error' ?></span>
-        <div><?= $_SESSION['message']['text'] ?></div>
+        <div><?= htmlspecialchars((string) $_SESSION['message']['text'], ENT_QUOTES, 'UTF-8') ?></div>
     </div>
     <?php unset($_SESSION['message']); ?>
 <?php endif; ?>

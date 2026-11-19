@@ -68,8 +68,16 @@
                 if (empty($content)) {
                     echo '<p class="text-gray-500 italic">No content available.</p>';
                 } elseif (strip_tags($content) !== $content) {
-                    // HTML content
-                    $processedContent = $content;
+                    // HTML content.
+                    // SECURITY (admin-CMS audit C-01): this body is admin-authored
+                    // raw HTML published to every visitor. Run it through the
+                    // allowlist sanitizer FIRST (strips <script>/on*=/javascript:
+                    // etc. while keeping WYSIWYG formatting) so a stored payload
+                    // cannot execute in a visitor's or admin's browser. The CSP
+                    // here uses 'unsafe-inline', so this is the real control.
+                    $processedContent = function_exists('cms_sanitize_html')
+                        ? cms_sanitize_html($content)
+                        : htmlspecialchars($content, ENT_QUOTES, 'UTF-8');
                     $processedContent = str_replace('<h1>', '<h1 class="text-2xl font-bold text-gray-900 mb-4 mt-6 first:mt-0">', $processedContent);
                     $processedContent = str_replace('<h2>', '<h2 class="text-xl font-bold text-gray-900 mb-3 mt-5 first:mt-0">', $processedContent);
                     $processedContent = str_replace('<h3>', '<h3 class="text-lg font-semibold text-gray-900 mb-2 mt-4">', $processedContent);

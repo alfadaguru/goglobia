@@ -9,7 +9,7 @@
     <?php if (isset($_SESSION['message'])): ?>
         <div class="alert alert-<?= $_SESSION['message']['type'] === 'success' ? 'success' : 'danger' ?> mb-4">
             <span class="material-symbols-outlined"><?= $_SESSION['message']['type'] === 'success' ? 'check_circle' : 'error' ?></span>
-            <div><?= $_SESSION['message']['text'] ?></div>
+            <div><?= htmlspecialchars((string) $_SESSION['message']['text'], ENT_QUOTES, 'UTF-8') ?></div>
         </div>
         <?php unset($_SESSION['message']); ?>
     <?php endif; ?>
@@ -69,7 +69,7 @@
                                     <option value="">-- <?= T::select_page ?? 'Select Page' ?> --</option>
                                     <?php if (!empty($all_pages)): ?>
                                         <?php foreach ($all_pages as $page): ?>
-                                            <option value="<?= $page['slug_url'] ?>" data-slug="<?= htmlspecialchars($page['slug_url']) ?>" data-name="<?= htmlspecialchars($page['page_name']) ?>">
+                                            <option value="<?= htmlspecialchars((string) $page['slug_url'], ENT_QUOTES, 'UTF-8') ?>" data-slug="<?= htmlspecialchars($page['slug_url']) ?>" data-name="<?= htmlspecialchars($page['page_name']) ?>">
                                                 <?= htmlspecialchars($page['page_name']) ?>
                                             </option>
                                         <?php endforeach; ?>
@@ -248,7 +248,7 @@
                         <option value="">-- <?= T::select_page ?? 'Select Page' ?> --</option>
                         <?php if (!empty($all_pages)): ?>
                             <?php foreach ($all_pages as $page): ?>
-                                <option value="<?= $page['slug_url'] ?>" data-slug="<?= htmlspecialchars($page['slug_url']) ?>">
+                                <option value="<?= htmlspecialchars((string) $page['slug_url'], ENT_QUOTES, 'UTF-8') ?>" data-slug="<?= htmlspecialchars($page['slug_url']) ?>">
                                     <?= htmlspecialchars($page['page_name']) ?>
                                 </option>
                             <?php endforeach; ?>
@@ -522,7 +522,11 @@ function populateParentMenus(currentPosition, excludeId = null) {
     const hierarchicalItems = getChildren(0, 0);
 
     hierarchicalItems.forEach(item => {
-        select.append(`<option value="${item.id}">${item.title}</option>`);
+        // C-05 (admin-CMS audit): build the option with .text() so a menu label
+        // like <img onerror=…> is inserted as TEXT, not parsed as HTML (the label
+        // is escaped on server render but read back via .text() and would execute
+        // if re-templated into innerHTML here).
+        select.append($('<option>').val(item.id).text(item.title));
     });
 }
 
@@ -604,7 +608,11 @@ function updateInlineParentOptions() {
     const hierarchicalItems = getChildren(0, 0);
 
     hierarchicalItems.forEach(item => {
-        select.append(`<option value="${item.id}">${item.title}</option>`);
+        // C-05 (admin-CMS audit): build the option with .text() so a menu label
+        // like <img onerror=…> is inserted as TEXT, not parsed as HTML (the label
+        // is escaped on server render but read back via .text() and would execute
+        // if re-templated into innerHTML here).
+        select.append($('<option>').val(item.id).text(item.title));
     });
 }
 

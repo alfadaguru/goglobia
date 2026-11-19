@@ -87,11 +87,20 @@ $router->post(admin.'/cms/pages/manage', function () use ($SECURE,$db) {
             redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/cms/pages');
         }
 
+        // Slug: sanitize SERVER-side (admin-CMS audit C-02). The client sanitizeSlug
+        // JS is bypassable via a direct POST, and the raw slug flows into admin
+        // menu <option value> / preview hrefs — constrain it to a URL-safe form.
+        $rawSlug = strtolower(trim((string) ($_POST['slug_url'] ?? '')));
+        $rawSlug = preg_replace('~[^a-z0-9/_-]+~', '-', $rawSlug);
+        $rawSlug = trim(preg_replace('~-+~', '-', $rawSlug), '-/');
+
         // Prepare data
         $data = [
             'page_name' => trim($_POST['page_name']),
-            'slug_url' => trim($_POST['slug_url']),
-            'content' => $_POST['content'] ?? '',
+            'slug_url' => $rawSlug,
+            // C-01 defense-in-depth: sanitize the published HTML on save too, so the
+            // DB never holds active content (the public render sanitizes as well).
+            'content' => function_exists('cms_sanitize_html') ? cms_sanitize_html($_POST['content'] ?? '') : ($_POST['content'] ?? ''),
             'position' => $_POST['position'] ?? 'header',
             'order' => (int)($_POST['order'] ?? 0),
             'parent_id' => !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null,
@@ -420,7 +429,10 @@ $router->post(admin.'/cms/pages/translate/(\d+)', function ($id) use ($SECURE,$d
         $filtered_contents = $existing_contents;
         foreach ($content_translations as $lang => $value) {
             if (!empty(trim($value))) {
-                $filtered_contents[$lang] = trim($value);
+                // C-01 defense-in-depth: translation bodies are published HTML too.
+                $filtered_contents[$lang] = function_exists('cms_sanitize_html')
+                    ? cms_sanitize_html(trim($value))
+                    : trim($value);
                 $updated_languages[$lang] = true;
             } else {
                 unset($filtered_contents[$lang]);

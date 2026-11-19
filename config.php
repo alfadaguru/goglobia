@@ -71,6 +71,7 @@ if (!defined('root')) {
 require_once 'vendor/autoload.php';
 require_once 'modules/router.php'; // AppRouter\Router — the main app (index.php) instantiates it; it is NOT in composer autoload, so load it explicitly here in the bootstrap (the modules gateway requires it separately).
 require_once 'app/lib/csrf.php';
+require_once 'app/lib/html_sanitizer.php'; // allowlist HTML sanitizer for published CMS content (admin-CMS audit C-01)
 require_once 'app/lib/crud.php';
 require_once 'app/lib/notify.php';
 require_once 'app/lib/functions.php';

@@ -87,7 +87,8 @@ $router->post(admin.'/cms/menus/add-to-menu', function () use ($SECURE,$db) {
 $router->post(admin.'/cms/menus/move-menu-item', function () use ($SECURE,$db) {
     ADMIN_AUTH();
     admin_require($db, 'cms', 'edit');
-    
+    CSRF::guard(); // C-04 (admin-CMS audit): was the one menu mutation missing the guard its 9 siblings have.
+
     $page_id = $_POST['page_id'] ?? 0;
     $position = $_POST['position'] ?? 'header';
     
