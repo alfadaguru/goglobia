@@ -291,6 +291,24 @@ $sidebarMenu = array_merge($sidebarMenu, [
         'active' => str_contains($currentPath, 'offers')
     ],
 
+    // Price Alerts - watch a route/stay for a price drop
+    [
+        'type' => 'link',
+        'label' => 'Price Alerts',
+        'icon' => 'notifications_active',
+        'url' => root . 'price-alerts',
+        'active' => str_contains($currentPath, 'price-alerts')
+    ],
+
+    // Saved Travellers - reusable traveller profiles
+    [
+        'type' => 'link',
+        'label' => 'Saved Travellers',
+        'icon' => 'group',
+        'url' => root . 'travellers',
+        'active' => str_contains($currentPath, 'travellers')
+    ],
+
     // Favourites - User's saved items
     [
         'type' => 'link',

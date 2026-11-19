@@ -41,6 +41,9 @@ email you every run.)
 */15 * * * *    curl -s "https://goglobia.com/supplier_release_earnings" > /dev/null 2>&1
 0 * * * *       curl -s "https://goglobia.com/referral_release_sweep"    > /dev/null 2>&1
 
+# ── Customer price alerts (notify on a watched price drop) ───────────
+*/30 * * * *    curl -s "https://goglobia.com/price_alerts_sweep"        > /dev/null 2>&1
+
 # ── Daily maintenance ────────────────────────────────────────────────
 */15 * * * *    curl -s "https://goglobia.com/update_currency_rates"     > /dev/null 2>&1
 30 2 * * *      curl -s "https://goglobia.com/cron/airalo-sync"          > /dev/null 2>&1
@@ -70,6 +73,7 @@ email you every run.)
 | */5 | `/umrah_expire_holds` | Releases expired umrah seat holds so inventory frees. | `crons/umrahHoldsRoutes.php` |
 | */15 | `/supplier_release_earnings` | Advances supplier earnings `pending → available` after the clearance window. | `crons/supplierEarningsRoutes.php` |
 | hourly | `/referral_release_sweep` | Releases referral rewards after the refund hold window; claws back on refund. | `crons/referralReleaseRoutes.php` |
+| */30 | `/price_alerts_sweep` | Re-checks customer price-alert watches; notifies (bell + email) on the first qualifying price drop. Skips watches whose module has no cheap re-price wired (never a false fire). | `users/priceAlertsRoutes.php` → `price_alerts_sweep()` |
 | */15 | `/update_currency_rates` | Refreshes FX rates from the currency API. | `crons/currencyRatesRoutes.php` |
 | daily 02:30 | `/cron/airalo-sync` | Syncs the Airalo eSIM country/package catalogue. | `crons/airaloSyncRoutes.php` |
 | daily 09:00 | `/send_credits_reminders` | Reminds agents of credit-line payment due dates. | `crons/creditsRemindersRoutes.php` |

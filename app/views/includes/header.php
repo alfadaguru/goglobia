@@ -1022,6 +1022,24 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             </a>
 
             <?php if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])): ?>
+            <?php
+              // NOTIFICATIONS BELL — unread count read server-side at render, kept
+              // fresh by a light poll. Customer surface only; hidden for suppliers/
+              // agents who land on their own portals.
+              $__bellUnread = 0;
+              if (function_exists('notifications_unread_count')) {
+                  try { $__bellUnread = (int) notifications_unread_count($db, (string) $_SESSION['user_id']); }
+                  catch (\Throwable $e) { $__bellUnread = 0; }
+              }
+            ?>
+            <!-- NOTIFICATION BELL - DESKTOP -->
+            <a href="<?= root ?>notifications" class="relative hidden md:flex items-center justify-center w-10 h-10 rounded-full text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors" title="Notifications"
+               x-data="notifBell(<?= $__bellUnread ?>)" x-init="poll()">
+              <span class="material-symbols-outlined !text-[22px]">notifications</span>
+              <span x-show="unread > 0" x-cloak
+                    class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center"
+                    x-text="unread > 99 ? '99+' : unread"></span>
+            </a>
             <!-- USER DROPDOWN - DESKTOP ONLY -->
             <div class="relative group">
               <button class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-full transition-all duration-200">
@@ -1385,4 +1403,29 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
     // Agent sidebar (Travel-Agent ERP portal) — rendered only for agency owners/
     // staff (the file self-guards on agent_acting_context too).
     if (!empty($isAgentSidebar)) { include "app/views/agent/sidebar.php"; }
+    ?>
+
+    <?php if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])): ?>
+    <!-- Notification-bell Alpine component (defined once; used by the header bell). -->
+    <script>
+    if (typeof window.notifBell === 'undefined') {
+      window.notifBell = function (initial) {
+        return {
+          unread: initial || 0,
+          poll() {
+            // Light refresh every 60s so the badge stays current without a reload.
+            const tick = () => {
+              fetch('<?= root ?>notifications/unread-count', { credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(d => { if (d && typeof d.unread === 'number') this.unread = d.unread; })
+                .catch(() => {});
+            };
+            setInterval(tick, 60000);
+          }
+        };
+      };
+    }
+    </script>
+    <?php endif; ?>
+    <?php // (sidebars rendered above)
     ?>

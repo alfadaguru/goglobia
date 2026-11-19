@@ -149,6 +149,9 @@ require_once 'app/routes/users/savedCardsRoutes.php';   // customer saved-cards 
 require_once 'app/routes/users/loyaltyRoutes.php';      // customer loyalty points page
 require_once 'app/routes/users/offersRoutes.php';       // customer promo codes / offers page
 require_once 'app/routes/users/manageBookingRoutes.php'; // customer self-service cancellation request
+require_once 'app/routes/users/travellersRoutes.php';    // customer saved travellers (profiles)
+require_once 'app/routes/users/notificationsRoutes.php'; // customer notifications centre
+require_once 'app/routes/users/priceAlertsRoutes.php';   // customer price alerts
 
 // USERS AGENTS ROUTES
 require_once 'app/routes/users/depositRoutes.php';
