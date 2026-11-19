@@ -31,16 +31,27 @@ $thisMonthUsers = $db->count("users", [
 
 // This month revenue — commission earned on every booking of the month,
 // matching the per-booking "Earning" shown in Recent Bookings.
-$thisMonthRevenue = $db->sum("bookings", "commission", [
-    "created_at[>=]" => date('Y-m-01'),
-    "created_at[<]" => date('Y-m-01', strtotime('+1 month'))
-]) ?: 0;
-
+// F1: revenue must count only PAID, non-cancelled bookings — not unpaid/
+// abandoned/cancelled rows (which previously inflated it). F4: the fallback to
+// gross price_original fires only when NO paid commission exists (unpopulated
+// commission column), and is itself scoped to paid bookings.
+// F2/F3: the headline card shows ONE number with the DEFAULT currency symbol,
+// so it must only sum DEFAULT-currency bookings — summing every currency into one
+// scalar (the old behaviour) produced a meaningless mixed total. Blank
+// currency_markup is treated as the site default (it is rendered with that symbol).
+$__defCur = strtoupper((string) $currencySymbol);
+$revenuePaidFilter = static function (string $start, string $endExclusive) use ($__defCur): array {
+    return [
+        "payment_status" => "paid",
+        "booking_status[!]" => "cancelled",
+        "currency_markup" => [$__defCur, strtolower($__defCur), ''],
+        "created_at[>=]" => $start,
+        "created_at[<]" => $endExclusive,
+    ];
+};
+$thisMonthRevenue = $db->sum("bookings", "commission", $revenuePaidFilter(date('Y-m-01'), date('Y-m-01', strtotime('+1 month')))) ?: 0;
 if ($thisMonthRevenue == 0) {
-    $thisMonthRevenue = $db->sum("bookings", "price_original", [
-        "created_at[>=]" => date('Y-m-01'),
-        "created_at[<]" => date('Y-m-01', strtotime('+1 month'))
-    ]) ?: 0;
+    $thisMonthRevenue = $db->sum("bookings", "price_original", $revenuePaidFilter(date('Y-m-01'), date('Y-m-01', strtotime('+1 month')))) ?: 0;
 }
 
 // Get module types and their counts
@@ -82,13 +93,20 @@ $lastMonthBookings = $db->count("bookings", [
     "created_at[<=]" => $lastMonthEnd
 ]) ?: 0;
 
+// F1 + F2/F3: paid, non-cancelled, DEFAULT-currency only (see $revenuePaidFilter).
 $lastMonthRevenue = $db->sum("bookings", "commission", [
+    "payment_status" => "paid",
+    "booking_status[!]" => "cancelled",
+    "currency_markup" => [$__defCur, strtolower($__defCur), ''],
     "created_at[>=]" => $lastMonthStart,
     "created_at[<=]" => $lastMonthEnd
 ]) ?: 0;
 
 if ($lastMonthRevenue == 0) {
     $lastMonthRevenue = $db->sum("bookings", "price_original", [
+        "payment_status" => "paid",
+        "booking_status[!]" => "cancelled",
+        "currency_markup" => [$__defCur, strtolower($__defCur), ''],
         "created_at[>=]" => $lastMonthStart,
         "created_at[<=]" => $lastMonthEnd
     ]) ?: 0;
@@ -205,14 +223,21 @@ $unpaidBookings = $db->count("bookings", [
 ]) ?: 0;
 
 // PENDING BOOKINGS (NEED CONFIRMATION)
+// F6: a paid booking awaiting admin confirmation can be 'pending' OR 'held'
+// (the booking_status enum has both). The old filter only counted 'pending', so
+// paid+held bookings silently dropped out of the action queue.
 $pendingConfirmations = $db->count("bookings", [
-    "booking_status" => "pending",
+    "booking_status" => ["pending", "held"],
     "payment_status" => "paid"
 ]) ?: 0;
 
 // FAILED PAYMENTS (NEED ATTENTION)
+// F9: payment_status has NO 'failed' member (enum = paid/unpaid/refunded/
+// partially_paid/awaiting_verification), so counting 'failed' was always 0 — a
+// dead badge that also fed $totalActionsRequired. The real "needs admin action"
+// payment state is awaiting_verification (manual-transfer/DVA proofs pending).
 $failedPayments = $db->count("bookings", [
-    "payment_status" => "failed"
+    "payment_status" => "awaiting_verification"
 ]) ?: 0;
 
 // PENDING TRANSACTIONS (DEPOSITS/CREDITS AWAITING APPROVAL)
@@ -221,11 +246,12 @@ $pendingTransactions = $db->count("transactions", [
 ]) ?: 0;
 
 // PENDING USER VERIFICATIONS (ACTIVE USERS WHO HAVEN'T VERIFIED EMAIL)
+// F7: the OR had a DUPLICATE 'email_verified' key — PHP kept only the last
+// (=> null), so this silently counted ONLY NULL rows (≈0) and never the
+// unverified (=0) users it's meant to surface. Medoo handles [0, null] as an
+// IN (…) OR IS NULL set, so both are matched now.
 $pendingVerifications = $db->count("users", [
-    "OR" => [
-        "email_verified" => "0",
-        "email_verified" => null
-    ],
+    "email_verified" => [0, null],
     "status" => "active"
 ]) ?: 0;
 
@@ -254,73 +280,59 @@ $dailyConfirmed = [];
 $dailyPending = [];
 $dailyCancelled = [];
 
+// F5 (performance): this used to run ~7 queries PER DAY in a 30-iteration loop
+// (~210 round-trips per dashboard load). Replaced with ONE grouped query that
+// returns every per-day metric at once; PHP then pivots it onto the 30-day axis
+// (zero-filling days with no bookings). F1 also applied here — daily "revenue"
+// counts only PAID, non-cancelled bookings.
+$rangeStart = date('Y-m-d', strtotime('-' . ($daysToShow - 1) . ' days')) . ' 00:00:00';
+$rangeEnd   = date('Y-m-d') . ' 23:59:59';
+$byDay = [];
+try {
+    $startQ = $db->pdo->quote($rangeStart);
+    $endQ   = $db->pdo->quote($rangeEnd);
+    // F2/F3: the chart revenue line, like the cards, is in the DEFAULT currency
+    // (blank currency_markup == site default), so it never sums mixed currencies.
+    $defCurQ   = $db->pdo->quote($__defCur);
+    $defCurLcQ = $db->pdo->quote(strtolower($__defCur));
+    $curCond   = "(currency_markup IN ({$defCurQ}, {$defCurLcQ}) OR currency_markup = '' OR currency_markup IS NULL)";
+    $dailyRows = $db->query(
+        "SELECT DATE(created_at) AS d,
+                COUNT(*) AS bookings,
+                SUM(CASE WHEN payment_status='paid' AND booking_status<>'cancelled' AND {$curCond}
+                         THEN CAST(NULLIF(commission,'') AS DECIMAL(18,2)) ELSE 0 END)     AS commission_sum,
+                SUM(CASE WHEN payment_status='paid' AND booking_status<>'cancelled' AND {$curCond}
+                         THEN price_original ELSE 0 END)                                    AS gross_sum,
+                SUM(payment_status='paid')      AS paid,
+                SUM(payment_status='unpaid')    AS unpaid,
+                SUM(booking_status='confirmed') AS confirmed,
+                SUM(booking_status='pending')   AS pending,
+                SUM(booking_status='cancelled') AS cancelled
+         FROM bookings
+         WHERE created_at >= {$startQ} AND created_at <= {$endQ}
+         GROUP BY DATE(created_at)"
+    )->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($dailyRows as $r) { $byDay[(string) $r['d']] = $r; }
+} catch (\Throwable $e) {
+    error_log('dashboard daily stats: ' . $e->getMessage());
+    $byDay = [];
+}
+
 for ($i = $daysToShow - 1; $i >= 0; $i--) {
     $date = date('Y-m-d', strtotime("-$i days"));
-    $dateLabel = date('M d', strtotime("-$i days"));
-    $lastDays[] = $dateLabel;
+    $lastDays[] = date('M d', strtotime("-$i days"));
+    $row = $byDay[$date] ?? null;
 
-    $startDate = $date . ' 00:00:00';
-    $endDate = $date . ' 23:59:59';
-
-    // Total bookings for this day
-    $dayBookings = $db->count("bookings", [
-        "created_at[>=]" => $startDate,
-        "created_at[<=]" => $endDate
-    ]) ?: 0;
-    $dailyBookings[] = $dayBookings;
-
-    // Revenue (commission) for this day — all bookings, same basis as the
-    // month cards above.
-    $dayRevenue = $db->sum("bookings", "commission", [
-        "created_at[>=]" => $startDate,
-        "created_at[<=]" => $endDate
-    ]) ?: 0;
-
-    // If commission is 0, try price_original
-    if ($dayRevenue == 0) {
-        $dayRevenue = $db->sum("bookings", "price_original", [
-            "created_at[>=]" => $startDate,
-            "created_at[<=]" => $endDate
-        ]) ?: 0;
-    }
-    $dailyRevenue[] = round($dayRevenue, 2);
-
-    // Payment status counts
-    $dayPaid = $db->count("bookings", [
-        "created_at[>=]" => $startDate,
-        "created_at[<=]" => $endDate,
-        "payment_status" => "paid"
-    ]) ?: 0;
-    $dailyPaid[] = $dayPaid;
-
-    $dayUnpaid = $db->count("bookings", [
-        "created_at[>=]" => $startDate,
-        "created_at[<=]" => $endDate,
-        "payment_status" => "unpaid"
-    ]) ?: 0;
-    $dailyUnpaid[] = $dayUnpaid;
-
-    // Booking status counts
-    $dayConfirmed = $db->count("bookings", [
-        "created_at[>=]" => $startDate,
-        "created_at[<=]" => $endDate,
-        "booking_status" => "confirmed"
-    ]) ?: 0;
-    $dailyConfirmed[] = $dayConfirmed;
-
-    $dayPending = $db->count("bookings", [
-        "created_at[>=]" => $startDate,
-        "created_at[<=]" => $endDate,
-        "booking_status" => "pending"
-    ]) ?: 0;
-    $dailyPending[] = $dayPending;
-
-    $dayCancelled = $db->count("bookings", [
-        "created_at[>=]" => $startDate,
-        "created_at[<=]" => $endDate,
-        "booking_status" => "cancelled"
-    ]) ?: 0;
-    $dailyCancelled[] = $dayCancelled;
+    $dailyBookings[]  = (int) ($row['bookings'] ?? 0);
+    // Commission preferred; fall back to gross ONLY when there is no commission.
+    $commSum  = (float) ($row['commission_sum'] ?? 0);
+    $grossSum = (float) ($row['gross_sum'] ?? 0);
+    $dailyRevenue[]   = round($commSum != 0.0 ? $commSum : $grossSum, 2);
+    $dailyPaid[]      = (int) ($row['paid'] ?? 0);
+    $dailyUnpaid[]    = (int) ($row['unpaid'] ?? 0);
+    $dailyConfirmed[] = (int) ($row['confirmed'] ?? 0);
+    $dailyPending[]   = (int) ($row['pending'] ?? 0);
+    $dailyCancelled[] = (int) ($row['cancelled'] ?? 0);
 }
 
 // Convert to JSON for JavaScript
@@ -785,8 +797,8 @@ $chartDataJson = json_encode($chartData);
                         <?php foreach ($recentBookings as $booking): ?>
                             <tr class="hover:bg-gray-50">
                                 <td class="px-4 py-3">
-                                    <a href="<?php echo root; ?>invoice/<?php echo $booking['module_type']; ?>/<?php echo $booking['invoice_id']; ?>" target="_blank" class="text-blue-600 hover:underline text-sm">
-                                        <?php echo $booking['invoice_id'] ?: 'N/A'; ?> <i class="material-symbols-outlined text-xs">north_east</i>
+                                    <a href="<?php echo root; ?>invoice/<?php echo htmlspecialchars(rawurlencode((string)$booking['module_type']), ENT_QUOTES); ?>/<?php echo htmlspecialchars(rawurlencode((string)$booking['invoice_id']), ENT_QUOTES); ?>" target="_blank" class="text-blue-600 hover:underline text-sm">
+                                        <?php echo htmlspecialchars((string)($booking['invoice_id'] ?: 'N/A')); ?> <i class="material-symbols-outlined text-xs">north_east</i>
                                     </a>
                                 </td>
                                 <td class="px-4 py-3">
@@ -868,7 +880,7 @@ $chartDataJson = json_encode($chartData);
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+                            <td colspan="8" class="px-4 py-8 text-center text-gray-500">
                                 <i class="material-symbols-outlined text-4xl mb-2 opacity-50">book</i>
                                 <p>No bookings found</p>
                             </td>
@@ -881,7 +893,10 @@ $chartDataJson = json_encode($chartData);
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<?php /* Self-hosted Chart.js (was https://cdn.jsdelivr.net/npm/chart.js — an external
+         CDN on the admin dashboard is a supply-chain + offline/slow-load risk, same
+         reason jQuery/Alpine/Pusher were vendored). */ ?>
+<script defer src="<?= root ?>assets/js/vendor/chart-4.4.1.min.js"></script>
 <script>
 // Chart data from PHP
 const chartData = <?php echo $chartDataJson; ?>;
