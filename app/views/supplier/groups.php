@@ -204,7 +204,7 @@ foreach ($rooms as $r) {
         <div>
           <div class="font-medium text-gray-900"><?= htmlspecialchars((string) $g['name']) ?> <span class="font-mono text-xs text-gray-400"><?= htmlspecialchars((string) $g['reference']) ?></span></div>
           <div class="text-xs text-gray-500"><?= htmlspecialchars((string) ($g['company'] ?? '')) ?: '—' ?><?= $g['arrival'] ? ' · ' . htmlspecialchars((string) $g['arrival']) . '→' . htmlspecialchars((string) ($g['departure'] ?? '')) : '' ?> · <?= (int) ($gMembers[$gid] ?? 0) ?> guest(s)</div>
-          <a href="<?= $base ?>/<?= $gid ?>" class="text-xs text-violet-600 hover:underline inline-flex items-center gap-1 mt-0.5">
+          <a href="<?= $base ?>/<?= $gid ?>" class="btn secondary text-xs inline-flex items-center gap-1 mt-1.5">
             <span class="material-symbols-outlined text-sm">meeting_room</span> Manage rooms &amp; rooming
           </a>
         </div>
@@ -246,7 +246,10 @@ foreach ($rooms as $r) {
       <?php endif; ?>
 
       <?php if ($canEdit && !in_array($st, ['completed','cancelled'], true)): ?>
-        <div class="border-t border-gray-100 pt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <!-- PRIMARY actions (report 11.18 V2): the two most-used forms — Hold a block (room
+             type & rate) + Rooming list (add a guest) — stay visible. The less-used
+             master-folio / payment / discount forms move under "Advanced options" below. -->
+        <div class="border-t border-gray-100 pt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
           <!-- Add block — now with LABELS + a live cost estimate (report V2 #5) -->
           <?php if (!empty($roomOpts)): ?>
           <?php
@@ -330,6 +333,17 @@ foreach ($rooms as $r) {
           </div>
           <?php endif; ?>
           <?php endif; ?>
+        </div>
+
+        <!-- ADVANCED OPTIONS (report 11.18 V2): the master folio, payment and discount forms
+             are used less often, so they're collapsed under this toggle to keep the screen
+             clean — staff open it only when needed. The two primary forms stay above. -->
+        <details class="mt-3 border-t border-gray-100 pt-3 group/adv">
+          <summary class="cursor-pointer select-none inline-flex items-center gap-1 text-xs font-semibold text-gray-700 hover:text-gray-900">
+            <span class="material-symbols-outlined text-sm transition-transform group-open/adv:rotate-90">chevron_right</span>
+            Advanced options <span class="font-normal text-gray-400">— folio, payment &amp; discount</span>
+          </summary>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
           <!-- Master folio: charges / extras / refunds (the plain line form) -->
           <form action="<?= $base ?>/folio" method="POST" class="space-y-1.5">
             <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
@@ -375,7 +389,8 @@ foreach ($rooms as $r) {
             <p class="text-[11px] text-gray-400">Capped by your role; over-limit is not applied.</p>
           </form>
           <?php endif; ?>
-        </div>
+          </div>
+        </details>
       <?php endif; ?>
 
       <!-- Group ops: bulk check-in + printable master invoice (PMS #08) -->
