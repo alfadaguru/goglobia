@@ -193,6 +193,47 @@ $router->post(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$
         // Trigger Notifications for status changes
         // 1. Payment Confirmation
         if ($data['payment_status'] === 'paid' && $booking['payment_status'] !== 'paid') {
+            // B-01 (admin-bookings audit): this full-edit form is a SECOND unpaid->paid
+            // path alongside the quick-action `mark_paid`. It previously only sent the
+            // notification + PDFs and skipped every settlement side-effect the action
+            // path runs — so an admin settling a booking here left own-inventory stays
+            // able to oversell (hold never consumed), the supplier earning never
+            // accrued (supplier under-paid), Pay-Later still being chased by the cron,
+            // and paid_at unset. Run the SAME settlement here so the two paths agree.
+
+            // Stamp paid_at (the quick-action path sets it; the edit $data did not).
+            $db->update('bookings', ['paid_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoice_id]);
+
+            // PAY-LATER: stop the reminder/auto-cancel cron chasing a now-settled booking.
+            if (function_exists('pay_later_clear_on_payment')) {
+                try { pay_later_clear_on_payment($db, (string) $invoice_id); }
+                catch (\Throwable $e) { error_log('admin edit mark_paid pay-later: ' . $e->getMessage()); }
+            }
+
+            // STAYS no-oversell: consume the availability hold (settlement bypasses
+            // handle_payment_callback). Idempotent by invoice ref; no-op for API suppliers.
+            if (in_array(strtolower((string) ($booking['module'] ?? $booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+                if (!function_exists('stays_hold_consume_ref')) {
+                    $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
+                    if (is_file($invLib)) { require_once $invLib; }
+                }
+                if (function_exists('stays_hold_consume_ref')) {
+                    try { stays_hold_consume_ref($db, (string) $invoice_id); }
+                    catch (\Throwable $e) { error_log('admin edit mark_paid stays hold consume: ' . $e->getMessage()); }
+                }
+            }
+
+            // SUPPLIER EARNINGS: accrue own-inventory revenue (bypasses handle_payment_callback).
+            // Idempotent + self-guarding (own-inventory real-supplier owner only). Best effort.
+            if (!function_exists('supplier_earning_accrue_for_booking')) {
+                $seLib = dirname(__DIR__, 2) . '/lib/supplier_earnings.php';
+                if (is_file($seLib)) { require_once $seLib; }
+            }
+            if (function_exists('supplier_earning_accrue_for_booking')) {
+                try { supplier_earning_accrue_for_booking($db, (string) $invoice_id); }
+                catch (\Throwable $e) { error_log('admin edit mark_paid accrue: ' . $e->getMessage()); }
+            }
+
             // INVOICE (priced) for payer/owner/admin; no-price TICKET for the
             // TRAVELLER (3-document model). NOTIFY routes each to the right party.
             $pdfPath    = GENERATE_BOOKING_PDF($invoice_id);

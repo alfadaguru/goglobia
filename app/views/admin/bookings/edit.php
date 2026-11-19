@@ -14,6 +14,15 @@ if (!$booking) {
     exit;
 }
 
+// B-04 (admin-bookings audit): invoice_id / module / module_type are
+// server-generated (not attacker-controlled), but they were echoed RAW into JS
+// string literals, hrefs and a form action below. Pre-escape once here for
+// defense-in-depth so a future free-text value in these columns can never break
+// out of its JS/attribute context. ENT_QUOTES neutralises ' and " as well.
+$invoiceIdEsc  = htmlspecialchars((string) $invoice_id, ENT_QUOTES, 'UTF-8');
+$moduleEsc     = htmlspecialchars((string) ($booking['module'] ?? 'hotels'), ENT_QUOTES, 'UTF-8');
+$moduleTypeEsc = htmlspecialchars((string) ($booking['module_type'] ?? 'hotels'), ENT_QUOTES, 'UTF-8');
+
 // Decode JSON fields
 $travellers = json_decode($booking['travellers'] ?? '', true) ?? [];
 $booking_data = json_decode($booking['booking_data'] ?? '', true) ?? [];
@@ -131,7 +140,7 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
     <?php if (isset($_SESSION['message'])): ?>
         <div class="<?= $_SESSION['message']['type'] === 'success' ? 'alert-success' : 'alert-error' ?> mb-4">
             <span class="material-symbols-outlined"><?= $_SESSION['message']['type'] === 'success' ? 'check_circle' : 'error' ?></span>
-            <div><?= $_SESSION['message']['text'] ?></div>
+            <div><?= htmlspecialchars((string) $_SESSION['message']['text'], ENT_QUOTES, 'UTF-8') ?></div>
         </div>
         <?php unset($_SESSION['message']); ?>
     <?php endif; ?>
@@ -266,7 +275,7 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
             </button>
             <?php endif; ?>
 
-            <a href="<?= root ?>invoice/<?= $booking['module_type'] ?>/<?= $booking['invoice_id'] ?>"
+            <a href="<?= root ?>invoice/<?= $moduleTypeEsc ?>/<?= $invoiceIdEsc ?>"
                target="_blank"
                class="btn secondary inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-600 hover:!text-white hover:!bg-slate-600 transition-all duration-200">
                 <span class="material-symbols-outlined text-lg">receipt_long</span>
@@ -334,7 +343,7 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         </div>
     </div>
 
-    <form method="POST" action="<?= root . admin ?>/bookings/edit/<?= $invoice_id ?>" class="space-y-6" @submit="submitForm">
+    <form method="POST" action="<?= root . admin ?>/bookings/edit/<?= $invoiceIdEsc ?>" class="space-y-6" @submit="submitForm">
 
         <!-- ACTIONS CARD -->
         <div class="card p-0">
@@ -1610,12 +1619,12 @@ function bookingEdit() {
             // Raise a support ticket pre-linked to this booking's invoice. POSTs to
             // /admin/support/tickets/from-booking (CSRF header auto-attached by app.js;
             // the route runs CSRF::guard() + admin_can('support_tickets','edit')).
-            const subject = prompt('Subject for the support ticket:', 'Booking <?= $invoice_id ?>');
+            const subject = prompt('Subject for the support ticket:', 'Booking <?= $invoiceIdEsc ?>');
             if (subject === null) { return; } // cancelled
             const desc = prompt('Describe the issue (optional):', '') || '';
             this.actionLoading['Raise Ticket'] = true;
             const params = new URLSearchParams();
-            params.set('invoice_id', '<?= $invoice_id ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
             params.set('subject', subject);
             params.set('desc', desc);
             fetch('<?= root . admin ?>/support/tickets/from-booking', {
@@ -1646,10 +1655,10 @@ function bookingEdit() {
             if (!confirm('Resend the ticket to ' + where + '?')) { return; }
             this.actionLoading[label] = true;
             const params = new URLSearchParams();
-            params.set('invoice_id', '<?= $invoice_id ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
             params.set('action', 'resend_ticket');
             params.set('channel', channel);
-            fetch('<?= root . admin ?>/bookings/action/<?= $invoice_id ?>', {
+            fetch('<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: params.toString()
@@ -1673,10 +1682,10 @@ function bookingEdit() {
             if (!confirm('Send ' + what + ' to the customer by email and WhatsApp?')) { return; }
             this.actionLoading[label] = true;
             const params = new URLSearchParams();
-            params.set('invoice_id', '<?= $invoice_id ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
             params.set('action', 'send_reminder');
             params.set('kind', kind);
-            fetch('<?= root . admin ?>/bookings/action/<?= $invoice_id ?>', {
+            fetch('<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: params.toString()
@@ -1709,13 +1718,13 @@ function bookingEdit() {
             this.actionLoading[action] = true;
 
             // Get module info from booking
-            const moduleType = '<?= $booking['module_type'] ?? 'hotels' ?>';
-            const module = '<?= $booking['module'] ?? 'hotels' ?>';
+            const moduleType = '<?= $moduleTypeEsc ?>';
+            const module = '<?= $moduleEsc ?>';
 
             // Map action names to action routes
             const actionMap = {
-                'Mark Paid': '<?= root . admin ?>/bookings/action/<?= $invoice_id ?>',
-                'Mark Confirmed': '<?= root . admin ?>/bookings/action/<?= $invoice_id ?>',
+                'Mark Paid': '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>',
+                'Mark Confirmed': '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>',
                 'Issue Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/issue',
                 'Void Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/void',
                 'Cancel Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/cancel',
@@ -1736,7 +1745,7 @@ function bookingEdit() {
 
             // Build form data
             const params = new URLSearchParams();
-            params.set('invoice_id', '<?= $invoice_id ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
             if (actionCode) {
                 params.set('action', actionCode);
             }
@@ -1791,7 +1800,7 @@ function bookingEdit() {
             }
             this.actionLoading[action] = true;
             const body = new URLSearchParams();
-            body.set('invoice_id', '<?= $invoice_id ?>');
+            body.set('invoice_id', '<?= $invoiceIdEsc ?>');
 
             fetch('<?= root ?>modules/stays/hotelbeds/reconcile', {
                 method: 'POST',
@@ -1810,7 +1819,7 @@ function bookingEdit() {
                     let errorMsg = data.message || data.error || 'Reconcile did not find a matching booking';
                     if (confirm('Reconcile: ' + errorMsg + '\n\nMark booking as failed (no supplier record found)?')) {
                         const failBody = new URLSearchParams();
-                        failBody.set('invoice_id', '<?= $invoice_id ?>');
+                        failBody.set('invoice_id', '<?= $invoiceIdEsc ?>');
                         failBody.set('mark_failed_if_not_found', '1');
                         return fetch('<?= root ?>modules/stays/hotelbeds/reconcile', {
                             method: 'POST',
@@ -1832,7 +1841,7 @@ function bookingEdit() {
         handleHotelbedsCancelBooking(extraParams = {}) {
             const action = 'Cancel Booking';
             this.actionLoading[action] = true;
-            const invoiceId = '<?= $invoice_id ?>';
+            const invoiceId = '<?= $invoiceIdEsc ?>';
             const simulateBody = new URLSearchParams();
             simulateBody.set('invoice_id', invoiceId);
 

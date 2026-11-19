@@ -452,8 +452,26 @@ class CRUD {
 
             // Check if it's a simple column reference (just a column name, no functions/operators)
             if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $expression)) {
-                // It's a simple column name
-                return isset($row[$expression]) ? $row[$expression] : '';
+                // It's a simple column name.
+                // SECURITY (B-02, admin-bookings audit): the DEVELOPER-authored
+                // template text may legitimately contain HTML (e.g. '<a>{{name}}</a>',
+                // '<strong>{{balance}}</strong>'), but the SUBSTITUTED column VALUE is
+                // frequently customer-controlled (booking first_name/last_name/email,
+                // user names, client_email, …) and was being emitted RAW into the row
+                // <td> by the renderer — a stored-XSS sink on every CRUD list that
+                // shows customer data. Escape the value here (NOT the surrounding
+                // template) so developer markup survives while hostile data cannot
+                // break out. Callable row-formats and expression templates are
+                // handled on their own branches and are unaffected.
+                if (!isset($row[$expression])) {
+                    return '';
+                }
+                $val = $row[$expression];
+                // Leave nulls/numerics/arrays alone; escape string values.
+                if (is_string($val)) {
+                    return htmlspecialchars($val, ENT_QUOTES, 'UTF-8');
+                }
+                return $val;
             }
 
             // It's an expression with function calls or operations
