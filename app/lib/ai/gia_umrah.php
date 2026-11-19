@@ -576,17 +576,36 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_book')) {
             if (empty($res['ok'])) {
                 return ['ok' => false, 'message' => (string) ($res['message'] ?? 'Could not create the umrah booking.')];
             }
+            // PRICE-DRIFT RE-CONFIRM (audit D7-1): umrah_booking_create RE-RESOLVES the
+            // price at commit (anti-tamper) and proceeds at the live price without
+            // comparing it to the quote — unlike the generic ai_trip flow's expire-on-
+            // change snapshot. So if the tier price moved between the quote GIA showed and
+            // commit, the booking is created at the NEW total with no signal. Surface a
+            // price_changed flag + the quoted figure so GIA can gently re-confirm the new
+            // amount ("the price updated to X since we looked — shall I keep the hold?")
+            // instead of the chat implying the old number. Not a block: the booking is
+            // real + held at the live price (customer always sees amount_due_now before
+            // paying) — this just makes the drift VISIBLE. Tolerance 0.01 (rounding).
+            $quotedTotal  = (float) ($q['total_price'] ?? 0);
+            $chargedTotal = (float) ($res['total_price'] ?? 0);
+            $priceChanged = $quotedTotal > 0 && abs($chargedTotal - $quotedTotal) > 0.01;
+            if ($priceChanged) {
+                \error_log('[gia_umrah] price drift tier=' . $departureTierId
+                    . ' quoted=' . number_format($quotedTotal, 2) . ' charged=' . number_format($chargedTotal, 2));
+            }
             return [
                 'ok'               => true,
                 'invoice_id'       => (string) ($res['invoice_id'] ?? ''),
                 'booking_ref'      => (string) ($res['booking_ref'] ?? ''),
                 'umrah_booking_id' => (int) ($res['umrah_booking_id'] ?? 0),
                 'pax'              => $pax,
-                'total_price'      => (float) ($res['total_price'] ?? 0),
+                'total_price'      => $chargedTotal,
                 'amount_due_now'   => (float) ($res['amount_due_now'] ?? ($res['total_price'] ?? 0)),
                 'currency'         => (string) ($q['currency'] ?? 'NGN'),
                 'installments'     => \is_array($res['installments'] ?? null) ? $res['installments'] : [],
                 'plan_code'        => $planCode,
+                'price_changed'    => $priceChanged,            // true => GIA should re-confirm the new total
+                'quoted_total'     => $quotedTotal,             // what the fresh quote had (for the re-confirm line)
                 'needs_travellers' => true, // collect pilgrim passports before pay
             ];
         } catch (\Throwable $e) {

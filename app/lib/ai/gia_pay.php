@@ -198,28 +198,59 @@ if (!function_exists('gia_pay_approve_and_charge')) {
     }
 }
 
+if (!function_exists('gia_pay_link_owner')) {
+    /**
+     * Resolve the invoice's OWNER binding (audit D4-1): the booking's user_id, else ''.
+     * Computed SERVER-SIDE at both link creation and verification — the web clicker
+     * never supplies it (a pay-link bridges a channel user to a fresh browser session,
+     * so the clicker carries no identity). Binding the signature to the owner means a
+     * leaked/forwarded link's signature stops verifying if the booking is reassigned,
+     * and ties the token to the one account the booking belongs to. Fail-soft to ''.
+     */
+    function gia_pay_link_owner($db, string $invoiceId): string
+    {
+        if ($db === null || $invoiceId === '') { return ''; }
+        try {
+            $o = $db->get('bookings', 'user_id', ['invoice_id' => $invoiceId]);
+            return is_string($o) ? trim($o) : '';
+        } catch (\Throwable $e) {
+            error_log('[gia] pay_link_owner: ' . $e->getMessage());
+            return '';
+        }
+    }
+}
+
 if (!function_exists('gia_pay_link_sig')) {
-    /** HMAC signature for a pay-link (invoice + expiry), using the GIA checkout secret. */
-    function gia_pay_link_sig(string $invoiceId, int $expiry): string
+    /**
+     * HMAC signature for a pay-link, using the GIA checkout secret. Bound to
+     * (invoice, expiry, owner) — the owner component (audit D4-1) ties the token to
+     * the booking's account so a leaked link can't survive a reassignment. $owner is
+     * resolved server-side by the caller via gia_pay_link_owner(); '' for a guest
+     * booking (still signed over invoice+expiry, behaviour unchanged for guests).
+     */
+    function gia_pay_link_sig(string $invoiceId, int $expiry, string $owner = ''): string
     {
         if (!function_exists('gia_checkout_secret')) {
             $f = __DIR__ . '/gia_checkout.php';
             if (is_file($f)) { require_once $f; }
         }
         $secret = function_exists('gia_checkout_secret') ? gia_checkout_secret() : '';
-        return hash_hmac('sha256', $invoiceId . '|' . $expiry, $secret);
+        return hash_hmac('sha256', $invoiceId . '|' . $expiry . '|' . $owner, $secret);
     }
 }
 
 if (!function_exists('gia_pay_link')) {
     /**
-     * A signed, expiring pay-link to the hosted /gia/pay/<invoice> page. Default
-     * TTL 1 hour. The page re-verifies the signature + expiry before showing pay.
+     * A signed, expiring pay-link to the hosted /gia/pay/<invoice> page. Default TTL
+     * 15 min (audit D4-1: shortened from 1h — a pay-link is used immediately, so a
+     * shorter window halves the exposure if a link ever leaks). The page re-verifies
+     * the signature + expiry + owner binding before showing pay.
      */
-    function gia_pay_link(string $invoiceId, int $ttlSeconds = 3600): string
+    function gia_pay_link($db, string $invoiceId, int $ttlSeconds = 900): string
     {
         $expiry = time() + max(300, $ttlSeconds);
-        $sig = gia_pay_link_sig($invoiceId, $expiry);
+        $owner = gia_pay_link_owner($db, $invoiceId);
+        $sig = gia_pay_link_sig($invoiceId, $expiry, $owner);
         $base = defined('root') ? root : '/';
         return $base . 'gia/pay/' . rawurlencode($invoiceId) . '?exp=' . $expiry . '&sig=' . $sig;
     }
@@ -227,15 +258,17 @@ if (!function_exists('gia_pay_link')) {
 
 if (!function_exists('gia_pay_link_verify')) {
     /**
-     * Verify a pay-link's signature + expiry (constant-time). Returns true iff the
-     * link is intact and unexpired. The page calls this before rendering payment.
+     * Verify a pay-link's signature + expiry + owner binding (constant-time). Returns
+     * true iff the link is intact, unexpired, and still matches the booking's current
+     * owner. The page calls this (with $db) before rendering payment.
      */
-    function gia_pay_link_verify(string $invoiceId, int $expiry, string $sig): bool
+    function gia_pay_link_verify($db, string $invoiceId, int $expiry, string $sig): bool
     {
         if ($expiry < time()) {
             return false;
         }
-        $expected = gia_pay_link_sig($invoiceId, $expiry);
+        $owner = gia_pay_link_owner($db, $invoiceId);
+        $expected = gia_pay_link_sig($invoiceId, $expiry, $owner);
         return hash_equals($expected, $sig);
     }
 }

@@ -57,7 +57,7 @@ $router->get('/gia/pay/([A-Za-z0-9]{4,40})', function ($invoiceId) use ($db) {
 
     $exp = (int) ($_GET['exp'] ?? 0);
     $sig = (string) ($_GET['sig'] ?? '');
-    if (!function_exists('gia_pay_link_verify') || !gia_pay_link_verify($invoiceId, $exp, $sig)) {
+    if (!function_exists('gia_pay_link_verify') || !gia_pay_link_verify($db, $invoiceId, $exp, $sig)) {
         $fail('This payment link is invalid or has expired. Please ask GIA for a fresh link.');
     }
 
