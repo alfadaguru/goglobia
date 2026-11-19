@@ -649,7 +649,7 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
           <button type="submit" class="btn rose text-sm">Cancel reservation</button>
         </form>
       <?php elseif (!$isCancelled && $ss === 'checked_out'): ?>
-        <span class="text-xs text-gray-500">Checked out — to reverse charges, add a refund or credit note on the folio above.</span>
+        <span class="text-xs text-gray-500">Checked out — this stay is closed and can’t be cancelled. Handle any refund through your payment provider; folio adjustments must be made before checkout.</span>
       <?php endif; ?>
 
       <?php if (!$isNoShow): ?>

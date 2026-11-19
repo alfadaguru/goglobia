@@ -584,12 +584,12 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 $_SESSION['message'] = ['type' => 'error', 'text' => 'This reservation is already cancelled.'];
             } elseif (($bd['pms_stay_state'] ?? '') === 'checked_out') {
                 // POLICY (owner decision): a CHECKED-OUT stay has already recognised its
-                // revenue to the books (DR Guest-AR / CR Revenue at checkout). A plain
-                // "cancel" neither returns money nor reverses the GL, so it would leave a
-                // misleading "cancelled" booking with its revenue still booked. Refuse it
-                // and point the operator at the explicit money-reversal path (refund /
-                // credit-note on the folio), which unwinds the books correctly.
-                $_SESSION['message'] = ['type' => 'error', 'text' => 'This stay is already checked out — cancel is not available. To reverse charges, add a refund or credit note on the folio.'];
+                // revenue to the books (DR Guest-AR / CR Revenue at checkout) and the folio
+                // is CLOSED. A plain "cancel" neither returns money nor reverses the GL, so
+                // it's refused. NOTE: there is no in-app post-checkout reversal — the folio
+                // is closed and refund/credit-note lines only post to an OPEN folio — so the
+                // message does NOT point to a folio action the operator cannot perform.
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'This stay is already checked out and its folio is closed — it cannot be cancelled here. Handle any refund through your payment provider, or make adjustments before checking the guest out.'];
             } else {
                 // Operational cancel by the property owner. We DO NOT process refunds
                 // here — money is the platform spine (a later increment). We mark the
