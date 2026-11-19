@@ -1065,7 +1065,14 @@ function giaWidget(cfg){
     async post(body){
       this.sending=true; this.$nextTick(()=>this.scrollDown());
       try{
-        const res=await fetch(this.endpoint,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},body:JSON.stringify(Object.assign({csrf_token:this.csrfToken,context:this.context,surface:'widget'},body))});
+        // PAGE-CONTEXT AWARENESS: tell GIA which page the visitor is on right now
+        // (the specific product/search they're looking at), so it can reference it
+        // ("I see you're on the Dubai Marriott — want me to check dates?"). Captured
+        // live at send time. A HINT only — GIA still searches for real prices. Bounded
+        // lengths; the server treats it as untrusted display text (escaped on use).
+        let pageTitle='', pagePath='';
+        try{ pageTitle=(document.title||'').slice(0,160); pagePath=(location.pathname+location.search).slice(0,300); }catch(e){}
+        const res=await fetch(this.endpoint,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},body:JSON.stringify(Object.assign({csrf_token:this.csrfToken,context:this.context,surface:'widget',page_title:pageTitle,page_path:pagePath},body))});
         const data=await res.json().catch(()=>({}));
         const showedValue = (Array.isArray(data.searches) && data.searches.length) || !!data.checkout;
         const giaReply = data.reply||(res.ok?'Done.':'Sorry, something went wrong.');

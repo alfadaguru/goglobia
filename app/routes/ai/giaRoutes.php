@@ -350,6 +350,39 @@ $router->post('/api/gia/chat', function () use ($db) {
             } catch (\Throwable $e) { error_log('[gia] toolstate note: ' . $e->getMessage()); }
         }
 
+        // PAGE-CONTEXT AWARENESS (web): the widget sends the page the visitor is on
+        // right now (title + path), so GIA knows "where you are" and can reference it
+        // ("I see you're looking at the Dubai Marriott — want me to check dates?").
+        // A HINT only: page text is UNTRUSTED client input, so GIA must verify any
+        // product/price by searching, never quote the title as fact. Bounded + the
+        // note says exactly that; empty => no-op.
+        $__pageTitle = trim((string) ($input['page_title'] ?? ''));
+        $__pagePath  = trim((string) ($input['page_path'] ?? ''));
+        if ($__pageTitle !== '' || $__pagePath !== '') {
+            // Clamp + strip control chars; this is display text, never trusted data.
+            $__clean = static function (string $s, int $max): string {
+                $s = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $s) ?? $s;
+                $s = trim(preg_replace('/\s+/', ' ', $s) ?? $s);
+                return mb_substr($s, 0, $max);
+            };
+            $__pt = $__clean($__pageTitle, 160);
+            $__pp = $__clean($__pagePath, 300);
+            // Skip the generic home/app shell — only note a meaningful product/section.
+            $__isGeneric = ($__pp === '' || $__pp === '/' ) && ($__pt === '' );
+            if (!$__isGeneric) {
+                $__where = $__pt !== '' ? ('"' . $__pt . '"') : $__pp;
+                $agent->addSystemNote(
+                    'CURRENTLY VIEWING (web — a HINT, NOT verified data): the traveller has the page '
+                    . $__where . ' open right now'
+                    . ($__pt !== '' && $__pp !== '' ? ' (' . $__pp . ')' : '')
+                    . '. You MAY reference it naturally to be helpful ("I see you\'re looking at …"). '
+                    . 'But it is the page TITLE/URL only — NOT confirmed availability or price. To act on it '
+                    . '(show options, prices, dates) you MUST run the proper search/tool; never quote a price '
+                    . 'or claim availability from the page text, and never invent a product it does not name.'
+                );
+            }
+        }
+
         // --- AD-CAMPAIGN ATTRIBUTION (Support P4, spec §7) -------------------
         //     If this visitor arrived from a registered ad, resolve the campaign,
         //     first-touch stamp it onto the conversation, and hand GIA a short
