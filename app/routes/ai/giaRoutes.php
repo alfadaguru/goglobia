@@ -383,6 +383,47 @@ $router->post('/api/gia/chat', function () use ($db) {
             }
         }
 
+        // CART AWARENESS (web): the site cart lives in $_SESSION['cart'] and
+        // cart_reprice() returns it with AUTHORITATIVE, server-derived prices (not a
+        // client claim). Read it while the session is still open (before the write-close
+        // below) and, if non-empty, tell GIA what's in it so it can help the traveller
+        // finish ("you've got the Dubai city tour in your cart — want to check out?").
+        // Unlike the page title, these ARE real priced lines, so GIA may state them;
+        // the live checkout remains the source of truth for the FINAL total. Fail-soft;
+        // empty cart => no note. cartRoutes.php is already loaded globally (_routes.php).
+        if (function_exists('cart_reprice')) {
+            try {
+                $__cart = cart_reprice($db);
+                $__items = is_array($__cart['items'] ?? null) ? $__cart['items'] : [];
+                if ($__items !== []) {
+                    $__lines = [];
+                    foreach (array_slice($__items, 0, 8) as $__ci) {
+                        if (!is_array($__ci)) { continue; }
+                        $__t = trim((string) ($__ci['title'] ?? ''));
+                        $__m = trim((string) ($__ci['module'] ?? ''));
+                        if ($__t === '') { $__t = ucfirst($__m ?: 'item'); }
+                        $__lines[] = $__t . ($__m !== '' ? ' (' . $__m . ')' : '');
+                    }
+                    $__n = count($__items);
+                    // NOTE on the TOTAL: we deliberately do NOT put the numeric cart total
+                    // in this note. The reply-containment guard (giaAgent) validates every
+                    // amount GIA states against THIS TURN's tool outputs only — a figure
+                    // that lives in a system note isn't in that set, so if GIA quoted the
+                    // cart total it would be FALSELY blocked as "unverified". So GIA
+                    // references the cart by its ITEMS and sends the traveller to checkout
+                    // for the exact, live total (which the cart/checkout page confirms).
+                    $agent->addSystemNote(
+                        'IN THEIR CART right now (web — real items from our cart, not invented): '
+                        . implode('; ', $__lines) . '. That is ' . $__n . ' item' . ($__n === 1 ? '' : 's') . ' ready to book. '
+                        . 'You MAY reference this to help them finish ("you\'ve got the … in your cart — ready to check out?"). '
+                        . 'Do NOT state a cart total or per-item price from memory — send them to checkout, where the '
+                        . 'live total is shown and confirmed. Do not add to or change the cart yourself, and do not '
+                        . 'invent items that are not listed here.'
+                    );
+                }
+            } catch (\Throwable $e) { error_log('[gia] cart awareness note: ' . $e->getMessage()); }
+        }
+
         // --- AD-CAMPAIGN ATTRIBUTION (Support P4, spec §7) -------------------
         //     If this visitor arrived from a registered ad, resolve the campaign,
         //     first-touch stamp it onto the conversation, and hand GIA a short
