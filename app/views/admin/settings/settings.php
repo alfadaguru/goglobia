@@ -1270,10 +1270,16 @@ $messageSuccess = false;
                                         </div>
                                     </th>
                                     <?php
+                                        // Medoo returns FALSE (not []) when the query fails — e.g. the
+                                        // notification_templates table is missing/unmigrated on this
+                                        // install. foreach(false) is a PHP 8 Warning (logs + skips the
+                                        // loop, not a hard crash) — but coerce to [] anyway so this
+                                        // degrades cleanly to an empty matrix with no error noise.
                                         $NotificationTypes = $db->select('notification_templates', ['type'], [
                                             'type[!]' => 'push',
                                             'GROUP' => 'type'
                                         ]);
+                                        if (!is_array($NotificationTypes)) { $NotificationTypes = []; }
                                         foreach ($NotificationTypes as $type):
                                     ?>
                                     <th class="px-4 py-2 text-center text-xs font-medium text-gray-700"><?=$type['type']?></th>
@@ -1285,6 +1291,7 @@ $messageSuccess = false;
                                 $allTemplates = $db->select('notification_templates', '*', [
                                     'ORDER' => ['group' => 'ASC', 'name' => 'ASC']
                                 ]);
+                                if (!is_array($allTemplates)) { $allTemplates = []; }
 
                                 $groupedTemplates = [];
                                 foreach ($allTemplates as $template) {
