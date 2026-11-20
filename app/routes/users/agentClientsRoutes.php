@@ -62,6 +62,7 @@ $router->get('/agent/clients/new', function () use ($SECURE, $db) {
     [$ctx, $owner] = _agent_clients_ctx($db);
     if (!agent_can($db, 'clients', 'add')) { _agent_clients_deny('You cannot add clients.'); }
     $client = null;
+    $canPriceClient = !empty($ctx['is_owner']); // AG-G4b: owner-only per-client markup
     $title = 'Add client';
     require_once views."agent/layout-top.php";
     require_once views."agent/client-form.php";
@@ -73,6 +74,7 @@ $router->get('/agent/clients/([0-9]+)/edit', function ($id) use ($SECURE, $db) {
     if (!agent_can($db, 'clients', 'edit')) { _agent_clients_deny('You cannot edit clients.'); }
     $client = $db->get('agent_clients', '*', ['id' => (int)$id, 'owner_user_id' => $owner]);
     if (!$client) { _agent_clients_deny('Client not found.'); }
+    $canPriceClient = !empty($ctx['is_owner']); // AG-G4b: owner-only per-client markup
     $title = 'Edit client';
     require_once views."agent/layout-top.php";
     require_once views."agent/client-form.php";
@@ -112,6 +114,22 @@ $router->post('/agent/clients/save', function () use ($SECURE, $db) {
         'notes'              => trim((string)($_POST['notes'] ?? '')),
         'updated_at'         => date('Y-m-d H:i:s'),
     ];
+
+    // AG-G4b: per-client markup override — OWNER only (pricing is an owner lever,
+    // mirroring branding self-markup). A blank value clears the override (falls back
+    // to per-service/default). Clamped: >=0, and <=100 for a percentage.
+    if (!empty($ctx['is_owner']) && array_key_exists('markup_value', $_POST)) {
+        $mvRaw = trim((string) ($_POST['markup_value'] ?? ''));
+        if ($mvRaw === '') {
+            $data['markup_value'] = null;
+        } else {
+            $mv = max(0.0, (float) $mvRaw);
+            $mt = (($_POST['markup_type'] ?? 'percentage') === 'fixed') ? 'fixed' : 'percentage';
+            if ($mt === 'percentage' && $mv > 100) { $mv = 100; }
+            $data['markup_value'] = $mv;
+            $data['markup_type']  = $mt;
+        }
+    }
     try {
         if ($id > 0) {
             $own = $db->get('agent_clients', ['id'], ['id' => $id, 'owner_user_id' => $owner]);

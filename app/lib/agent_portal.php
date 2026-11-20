@@ -83,6 +83,8 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 `passport_expiry` date DEFAULT NULL,
                 `tags` varchar(255) DEFAULT NULL,
                 `notes` text DEFAULT NULL,
+                `markup_value` decimal(10,2) DEFAULT NULL,
+                `markup_type` varchar(20) DEFAULT 'percentage',
                 `created_by` varchar(255) DEFAULT NULL,
                 `created_at` datetime NOT NULL DEFAULT current_timestamp(),
                 `updated_at` datetime DEFAULT NULL,
@@ -90,6 +92,16 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 KEY `idx_owner` (`owner_user_id`),
                 KEY `idx_email` (`email`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+            // AG-G4b: per-client markup columns for an EXISTING agent_clients table
+            // (CREATE IF NOT EXISTS above won't add them). Idempotent.
+            foreach ([
+                ['markup_value', "ALTER TABLE `agent_clients` ADD COLUMN `markup_value` DECIMAL(10,2) DEFAULT NULL"],
+                ['markup_type',  "ALTER TABLE `agent_clients` ADD COLUMN `markup_type` VARCHAR(20) DEFAULT 'percentage'"],
+            ] as [$__c, $__sql]) {
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `agent_clients` LIKE '$__c'")->fetch()) { $db->query($__sql); }
+                } catch (\Throwable $e) { error_log("ensureAgentPortalSchema agent_clients.$__c: " . $e->getMessage()); }
+            }
 
             // --- agent_trip_plans + items: saved itineraries / proposals -----
             $db->query("CREATE TABLE IF NOT EXISTS `agent_trip_plans` (
@@ -206,6 +218,9 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 ['booked_by_staff_id', "ALTER TABLE `bookings` ADD COLUMN `booked_by_staff_id` VARCHAR(255) DEFAULT NULL"],
                 ['agent_client_price', "ALTER TABLE `bookings` ADD COLUMN `agent_client_price` DECIMAL(14,2) DEFAULT NULL"],
                 ['agent_client_margin',"ALTER TABLE `bookings` ADD COLUMN `agent_client_margin` DECIMAL(14,2) DEFAULT NULL"],
+                // AG-G4b: link an agency booking to its CRM client (resolved by
+                // traveller email at settle), so per-client markup + client reporting work.
+                ['agent_client_id',    "ALTER TABLE `bookings` ADD COLUMN `agent_client_id` INT(11) DEFAULT NULL"],
             ] as [$col, $sql]) {
                 try {
                     if (!$db->query("SHOW COLUMNS FROM `bookings` LIKE '$col'")->fetch()) {
@@ -573,11 +588,28 @@ if (!function_exists('agent_self_markup_value')) {
      * to the flat default (users.agent_customer_markup[_type]). $service '' / unknown
      * => the default. Zero value => none.
      */
-    function agent_self_markup_value($db, string $ownerId, string $service = ''): array
+    function agent_self_markup_value($db, string $ownerId, string $service = '', ?int $clientId = null): array
     {
         // Normalise the stored module_type/module to the canonical catalogue key so
         // per-service overrides actually match (Stay->stays, Flight->flights, etc).
         $service = function_exists('agent_service_canonical') ? agent_service_canonical($service) : strtolower(trim($service));
+
+        // AG-G4b: PER-CLIENT override wins over per-service + default. Scoped to the
+        // SAME owner so one agency can't read another's client markup.
+        if ($clientId !== null && $clientId > 0) {
+            try {
+                $c = $db->get('agent_clients', ['markup_value','markup_type'],
+                    ['id' => $clientId, 'owner_user_id' => $ownerId]);
+            } catch (\Throwable $e) { $c = null; }
+            if ($c && $c['markup_value'] !== null && $c['markup_value'] !== '') {
+                $cv = (float) $c['markup_value'];
+                $ct = (string) ($c['markup_type'] ?? 'percentage');
+                if ($cv > 0) { return [$cv, $ct === 'fixed' ? 'fixed' : 'percentage']; }
+                // explicit 0 for a client => "no markup for this client" — honour it.
+                return [0.0, 'percentage'];
+            }
+        }
+
         if ($service !== '') {
             $map = agent_service_markup_map($db, $ownerId);
             if (isset($map[$service]) && is_array($map[$service])) {
@@ -604,10 +636,10 @@ if (!function_exists('agent_apply_self_markup')) {
      * that margin. The agent still PAYS $agentCost; this only sets the client-facing
      * numbers (agent_client_price / agent_client_margin).
      */
-    function agent_apply_self_markup($db, string $ownerId, string $invoiceId, float $agentCost, string $currency, string $service = ''): void
+    function agent_apply_self_markup($db, string $ownerId, string $invoiceId, float $agentCost, string $currency, string $service = '', ?int $clientId = null): void
     {
         if ((string) ($GLOBALS['app']['agent_self_markup_enabled'] ?? '1') !== '1') { return; }
-        [$val, $type] = agent_self_markup_value($db, $ownerId, $service);
+        [$val, $type] = agent_self_markup_value($db, $ownerId, $service, $clientId);
         $margin = $val > 0 ? ($type === 'fixed' ? $val : round($agentCost * $val / 100, 2)) : 0.0;
 
         // Min-margin floor (applies regardless of the % / fixed rule).

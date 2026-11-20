@@ -35,6 +35,28 @@ $isEdit = !empty($client);
         <div><label class="block text-[11px] uppercase text-slate-400 mb-1">Tags (comma-separated)</label><input name="tags" value="<?= $v('tags') ?>" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="vip, corporate"></div>
         <div><label class="block text-[11px] uppercase text-slate-400 mb-1">Notes</label><textarea name="notes" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><?= $v('notes') ?></textarea></div>
 
+        <?php /* AG-G4b: per-client markup override (owner only). Blank = use per-service/default. */
+        if (!empty($canPriceClient)):
+            $cmv = ($client['markup_value'] ?? null);
+            $cmt = (string) ($client['markup_type'] ?? 'percentage');
+        ?>
+        <div class="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+            <label class="block text-[11px] uppercase text-slate-400 mb-1">Client markup (optional — overrides your default &amp; per-service markup for this client)</label>
+            <div class="flex items-end gap-3">
+                <div>
+                    <select name="markup_type" class="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                        <option value="percentage" <?= $cmt==='percentage'?'selected':'' ?>>Percentage (%)</option>
+                        <option value="fixed" <?= $cmt==='fixed'?'selected':'' ?>>Fixed amount</option>
+                    </select>
+                </div>
+                <div>
+                    <input type="number" name="markup_value" value="<?= $cmv !== null ? htmlspecialchars((string)(float)$cmv) : '' ?>" step="0.01" min="0" placeholder="(use default)" class="w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                </div>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1.5">Leave blank to use your agency default / per-service markup. Set 0 to charge this client no markup.</p>
+        </div>
+        <?php endif; ?>
+
         <div class="flex gap-3">
             <button class="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700"><?= $isEdit ? 'Save changes' : 'Add client' ?></button>
             <a href="<?= root ?>agent/clients" class="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50">Cancel</a>

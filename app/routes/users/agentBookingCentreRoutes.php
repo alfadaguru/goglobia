@@ -347,21 +347,36 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($S
     $agentCost = round((float) ($booking['price_markup'] ?? $booking['price_original'] ?? 0), 2);
     $currency = (string) ($booking['currency_markup'] ?? (function_exists('wallet_default_currency') ? wallet_default_currency($db) : 'NGN'));
 
-    // Attribute the booking to the agency + which staff booked it, BEFORE charging,
-    // so reporting/ownership are correct even if a later step is retried.
+    // AG-G4b: resolve the agency's CRM client by the traveller EMAIL (the booking
+    // flows capture email, not a client link) so per-client markup + client
+    // reporting work. Scoped to THIS agency's clients. Null when no match.
+    $agentClientId = null;
+    $__bEmail = trim((string) ($booking['email'] ?? ''));
+    if ($__bEmail !== '') {
+        try {
+            $__c = $db->get('agent_clients', ['id'], ['owner_user_id' => $owner, 'email' => $__bEmail]);
+            if ($__c && !empty($__c['id'])) { $agentClientId = (int) $__c['id']; }
+        } catch (\Throwable $e) { error_log('agent settle client-resolve: ' . $e->getMessage()); }
+    }
+
+    // Attribute the booking to the agency + which staff booked it (+ the resolved
+    // CRM client), BEFORE charging, so reporting/ownership are correct even if a
+    // later step is retried.
     try {
         $db->update('bookings', [
             'agency_id'          => $owner,
             'booked_by_staff_id' => $actor,
             'booking_channel'    => 'agent',
+            'agent_client_id'    => $agentClientId,
         ], ['invoice_id' => $invoiceId]);
     } catch (\Throwable $e) { error_log('agent settle attribute: ' . $e->getMessage()); }
 
     // Agency self-markup (P5/M10): client price = agent cost + agency markup.
+    // Resolution order: per-client > per-service > default, then min-margin floor.
     // Stored for the branded invoice + agent margin reporting. Agent still PAYS
     // $agentCost to us; the client price is what their branded invoice shows.
     if (function_exists('agent_apply_self_markup')) {
-        try { agent_apply_self_markup($db, $owner, (string)$invoiceId, $agentCost, $currency, $service); }
+        try { agent_apply_self_markup($db, $owner, (string)$invoiceId, $agentCost, $currency, $service, $agentClientId); }
         catch (\Throwable $e) { error_log('agent self-markup: ' . $e->getMessage()); }
     }
 
