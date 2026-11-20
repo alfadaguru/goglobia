@@ -349,16 +349,41 @@ $router->post('ai_trip/ai_trip/issue', function () use ($db) {
             'booking_data' => json_encode($bookingData),
             'pnr' => $joinedPnr,
         ];
-        if ($allOk && $joinedPnr !== '') {
+        // ASYNC-PENDING DETECTION: an item marked 'issued' but carrying NO pnr is an
+        // ASYNCHRONOUS issue still in flight (notably Tiqwa flights — the real PNR
+        // arrives later via the ticket.issued webhook). Such a package must stay
+        // 'pending' until that PNR lands, so it is NOT confirmed here.
+        $hasAsyncPending = false;
+        foreach ($items as $it) {
+            if (is_array($it)
+                && ($it['issue_status'] ?? '') === 'issued'
+                && trim((string)($it['pnr'] ?? ($it['booking_ref'] ?? ''))) === '') {
+                $hasAsyncPending = true;
+                break;
+            }
+        }
+
+        // CONFIRM on success. $allOk is true only when NO item failed (failures set it
+        // false at the issue sites); a legitimately 'skipped' item (tours/visa need no
+        // supplier PNR; a car supplier with no issue endpoint) is a SUCCESS, not a
+        // failure. The OLD condition also required a non-empty PNR — so a package made
+        // up ONLY of no-PNR services (a GIA tours/visa booking) was paid but left
+        // 'pending' forever, and gia_bp_send_confirmation then suppressed the voucher
+        // (treating ai_trip-without-PNR as an un-ticketed flight) — customer paid, heard
+        // nothing. Fix (audit re-audit): $allOk confirms EXCEPT while an async item is
+        // still awaiting its PNR (preserves the Tiqwa paid-pending-until-webhook flow).
+        if ($allOk && !$hasAsyncPending) {
             $update['booking_status'] = 'confirmed';
             $update['error_response'] = null;
         } elseif (!$allOk) {
             $update['error_response'] = json_encode(['message' => 'One or more package items failed to issue', 'errors' => $errors]);
-            // Keep booking confirmed if at least one module PNR was issued
+            // Partial: keep booking confirmed if at least one module PNR was issued.
             if ($joinedPnr !== '') {
                 $update['booking_status'] = 'confirmed';
             }
         }
+        // (else: $allOk but an async PNR is pending -> leave 'pending', no error — the
+        //  ticket.issued webhook confirms it when the real PNR lands.)
 
         $db->update('bookings', $update, [
             'invoice_id' => $invoiceId,
