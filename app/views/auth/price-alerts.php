@@ -152,25 +152,104 @@ $statusChip = static function ($s) {
                </div>
             </template>
 
-            <!-- STAYS: capture the property so the cron can re-price its "from" rate. -->
+            <!-- STAYS: watch an own-inventory property's "from" rate, OR run a live
+                 supplier search for the cheapest hotel in a city for set dates. -->
             <template x-if="form.module === 'stays'">
-               <div class="space-y-2 rounded-lg bg-slate-50 border border-slate-200 p-3">
-                  <p class="text-[11px] text-slate-500">We'll watch this property's starting nightly rate and notify you when it drops.</p>
-                  <div class="relative">
-                     <label class="text-xs font-medium text-slate-600">Property</label>
-                     <input type="text" x-model="stayQuery" @input.debounce.250ms="suggestStay()" @focus="suggestStay()"
-                            class="input w-full" placeholder="Hotel name or city" autocomplete="off">
-                     <div x-show="stayOpen && stayOptions.length" x-cloak class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                        <template x-for="o in stayOptions" :key="o.id">
-                           <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @click="pickStay(o)" x-text="o.label"></button>
-                        </template>
-                     </div>
+               <div class="space-y-3 rounded-lg bg-slate-50 border border-slate-200 p-3">
+                  <div class="flex gap-2">
+                     <button type="button" class="flex-1 text-xs font-medium px-3 py-2 rounded-lg border transition-colors"
+                             :class="staySource === 'own' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'"
+                             @click="staySource = 'own'">GoGlobia property</button>
+                     <button type="button" class="flex-1 text-xs font-medium px-3 py-2 rounded-lg border transition-colors"
+                             :class="staySource === 'supplier' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'"
+                             @click="staySource = 'supplier'">Any hotel (live)</button>
                   </div>
+                  <!-- OWN: pick a specific listed property. -->
+                  <template x-if="staySource === 'own'">
+                     <div class="space-y-2">
+                        <p class="text-[11px] text-slate-500">We'll watch this property's starting nightly rate and notify you when it drops.</p>
+                        <div class="relative">
+                           <label class="text-xs font-medium text-slate-600">Property</label>
+                           <input type="text" x-model="stayQuery" @input.debounce.250ms="suggestStay()" @focus="suggestStay()"
+                                  class="input w-full" placeholder="Hotel name or city" autocomplete="off">
+                           <div x-show="stayOpen && stayOptions.length" x-cloak class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                              <template x-for="o in stayOptions" :key="o.id">
+                                 <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @click="pickStay(o)" x-text="o.label"></button>
+                              </template>
+                           </div>
+                        </div>
+                     </div>
+                  </template>
+                  <!-- SUPPLIER: live search for the cheapest hotel in a city + dates. -->
+                  <template x-if="staySource === 'supplier'">
+                     <div class="space-y-2">
+                        <p class="text-[11px] text-slate-500">We'll run a live hotel search for this city and these dates periodically and notify you when the lowest nightly total drops.</p>
+                        <div>
+                           <label class="text-xs font-medium text-slate-600">City / destination</label>
+                           <input type="text" x-model="form.destination" class="input w-full" placeholder="e.g. Dubai" autocomplete="off">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                           <div>
+                              <label class="text-xs font-medium text-slate-600">Check-in</label>
+                              <input type="date" x-model="form.checkin" class="input w-full">
+                           </div>
+                           <div>
+                              <label class="text-xs font-medium text-slate-600">Check-out</label>
+                              <input type="date" x-model="form.checkout" class="input w-full">
+                           </div>
+                        </div>
+                     </div>
+                  </template>
                </div>
             </template>
 
-            <!-- TOURS / CARS / CRUISES / UMRAH: pick the exact item to watch. -->
-            <template x-if="['tours','cars','cruises','umrah'].includes(form.module)">
+            <!-- TOURS: watch a specific own-inventory tour, OR run a live supplier
+                 search for the cheapest excursion in a city. -->
+            <template x-if="form.module === 'tours'">
+               <div class="space-y-3 rounded-lg bg-slate-50 border border-slate-200 p-3">
+                  <div class="flex gap-2">
+                     <button type="button" class="flex-1 text-xs font-medium px-3 py-2 rounded-lg border transition-colors"
+                             :class="tourSource === 'own' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'"
+                             @click="tourSource = 'own'">GoGlobia tour</button>
+                     <button type="button" class="flex-1 text-xs font-medium px-3 py-2 rounded-lg border transition-colors"
+                             :class="tourSource === 'supplier' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'"
+                             @click="tourSource = 'supplier'">Any excursion (live)</button>
+                  </div>
+                  <!-- OWN: pick a specific listed tour. -->
+                  <template x-if="tourSource === 'own'">
+                     <div class="space-y-2">
+                        <p class="text-[11px] text-slate-500">We'll watch this tour's price and notify you when it drops.</p>
+                        <div class="relative">
+                           <label class="text-xs font-medium text-slate-600">Tour</label>
+                           <input type="text" x-model="itemQuery" @input.debounce.250ms="suggestItem()" @focus="suggestItem()"
+                                  class="input w-full" placeholder="Tour name" autocomplete="off">
+                           <div x-show="itemOpen && itemOptions.length" x-cloak class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                              <template x-for="o in itemOptions" :key="o.id">
+                                 <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @click="pickItem(o)" x-text="o.label"></button>
+                              </template>
+                           </div>
+                        </div>
+                     </div>
+                  </template>
+                  <!-- SUPPLIER: live search for the cheapest excursion in a city. -->
+                  <template x-if="tourSource === 'supplier'">
+                     <div class="space-y-2">
+                        <p class="text-[11px] text-slate-500">We'll run a live excursions search for this city periodically and notify you when the lowest price drops.</p>
+                        <div>
+                           <label class="text-xs font-medium text-slate-600">City / destination</label>
+                           <input type="text" x-model="form.destination" class="input w-full" placeholder="e.g. Rome" autocomplete="off">
+                        </div>
+                        <div>
+                           <label class="text-xs font-medium text-slate-600">Date (optional)</label>
+                           <input type="date" x-model="form.start_date" class="input w-full">
+                        </div>
+                     </div>
+                  </template>
+               </div>
+            </template>
+
+            <!-- CARS / CRUISES / UMRAH: pick the exact item to watch. -->
+            <template x-if="['cars','cruises','umrah'].includes(form.module)">
                <div class="space-y-2 rounded-lg bg-slate-50 border border-slate-200 p-3">
                   <p class="text-[11px] text-slate-500">We'll watch this item's price and notify you when it drops.</p>
                   <div class="relative">
@@ -221,14 +300,16 @@ function priceAlerts(initial, watchable, ccy) {
       // Flight airport picker state.
       fromQuery: '', toQuery: '', fromOptions: [], toOptions: [], fromOpen: false, toOpen: false,
       flightSource: 'own', // 'own' = GoGlobia fares (DB) | 'supplier' = live all-airlines search
+      staySource: 'own',   // 'own' = a listed property | 'supplier' = live any-hotel city search
+      tourSource: 'own',   // 'own' = a listed tour     | 'supplier' = live any-excursion city search
       // Stay property picker state.
       stayQuery: '', stayOptions: [], stayOpen: false,
       // Generic item picker (tours/cars/cruises/umrah) state.
       itemQuery: '', itemOptions: [], itemOpen: false, itemParams: null,
-      blank() { return { module:'', label:'', baseline_price:'', target_price:'', from_airport_id:0, to_airport_id:0, from_code:'', to_code:'', departure_date:'', stay_id:0 }; },
+      blank() { return { module:'', label:'', baseline_price:'', target_price:'', from_airport_id:0, to_airport_id:0, from_code:'', to_code:'', departure_date:'', stay_id:0, destination:'', checkin:'', checkout:'', start_date:'' }; },
       openAdd() {
          this.form = this.blank();
-         this.fromQuery = ''; this.toQuery = ''; this.flightSource = 'own';
+         this.fromQuery = ''; this.toQuery = ''; this.flightSource = 'own'; this.staySource = 'own'; this.tourSource = 'own';
          this.fromOptions = []; this.toOptions = []; this.fromOpen = false; this.toOpen = false;
          this.stayQuery = ''; this.stayOptions = []; this.stayOpen = false;
          this.itemQuery = ''; this.itemOptions = []; this.itemOpen = false; this.itemParams = null;
@@ -282,8 +363,15 @@ function priceAlerts(initial, watchable, ccy) {
             if (this.flightSource === 'supplier') { return !!(this.form.departure_date && this.form.from_code && this.form.to_code); }
             return true;
          }
-         if (this.form.module === 'stays')   { return this.form.stay_id > 0; }
-         if (['tours','cars','cruises','umrah'].includes(this.form.module)) { return this.itemParams !== null; }
+         if (this.form.module === 'stays') {
+            if (this.staySource === 'supplier') { return !!(this.form.destination.trim() && this.form.checkin && this.form.checkout && this.form.checkout > this.form.checkin); }
+            return this.form.stay_id > 0;
+         }
+         if (this.form.module === 'tours') {
+            if (this.tourSource === 'supplier') { return !!this.form.destination.trim(); }
+            return this.itemParams !== null;
+         }
+         if (['cars','cruises','umrah'].includes(this.form.module)) { return this.itemParams !== null; }
          return true;
       },
       async save() {
@@ -295,9 +383,18 @@ function priceAlerts(initial, watchable, ccy) {
             return;
          }
          if (this.form.module === 'stays' && !this.moduleReady()) {
-            this.err = 'Pick the property from the suggestions.'; return;
+            this.err = this.staySource === 'supplier'
+               ? 'Enter a city and valid check-in / check-out dates.'
+               : 'Pick the property from the suggestions.';
+            return;
          }
-         if (['tours','cars','cruises','umrah'].includes(this.form.module) && !this.moduleReady()) {
+         if (this.form.module === 'tours' && !this.moduleReady()) {
+            this.err = this.tourSource === 'supplier'
+               ? 'Enter a city for the live excursions search.'
+               : 'Pick the tour from the suggestions.';
+            return;
+         }
+         if (['cars','cruises','umrah'].includes(this.form.module) && !this.moduleReady()) {
             this.err = 'Pick the ' + this.itemLabel().toLowerCase() + ' from the suggestions.'; return;
          }
          if (this.form.target_price && this.form.target_price >= this.form.baseline_price) {
@@ -314,8 +411,18 @@ function priceAlerts(initial, watchable, ccy) {
                params = { from_airport_id: this.form.from_airport_id, to_airport_id: this.form.to_airport_id, departure_date: this.form.departure_date || '' };
             }
          } else if (this.form.module === 'stays') {
-            params = { stay_id: this.form.stay_id };
-         } else if (['tours','cars','cruises','umrah'].includes(this.form.module)) {
+            if (this.staySource === 'supplier') {
+               params = { supplier: 'adivaha', destination: this.form.destination.trim(), checkin: this.form.checkin, checkout: this.form.checkout, rooms: 1, adults: 2 };
+            } else {
+               params = { stay_id: this.form.stay_id };
+            }
+         } else if (this.form.module === 'tours') {
+            if (this.tourSource === 'supplier') {
+               params = { supplier: 'adivaha', destination: this.form.destination.trim(), start_date: this.form.start_date || '', adults: 1 };
+            } else {
+               params = this.itemParams;
+            }
+         } else if (['cars','cruises','umrah'].includes(this.form.module)) {
             params = this.itemParams;
          }
          const payload = {

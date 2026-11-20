@@ -281,6 +281,149 @@ if (!function_exists('price_alert_price_flights_supplier')) {
     }
 }
 
+if (!function_exists('price_alert_price_stays_supplier')) {
+    /**
+     * REAL-SUPPLIER (Adivaha) hotel re-price. Like the supplier-flight resolver, it
+     * makes an EXTERNAL search and is run ONLY from the throttled supplier sweep. It
+     * POSTs the SAME search the storefront uses (/modules/stays/adivaha/search),
+     * which returns {status, results:[{price, ...}]} with each result already
+     * marked-up and in the requested currency. We take the cheapest result's `price`
+     * (the property's total for the stay window). Hard curl timeout; returns null on
+     * ANY problem (timeout / empty / error) → the watch is skipped, never a false
+     * fire.
+     *
+     * params: {supplier:'adivaha', destination (city NAME), checkin, checkout,
+     *          rooms?, adults?, children?}. The storefront endpoint resolves the
+     *          Adivaha destination code from the city name server-side.
+     *
+     * @param string $baseUrl absolute site base built by the sweep (e.g. https://host/goglobia/).
+     */
+    function price_alert_price_stays_supplier($db, array $alert, string $baseUrl, int $timeout = 15): ?float
+    {
+        $p = [];
+        if (!empty($alert['params'])) { $d = json_decode((string) $alert['params'], true); if (is_array($d)) { $p = $d; } }
+        $dest     = trim((string) ($p['destination'] ?? ''));
+        $checkin  = trim((string) ($p['checkin'] ?? ''));
+        $checkout = trim((string) ($p['checkout'] ?? ''));
+        if ($dest === '' || $checkin === '' || $checkout === '') { return null; }
+        if (strtotime($checkin) === false || strtotime($checkout) === false) { return null; }
+        if (strtotime($checkout) <= strtotime($checkin)) { return null; }
+
+        $url  = rtrim($baseUrl, '/') . '/modules/stays/adivaha/search';
+        $post = [
+            'destination' => $dest,
+            'checkin'     => $checkin,
+            'checkout'    => $checkout,
+            'rooms'       => (int) ($p['rooms'] ?? 1) ?: 1,
+            'adults'      => (int) ($p['adults'] ?? 2) ?: 2,
+            'children'    => (int) ($p['children'] ?? 0),
+            'currency'    => strtoupper((string) ($alert['currency'] ?? 'USD')),
+        ];
+
+        $raw = price_alert_supplier_post($url, $post, $timeout, 'price_alert_price_stays_supplier');
+        if ($raw === null) { return null; }
+
+        $decoded = json_decode($raw, true);
+        // Stays endpoint wraps offers in {status, results:[...]}.
+        $results = is_array($decoded['results'] ?? null) ? $decoded['results'] : [];
+        if (!$results) { return null; }
+
+        $cheapest = null;
+        foreach ($results as $o) {
+            if (!is_array($o)) { continue; }
+            $pr = (float) str_replace(',', '', (string) ($o['price'] ?? 0));
+            if ($pr > 0 && ($cheapest === null || $pr < $cheapest)) { $cheapest = $pr; }
+        }
+        return $cheapest;
+    }
+}
+
+if (!function_exists('price_alert_price_tours_supplier')) {
+    /**
+     * REAL-SUPPLIER (Adivaha) tour/excursion re-price. Runs ONLY from the throttled
+     * supplier sweep. POSTs /modules/tours/adivaha/search, which returns a BARE
+     * offers array (each already marked-up + in the requested currency); we take the
+     * cheapest offer's `price` (total for the party). Hard curl timeout; null on any
+     * problem → skip.
+     *
+     * params: {supplier:'adivaha', destination (city NAME), start_date?, adults?,
+     *          children?, infants?}. The endpoint resolves the Adivaha destination
+     *          code from the city name and defaults the date to +3 days when absent.
+     */
+    function price_alert_price_tours_supplier($db, array $alert, string $baseUrl, int $timeout = 15): ?float
+    {
+        $p = [];
+        if (!empty($alert['params'])) { $d = json_decode((string) $alert['params'], true); if (is_array($d)) { $p = $d; } }
+        $dest = trim((string) ($p['destination'] ?? ''));
+        if ($dest === '') { return null; }
+        $date = trim((string) ($p['start_date'] ?? $p['date'] ?? ''));
+        if ($date !== '' && strtotime($date) === false) { $date = ''; }
+
+        $url  = rtrim($baseUrl, '/') . '/modules/tours/adivaha/search';
+        $post = [
+            'destination' => $dest,
+            'start_date'  => $date, // endpoint defaults to +3 days when empty
+            'adults'      => (int) ($p['adults'] ?? 1) ?: 1,
+            'children'    => (int) ($p['children'] ?? 0),
+            'infants'     => (int) ($p['infants'] ?? 0),
+            'currency'    => strtoupper((string) ($alert['currency'] ?? 'USD')),
+        ];
+
+        $raw = price_alert_supplier_post($url, $post, $timeout, 'price_alert_price_tours_supplier');
+        if ($raw === null) { return null; }
+
+        $offers = json_decode($raw, true);
+        // Tours endpoint returns a BARE array of offers.
+        if (!is_array($offers) || !$offers) { return null; }
+
+        $cheapest = null;
+        foreach ($offers as $o) {
+            if (!is_array($o)) { continue; }
+            // Per-party total; price_per_person also present but we compare totals.
+            $pr = (float) str_replace(',', '', (string) ($o['price'] ?? $o['amount'] ?? 0));
+            if ($pr > 0 && ($cheapest === null || $pr < $cheapest)) { $cheapest = $pr; }
+        }
+        return $cheapest;
+    }
+}
+
+if (!function_exists('price_alert_supplier_post')) {
+    /**
+     * Shared server-to-server POST to a storefront supplier-search endpoint for the
+     * throttled price sweep. HARD curl timeout so one slow/failed supplier response
+     * can't hang the cron; marks itself X-Requested-With so the endpoint treats it
+     * like the site's own JS. Returns the raw response body, or null on any
+     * transport/HTTP failure (→ caller skips the watch, never a false fire).
+     */
+    function price_alert_supplier_post(string $url, array $post, int $timeout, string $ctx): ?string
+    {
+        try {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => http_build_query($post),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => max(10, min(90, $timeout)),
+                CURLOPT_CONNECTTIMEOUT => 8,
+                CURLOPT_HTTPHEADER     => ['X-Requested-With: XMLHttpRequest'],
+                CURLOPT_FOLLOWLOCATION => false,
+            ]);
+            $raw  = curl_exec($ch);
+            $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err  = curl_error($ch);
+            curl_close($ch);
+            if ($raw === false || $err !== '' || $code < 200 || $code >= 300) {
+                error_log($ctx . ': http ' . $code . ' ' . $err);
+                return null;
+            }
+            return (string) $raw;
+        } catch (\Throwable $e) {
+            error_log($ctx . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+}
+
 if (!function_exists('price_alert_price_stays')) {
     /**
      * Cheap re-price for an OWN-INVENTORY stay watch. Mirrors the own-stays search
@@ -302,6 +445,9 @@ if (!function_exists('price_alert_price_stays')) {
             $decoded = json_decode((string) $alert['params'], true);
             if (is_array($decoded)) { $p = $decoded; }
         }
+        // A real-SUPPLIER stay watch (params.supplier set) is re-priced only by the
+        // separate throttled supplier sweep — never here in the fast DB-only path.
+        if (!empty($p['supplier'])) { return null; }
         $stayId = (int) ($p['stay_id'] ?? 0);
         if ($stayId <= 0) { return null; }               // nothing to re-price → skip
         if (!function_exists('MARKUP')) { return null; }
@@ -365,6 +511,8 @@ if (!function_exists('price_alert_price_tours')) {
     function price_alert_price_tours($db, array $alert): ?float
     {
         $p = []; if (!empty($alert['params'])) { $d = json_decode((string) $alert['params'], true); if (is_array($d)) { $p = $d; } }
+        // Real-SUPPLIER tour watch → handled only by the throttled supplier sweep.
+        if (!empty($p['supplier'])) { return null; }
         $id = (int) ($p['tour_id'] ?? 0);
         if ($id <= 0) { return null; }
         try {
@@ -542,11 +690,12 @@ if (!function_exists('price_alerts_sweep')) {
 
 if (!function_exists('price_alerts_supplier_sweep')) {
     /**
-     * THROTTLED real-supplier flight sweep. Separate from the fast DB-only sweep
-     * because each re-price is an EXTERNAL Adivaha search (seconds, can fail). Keep
-     * $maxCalls small and the cadence low (hourly) so one slow/failed supplier call
-     * can neither hang the fast sweep nor hammer the supplier. Processes the
-     * longest-unchecked supplier-flight watches first (fair rotation).
+     * THROTTLED real-supplier sweep. Separate from the fast DB-only sweep because
+     * each re-price is an EXTERNAL Adivaha search (seconds, can fail). Keep $maxCalls
+     * small and the cadence low (hourly) so one slow/failed supplier call can neither
+     * hang the fast sweep nor hammer the supplier. Processes the longest-unchecked
+     * supplier watches first (fair rotation), across the wired supplier modules
+     * (flights / stays / tours — all via the Adivaha storefront search).
      *
      * @param string $baseUrl absolute site base for the server-to-server search call.
      */
@@ -560,11 +709,20 @@ if (!function_exists('price_alerts_supplier_sweep')) {
         // max_execution_time mid-loop). Stop starting new supplier calls past this.
         $deadline = time() + 240;
 
+        // Module → supplier resolver. Any watch whose module is here AND carries
+        // params.supplier is a real-supplier watch handled by this sweep only.
+        $resolvers = [
+            'flights' => 'price_alert_price_flights_supplier',
+            'stays'   => 'price_alert_price_stays_supplier',
+            'tours'   => 'price_alert_price_tours_supplier',
+        ];
+
         try {
-            // Supplier-flight watches carry params.supplier — match on the raw JSON.
+            // Supplier watches carry params.supplier — match on the raw JSON, across
+            // all wired supplier modules.
             $rows = $db->select('price_alerts', '*', [
                 'status'     => 'active',
-                'module'     => 'flights',
+                'module'     => array_keys($resolvers),
                 'params[~]'  => '%"supplier"%',
                 'ORDER'      => ['last_checked_at' => 'ASC'],
                 'LIMIT'      => max(1, min(100, $maxCalls)),
@@ -575,9 +733,13 @@ if (!function_exists('price_alerts_supplier_sweep')) {
             // Budget guard: leave enough room for one more call + the DB updates.
             if (time() + $perCallTimeout + 5 > $deadline) { break; }
             $checked++;
+            $mod = strtolower((string) ($a['module'] ?? ''));
+            $fn  = $resolvers[$mod] ?? null;
             $cur = null;
-            try { $cur = price_alert_price_flights_supplier($db, $a, $baseUrl, $perCallTimeout); }
-            catch (\Throwable $e) { $cur = null; }
+            if ($fn !== null && function_exists($fn)) {
+                try { $cur = $fn($db, $a, $baseUrl, $perCallTimeout); }
+                catch (\Throwable $e) { $cur = null; }
+            }
 
             try {
                 $db->update('price_alerts',
