@@ -31992,7 +31992,7 @@ CREATE TABLE `users` (
   `avatar` varchar(255) DEFAULT NULL,
   `timezone` varchar(50) DEFAULT 'UTC',
   `language` varchar(10) DEFAULT 'en',
-  `status` enum('active','inactive','pending','rejected') DEFAULT 'active',
+  `status` enum('active','inactive','pending','rejected','suspended') DEFAULT 'active',
   `supplier_rejected_reason` varchar(255) DEFAULT NULL,
   `reset_token` varchar(255) DEFAULT NULL,
   `reset_token_expires` timestamp NULL DEFAULT NULL,
