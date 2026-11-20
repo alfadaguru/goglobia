@@ -1244,6 +1244,28 @@ function ensureCoreFixSchema($db): void
         error_log('ensureCoreFixSchema: could not widen credits.credits to DECIMAL: ' . $e->getMessage());
     }
 
+    // AG-G1 SCHEMA FIX (agent-portal e2e, 2026-11-20): the admin "Suspend agency"
+    // action writes users.status='suspended', but the shipped column is
+    // enum('active','inactive','pending','rejected') — 'suspended' is NOT a member.
+    // Under the server's non-strict sql_mode (ANSI_QUOTES, no STRICT_TRANS_TABLES)
+    // MySQL SILENTLY coerced the invalid write to '' (empty string), leaving a
+    // suspended agency in a broken limbo (not 'active', but not a real 'suspended'
+    // either — unreportable/unfilterable, and relying on data corruption to lock
+    // login). Widen the enum to include 'suspended' so the suspend lifecycle is
+    // real + queryable. Idempotent: only runs while the enum lacks 'suspended'.
+    try {
+        $col = $db->query("SHOW COLUMNS FROM `users` LIKE 'status'")->fetch(\PDO::FETCH_ASSOC);
+        if ($col && isset($col['Type']) && stripos((string) $col['Type'], "'suspended'") === false) {
+            $db->pdo->exec("ALTER TABLE `users` MODIFY `status` "
+                . "enum('active','inactive','pending','rejected','suspended') NOT NULL DEFAULT 'active'");
+            // Heal any agency already corrupted to '' by a prior broken suspend:
+            // an empty-status agent is one that was "suspended" before this fix.
+            $db->pdo->exec("UPDATE `users` SET `status`='suspended' WHERE `status`='' AND `role`='agent'");
+        }
+    } catch (Throwable $e) {
+        error_log('ensureCoreFixSchema: could not widen users.status enum for suspend: ' . $e->getMessage());
+    }
+
     // Classify each supplier module (real API / affiliate / own inventory /
     // stub) so the admin panel can badge it. Runs inside the same self-healing
     // pass; idempotent and seeds once. See ensureModulesBookingClass() below.
