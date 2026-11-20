@@ -119,6 +119,8 @@ if (!function_exists('price_alert_current_price')) {
         switch ($module) {
             case 'flights':
                 return price_alert_price_flights($db, $alert);
+            case 'stays':
+                return price_alert_price_stays($db, $alert);
             default:
                 // Not wired yet for this module → skip (no false drop).
                 return null;
@@ -181,6 +183,65 @@ if (!function_exists('price_alert_price_flights')) {
             return $cheapest; // null when nothing priced cleanly → skip
         } catch (\Throwable $e) {
             error_log('price_alert_price_flights: ' . $e->getMessage());
+            return null;
+        }
+    }
+}
+
+if (!function_exists('price_alert_price_stays')) {
+    /**
+     * Cheap re-price for an OWN-INVENTORY stay watch. Mirrors the own-stays search
+     * (app/routes/api/stays/homeRoutes.php): for the watched property, take the
+     * MINIMUM room-option price across its active rooms (the "from / starting"
+     * price), then apply the 'hotels' module markup + FX into the alert's currency.
+     * DB-only (decodes stays_rooms.room_options JSON — no external supplier call) so
+     * it's cron-cheap. Returns null when the watch has no stay_id, the stay/rooms
+     * are gone or unpriced, or MARKUP is absent — so an alert never fires on a guess.
+     *
+     * Covers GoGlobia own-inventory stays (module 'hotels'). Real-supplier hotels
+     * (hotelbeds/stuba/ratehawk/…) need a full external availability search and are
+     * intentionally NOT re-priced from the cron.
+     */
+    function price_alert_price_stays($db, array $alert): ?float
+    {
+        $p = [];
+        if (!empty($alert['params'])) {
+            $decoded = json_decode((string) $alert['params'], true);
+            if (is_array($decoded)) { $p = $decoded; }
+        }
+        $stayId = (int) ($p['stay_id'] ?? 0);
+        if ($stayId <= 0) { return null; }               // nothing to re-price → skip
+        if (!function_exists('MARKUP')) { return null; }
+
+        try {
+            $stay = $db->get('stays', ['id', 'currency', 'status'], ['id' => $stayId]);
+            if (!$stay) { return null; }
+
+            // Cheapest active room-option price for this property (same as the search).
+            $rooms = $db->select('stays_rooms', ['room_options'], ['stay_id' => $stayId, 'status' => 1]) ?: [];
+            $minPrice = null;
+            foreach ($rooms as $r) {
+                $opts = json_decode((string) ($r['room_options'] ?? '[]'), true);
+                if (!is_array($opts)) { continue; }
+                foreach ($opts as $o) {
+                    if (!is_array($o) || !isset($o['price'])) { continue; }
+                    // Respect an option's own active flag when present.
+                    if (isset($o['status']) && (int) $o['status'] === 0) { continue; }
+                    $pr = (float) $o['price'];
+                    if ($pr > 0 && ($minPrice === null || $pr < $minPrice)) { $minPrice = $pr; }
+                }
+            }
+            if ($minPrice === null || $minPrice <= 0) { return null; }
+
+            $module  = $db->get('modules', '*', ['name' => 'hotels', 'type' => 'stays']);
+            $fromCcy = strtoupper((string) ($stay['currency'] ?? 'USD'));
+            $target  = strtoupper((string) ($alert['currency'] ?? 'USD'));
+
+            $mk = MARKUP($minPrice, $module ?: 'stays', $db, $fromCcy, $target);
+            $price = round((float) ($mk['price'] ?? 0), 2);
+            return $price > 0 ? $price : null;
+        } catch (\Throwable $e) {
+            error_log('price_alert_price_stays: ' . $e->getMessage());
             return null;
         }
     }

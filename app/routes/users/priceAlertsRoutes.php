@@ -131,6 +131,39 @@ $router->get('/price-alerts/airport-suggest', function () use ($SECURE, $db) {
     exit;
 });
 
+// ---- GET /price-alerts/stay-suggest?q= : local stay (hotel) lookup for the stays
+// watch picker. Returns {id, label} from `stays`, limited to publicly-listable
+// properties (status=1 + approved) — the same ids the own-stays search prices. The
+// resolver re-prices by this stay_id. Login-only; read-only. ----
+$router->get('/price-alerts/stay-suggest', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) { echo json_encode([]); exit; }
+    $q = trim((string) ($_GET['q'] ?? ''));
+    if (strlen($q) < 2) { echo json_encode([]); exit; }
+    try {
+        $like = '%' . $q . '%'; // self-wrap % (Medoo [~] gotcha)
+        $rows = $db->select('stays', ['id', 'name', 'location'], [
+            'OR' => [
+                'name[~]'     => $like,
+                'location[~]' => $like,
+            ],
+            'status'         => '1',
+            'listing_status' => 'approved',
+            'ORDER'          => ['name' => 'ASC'],
+            'LIMIT'          => 12,
+        ]) ?: [];
+        echo json_encode(array_map(static function ($r) {
+            $name = (string) $r['name'];
+            $loc  = trim((string) ($r['location'] ?? ''));
+            return ['id' => (int) $r['id'], 'label' => $loc !== '' ? ($name . ' — ' . $loc) : $name];
+        }, $rows));
+    } catch (\Throwable $e) {
+        error_log('PRICE_ALERTS_STAY_SUGGEST: ' . $e->getMessage());
+        echo json_encode([]);
+    }
+    exit;
+});
+
 // ---- GET /price_alerts_sweep : cron worker (idempotent, best-effort 200) ----
 // Public like the other cron endpoints (no session; triggered by the scheduler).
 // See docs/CRON.md. Does no harm if hit by anyone — it only re-checks prices.

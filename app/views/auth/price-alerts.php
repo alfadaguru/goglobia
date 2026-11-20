@@ -143,6 +143,23 @@ $statusChip = static function ($s) {
                </div>
             </template>
 
+            <!-- STAYS: capture the property so the cron can re-price its "from" rate. -->
+            <template x-if="form.module === 'stays'">
+               <div class="space-y-2 rounded-lg bg-slate-50 border border-slate-200 p-3">
+                  <p class="text-[11px] text-slate-500">We'll watch this property's starting nightly rate and notify you when it drops.</p>
+                  <div class="relative">
+                     <label class="text-xs font-medium text-slate-600">Property</label>
+                     <input type="text" x-model="stayQuery" @input.debounce.250ms="suggestStay()" @focus="suggestStay()"
+                            class="input w-full" placeholder="Hotel name or city" autocomplete="off">
+                     <div x-show="stayOpen && stayOptions.length" x-cloak class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        <template x-for="o in stayOptions" :key="o.id">
+                           <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @click="pickStay(o)" x-text="o.label"></button>
+                        </template>
+                     </div>
+                  </div>
+               </div>
+            </template>
+
             <div class="grid grid-cols-2 gap-3">
                <div>
                   <label class="text-xs font-medium text-slate-600">Price you saw (<?= $__ccy ?>)</label>
@@ -156,7 +173,7 @@ $statusChip = static function ($s) {
             <p class="text-sm text-red-600" x-show="err" x-text="err"></p>
             <div class="flex justify-end gap-2 pt-1">
                <button type="button" class="btn light" @click="modal=false">Cancel</button>
-               <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="busy || !form.module || !form.label.trim() || !(form.baseline_price > 0) || !flightReady()" @click="save()">
+               <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="busy || !form.module || !form.label.trim() || !(form.baseline_price > 0) || !moduleReady()" @click="save()">
                   <span class="material-symbols-outlined text-lg" x-show="!busy">add_alert</span>
                   <span x-text="busy ? 'Saving…' : 'Start watching'"></span>
                </button>
@@ -177,11 +194,14 @@ function priceAlerts(initial, watchable, ccy) {
       form: {},
       // Flight airport picker state.
       fromQuery: '', toQuery: '', fromOptions: [], toOptions: [], fromOpen: false, toOpen: false,
-      blank() { return { module:'', label:'', baseline_price:'', target_price:'', from_airport_id:0, to_airport_id:0, departure_date:'' }; },
+      // Stay property picker state.
+      stayQuery: '', stayOptions: [], stayOpen: false,
+      blank() { return { module:'', label:'', baseline_price:'', target_price:'', from_airport_id:0, to_airport_id:0, departure_date:'', stay_id:0 }; },
       openAdd() {
          this.form = this.blank();
          this.fromQuery = ''; this.toQuery = '';
          this.fromOptions = []; this.toOptions = []; this.fromOpen = false; this.toOpen = false;
+         this.stayQuery = ''; this.stayOptions = []; this.stayOpen = false;
          this.err=''; this.modal = true;
       },
       async suggest(which) {
@@ -198,22 +218,41 @@ function priceAlerts(initial, watchable, ccy) {
          if (which === 'from') { this.form.from_airport_id = o.id; this.fromQuery = o.label; this.fromOpen = false; }
          else { this.form.to_airport_id = o.id; this.toQuery = o.label; this.toOpen = false; }
       },
-      flightReady() {
-         return this.form.module !== 'flights' || (this.form.from_airport_id > 0 && this.form.to_airport_id > 0);
+      async suggestStay() {
+         const q = this.stayQuery.trim();
+         if (q.length < 2) { this.stayOpen = false; return; }
+         try {
+            const res = await fetch('<?= root ?>price-alerts/stay-suggest?q=' + encodeURIComponent(q), { credentials: 'same-origin' });
+            const data = await res.json();
+            this.stayOptions = Array.isArray(data) ? data : []; this.stayOpen = true;
+         } catch(e) {}
+      },
+      pickStay(o) { this.form.stay_id = o.id; this.stayQuery = o.label; this.stayOpen = false; },
+      // True unless a wired module is still missing its required selection.
+      moduleReady() {
+         if (this.form.module === 'flights') { return this.form.from_airport_id > 0 && this.form.to_airport_id > 0; }
+         if (this.form.module === 'stays')   { return this.form.stay_id > 0; }
+         return true;
       },
       async save() {
          if (!this.form.module || !this.form.label.trim() || !(this.form.baseline_price > 0)) return;
-         if (this.form.module === 'flights' && !this.flightReady()) {
+         if (this.form.module === 'flights' && !this.moduleReady()) {
             this.err = 'Pick both airports from the suggestions.'; return;
+         }
+         if (this.form.module === 'stays' && !this.moduleReady()) {
+            this.err = 'Pick the property from the suggestions.'; return;
          }
          if (this.form.target_price && this.form.target_price >= this.form.baseline_price) {
             this.err = 'Your target should be below the price you saw.'; return;
          }
          this.busy = true; this.err='';
-         // For flights, pass the route as structured params so the cron can re-price.
-         const params = this.form.module === 'flights'
-            ? { from_airport_id: this.form.from_airport_id, to_airport_id: this.form.to_airport_id, departure_date: this.form.departure_date || '' }
-            : null;
+         // Pass structured params so the cron can re-price the right thing.
+         let params = null;
+         if (this.form.module === 'flights') {
+            params = { from_airport_id: this.form.from_airport_id, to_airport_id: this.form.to_airport_id, departure_date: this.form.departure_date || '' };
+         } else if (this.form.module === 'stays') {
+            params = { stay_id: this.form.stay_id };
+         }
          const payload = {
             module: this.form.module,
             label: this.form.label,
