@@ -41,6 +41,9 @@ $fmt = fn($n) => number_format((float)$n, 2);
                     $cost = (float)($b['price_markup'] ?? 0);
                     $clientPrice = (float)($b['agent_client_price'] ?? 0);
                     $unpaid = (($b['payment_status'] ?? '') !== 'paid');
+                    // AG-G5b: a cancelled/refunded booking is "unpaid" but must NOT show Pay —
+                    // it shows the credit note. Treat it separately from a genuinely-payable one.
+                    $deadBooking = (($b['payment_status'] ?? '')==='refunded') || (($b['booking_status'] ?? '')==='cancelled');
                     $inv = (string)($b['invoice_id'] ?? '');
                     $pax = trim(((string)($b['first_name']??'')).' '.((string)($b['last_name']??''))) ?: '—';
                 ?>
@@ -53,8 +56,12 @@ $fmt = fn($n) => number_format((float)$n, 2);
                         <td class="px-4 py-2 text-right text-slate-700"><?= $ccy ?> <?= $fmt($cost) ?></td>
                         <td class="px-4 py-2 text-right text-slate-500"><?= $clientPrice>0 ? $ccy.' '.$fmt($clientPrice) : '—' ?></td>
                         <td class="px-4 py-2 text-right whitespace-nowrap">
-                            <?php if ($unpaid && agent_can($db,'bookings','add')): ?>
+                            <?php if ($unpaid && !$deadBooking && agent_can($db,'bookings','add')): ?>
                                 <a href="<?= root ?>agent/booking/<?= urlencode($inv) ?>/pay" class="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700">Pay</a>
+                            <?php elseif ($deadBooking): ?>
+                                <?php if (agent_can($db,'bookings','view')): ?>
+                                    <a href="<?= root ?>agent/booking/<?= urlencode($inv) ?>/client-credit-note" target="_blank" class="text-xs text-rose-600 hover:underline">Credit note</a>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <?php
                                 // Paid but ticket not issued yet (pending) → one-click retry.

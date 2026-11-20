@@ -4588,10 +4588,16 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
     //               template-compatible) but the displayed price is swapped to the
     //               client price below. Falls back to the normal price if no
     //               self-markup was recorded.
+    //   'client_credit_note' (AG-G5b) — the REFUND-side companion: the agency's
+    //               branded CREDIT NOTE to its client for a cancelled/refunded
+    //               booking, at the client price. Same price swap as client_invoice;
+    //               $isCreditNote lets the template label it "CREDIT NOTE" and present
+    //               the amount as credited.
     $docType = strtolower(trim((string) $docType));
-    $clientInvoice = ($docType === 'client_invoice');
+    $isCreditNote  = ($docType === 'client_credit_note');
+    $clientInvoice = ($docType === 'client_invoice') || $isCreditNote; // both show the client price
     if ($docType !== 'ticket') {
-        $docType = 'invoice'; // client_invoice renders via the invoice template
+        $docType = 'invoice'; // client docs render via the invoice template
     }
 
     try {
@@ -4745,9 +4751,11 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
         // Define PDF file path — ticket and invoice are stored as separate files
         // so both can coexist for the same booking (client gets the ticket, the
         // priced invoice stays available separately).
-        // AG-G5: the client invoice gets its OWN filename so it never overwrites the
+        // AG-G5/G5b: client docs get their OWN filenames so they never overwrite the
         // agent's (B2B-priced) invoice PDF for the same booking.
-        $pdfFileName = (!empty($clientInvoice) ? 'client_invoice_' : ($docType === 'ticket' ? 'ticket_' : 'invoice_')) . $invoiceId . '.pdf';
+        $pdfFileName = (!empty($isCreditNote) ? 'client_credit_note_'
+            : (!empty($clientInvoice) ? 'client_invoice_'
+            : ($docType === 'ticket' ? 'ticket_' : 'invoice_'))) . $invoiceId . '.pdf';
         $pdfFilePath = $invoiceDir . $pdfFileName;
 
         // ====================================================================
@@ -4904,6 +4912,28 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
         // Get captured output as HTML string
         $html = ob_get_clean();
 
+        // AG-G5b: CREDIT NOTE banner. The per-service templates don't know about this
+        // doc type, so instead of editing all 11, prepend a clear "CREDIT NOTE" header
+        // into the captured HTML (the body price already shows the client price via the
+        // client-price swap above). Shows the credited amount in the client currency.
+        if (!empty($isCreditNote)) {
+            $__cnCur = htmlspecialchars((string) ($booking['currency_markup'] ?? ''), ENT_QUOTES, 'UTF-8');
+            $__cnAmt = (float) ($booking['agent_client_price'] ?? $booking['price_markup'] ?? 0);
+            $__cnInv = htmlspecialchars((string) $invoiceId, ENT_QUOTES, 'UTF-8');
+            $__cnBanner = '<div style="margin:0 0 14px;padding:12px 16px;border:2px solid #d1495b;'
+                . 'border-radius:8px;background:#fbe9ec;color:#8f1d2b;font-family:sans-serif;">'
+                . '<div style="font-size:18px;font-weight:800;letter-spacing:.04em;">CREDIT NOTE</div>'
+                . '<div style="font-size:12.5px;margin-top:3px;">Against invoice ' . $__cnInv
+                . ' — this booking was cancelled/refunded. Amount credited to the client: <strong>'
+                . $__cnCur . ' ' . number_format($__cnAmt, 2) . '</strong>.</div></div>';
+            // Insert just inside <body> if present, else prepend.
+            if (preg_match('/<body[^>]*>/i', $html)) {
+                $html = preg_replace('/(<body[^>]*>)/i', '$1' . $__cnBanner, $html, 1);
+            } else {
+                $html = $__cnBanner . $html;
+            }
+        }
+
         // ====================================================================
         // STEP 4: GENERATE PDF USING mPDF
         // ====================================================================
@@ -4989,7 +5019,7 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
         }
 
         // Set PDF metadata — title reflects the document type (ticket vs invoice)
-        $mpdf->SetTitle(($docType === 'ticket' ? 'Ticket ' : 'Invoice ') . $invoiceId);
+        $mpdf->SetTitle((!empty($isCreditNote) ? 'Credit Note ' : ($docType === 'ticket' ? 'Ticket ' : 'Invoice ')) . $invoiceId);
         $mpdf->SetAuthor($businessName);
         $mpdf->SetCreator($businessName);
 

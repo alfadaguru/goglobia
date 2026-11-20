@@ -311,6 +311,40 @@ $router->get('/agent/booking/([A-Za-z0-9]+)/client-invoice', function ($invoiceI
     exit;
 });
 
+// ---- GET /agent/booking/{inv}/client-credit-note  (AG-G5b) -----------------
+// The refund-side companion to the client invoice: the agency's branded CREDIT
+// NOTE to its client for a cancelled/refunded booking, at the client price.
+// Owner-scoped; only for a refunded/cancelled booking.
+$router->get('/agent/booking/([A-Za-z0-9]+)/client-credit-note', function ($invoiceId) use ($SECURE, $db) {
+    AGENT_OR_STAFF_AUTH($db);
+    if (!agent_can($db, 'bookings', 'view')) { header('Location: ' . root . 'agent/dashboard'); exit; }
+    [$booking, $ctx] = _agent_booking_for_settle($db, (string)$invoiceId); // ownership guard (agency-scoped)
+
+    // Only for a refunded/cancelled booking (there must be a refund to credit).
+    $__ps = strtolower((string)($booking['payment_status'] ?? ''));
+    $__bs = strtolower((string)($booking['booking_status'] ?? ''));
+    if ($__ps !== 'refunded' && $__bs !== 'cancelled') {
+        $_SESSION['message'] = ['type'=>'error','text'=>'A credit note is available once the booking is cancelled or refunded.'];
+        header('Location: ' . root . 'agent/bookings'); exit;
+    }
+    if (!function_exists('GENERATE_BOOKING_PDF')) { require_once 'app/lib/functions.php'; }
+    $pdfPath = GENERATE_BOOKING_PDF((string)$invoiceId, 'client_credit_note');
+    if (!$pdfPath || !is_file($pdfPath)) {
+        $_SESSION['message'] = ['type'=>'error','text'=>'Could not generate the credit note. Please try again.'];
+        header('Location: ' . root . 'agent/bookings'); exit;
+    }
+    if (function_exists('agent_audit_log')) {
+        agent_audit_log($db, (string)$ctx['owner'], (string)$ctx['actor'], 'booking.client_credit_note', (string)$invoiceId);
+    }
+    if (ob_get_length()) { ob_clean(); }
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: inline; filename="credit-note-' . preg_replace('/[^A-Za-z0-9_\-]/','_', (string)$invoiceId) . '.pdf"');
+    header('Content-Length: ' . filesize($pdfPath));
+    header('X-Content-Type-Options: nosniff');
+    readfile($pdfPath);
+    exit;
+});
+
 // ---- POST /agent/booking/{inv}/pay  (settle from wallet) -------------------
 $router->post('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($SECURE, $db) {
     AGENT_OR_STAFF_AUTH($db);
