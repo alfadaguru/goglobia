@@ -1483,3 +1483,195 @@ if (!function_exists('umrah_quote_request_create')) {
         return ['ok' => true, 'request_ref' => $ref, 'id' => $id];
     }
 }
+
+if (!function_exists('umrah_admin_cancel_refund')) {
+    /**
+     * ADMIN single-booking cancel + refund for an own-inventory umrah booking
+     * (U-ENG-2 fix). Umrah is NOT a /modules gateway (that legacy supplier dir was
+     * removed — see modules/index.php:446), so the generic admin
+     * cancel_booking/refund_request path (which include()s
+     * modules/umrah/umrah/actions/{cancel,refund}.php) had NO file to run and
+     * returned "file not found". Nothing could cancel or refund a single B2C umrah
+     * booking, and the booking-edit cancel never freed the inventory hold (leak).
+     *
+     * This is the single, idempotent, spine-traced handler both admin actions call.
+     * It:
+     *   1. loads the umrah + generic booking (idempotent: already-terminal → 'already');
+     *   2. reverses ONLY what was actually collected (umrah_bookings.amount_paid) —
+     *      wallet/credits → wallet_refund (spine, idempotency-keyed);
+     *      card/bank → refund_gateway_payment (already umrah-aware: part-payment clamp);
+     *   3. marks umrah_bookings + the generic bookings row cancelled (+ refunded when
+     *      money was returned);
+     *   4. RELEASES the inventory hold so the seat returns to capacity (the leak fix);
+     *   5. audits + best-effort notifies the pilgrim.
+     *
+     * @param array $opts ['refund'=>bool (default true), 'reason'=>string, 'actor'=>?string]
+     * @return array ['ok'=>bool,'status'=>'cancelled'|'already'|'error','refunded'=>float,
+     *                'refund_status'=>string,'message'=>string]
+     */
+    function umrah_admin_cancel_refund($db, string $invoiceId, array $opts = []): array
+    {
+        $invoiceId = trim($invoiceId);
+        if ($invoiceId === '') { return ['ok' => false, 'status' => 'error', 'message' => 'Invoice ID required']; }
+        $doRefund = array_key_exists('refund', $opts) ? (bool) $opts['refund'] : true;
+        $reason   = trim((string) ($opts['reason'] ?? 'Umrah booking cancelled by admin')) ?: 'Umrah booking cancelled by admin';
+        $actor    = (string) ($opts['actor'] ?? ($_SESSION['user_id'] ?? ''));
+        $now      = date('Y-m-d H:i:s');
+
+        $ub  = $db->get('umrah_bookings', '*', ['invoice_id' => $invoiceId]);
+        if (!$ub) { return ['ok' => false, 'status' => 'error', 'message' => 'Umrah booking not found']; }
+        $gen = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'umrah']);
+        if (!$gen) { return ['ok' => false, 'status' => 'error', 'message' => 'Booking record not found']; }
+
+        // Idempotency: a booking already in a terminal state is a no-op (never
+        // double-refund, never double-release a hold).
+        $ubStatus  = strtolower((string) ($ub['booking_status'] ?? ''));
+        $genStatus = strtolower((string) ($gen['booking_status'] ?? ''));
+        if (in_array($ubStatus, ['cancelled'], true) || in_array($genStatus, ['cancelled', 'voided'], true)
+            || strtolower((string) ($gen['payment_status'] ?? '')) === 'refunded') {
+            return ['ok' => true, 'status' => 'already', 'refunded' => 0.0, 'message' => 'Booking is already cancelled/refunded'];
+        }
+
+        // Only reverse what was actually collected (umrah ledger amount_paid) — the
+        // customer may have paid only a deposit on an installment plan.
+        $paid      = round((float) ($ub['amount_paid'] ?? 0), 2);
+        $currency  = strtoupper((string) ($ub['currency'] ?? ($gen['currency_markup'] ?? 'NGN'))) ?: 'NGN';
+        $gwRaw     = strtolower(trim((string) ($gen['payment_gateway'] ?? '')));
+        $isWallet  = in_array($gwRaw, ['wallet', 'internal_wallet', 'wallet balance', 'credits'], true);
+
+        $refunded      = 0.0;
+        $refundStatus  = 'none';            // none | refunded | failed | skipped
+        $refundMessage = '';
+
+        if ($doRefund && $paid > 0.0) {
+            if ($isWallet) {
+                // Wallet/credits payment → reverse through the money spine. Idempotency
+                // key makes a retry a no-op (same key → already-success → ok).
+                if (!function_exists('wallet_refund')) {
+                    $walletLib = dirname(__DIR__) . '/wallet.php';
+                    if (is_file($walletLib)) { require_once $walletLib; }
+                }
+                if (function_exists('wallet_refund')) {
+                    $userId = (string) ($ub['user_id'] ?? ($gen['user_id'] ?? ''));
+                    if ($userId !== '') {
+                        try {
+                            $rf = wallet_refund($db, $userId, $paid, $currency, [
+                                'reason'          => 'refund',
+                                'invoice_id'      => $invoiceId,
+                                'ref_type'        => 'invoice',
+                                'ref_id'          => $invoiceId,
+                                'idempotency_key' => 'UMRAH-ADMIN-CANCEL-REF-' . $invoiceId,
+                                'note'            => 'Umrah admin cancel refund ' . ($ub['booking_ref'] ?? '') . ' (' . $invoiceId . ')',
+                            ]);
+                            if (!empty($rf['ok'])) { $refunded = $paid; $refundStatus = 'refunded'; }
+                            else { $refundStatus = 'failed'; $refundMessage = (string) ($rf['message'] ?? 'Wallet refund failed'); }
+                        } catch (\Throwable $e) {
+                            $refundStatus = 'failed'; $refundMessage = 'Wallet refund error';
+                            error_log('umrah_admin_cancel_refund wallet: ' . $e->getMessage());
+                        }
+                    } else {
+                        $refundStatus = 'skipped'; $refundMessage = 'No wallet owner to refund';
+                    }
+                } else {
+                    $refundStatus = 'failed'; $refundMessage = 'Wallet library unavailable';
+                }
+            } else {
+                // Card/bank gateway → refund_gateway_payment is already umrah-aware
+                // (clamps the default to umrah_bookings.amount_paid, never over-refunds).
+                if (!function_exists('refund_gateway_payment')) {
+                    $pgLib = dirname(__DIR__) . '/payment-gateway.php';
+                    if (is_file($pgLib)) { require_once $pgLib; }
+                }
+                if (function_exists('refund_gateway_payment')) {
+                    try {
+                        // Pass the generic booking (carries gateway + transaction_id).
+                        $res = refund_gateway_payment($db, $gen, null, $reason);
+                        $st = (string) ($res['status'] ?? '');
+                        if ($st === 'refunded') {
+                            $refunded = (float) ($res['amount'] ?? $paid); $refundStatus = 'refunded';
+                        } elseif ($st === 'in_progress') {
+                            $refundStatus = 'refunded'; $refundMessage = 'Refund already in progress';
+                        } else {
+                            $refundStatus = 'failed';
+                            $refundMessage = (string) ($res['message'] ?? ('Refund ' . ($st ?: 'failed')));
+                        }
+                    } catch (\Throwable $e) {
+                        $refundStatus = 'failed'; $refundMessage = 'Gateway refund error';
+                        error_log('umrah_admin_cancel_refund gateway: ' . $e->getMessage());
+                    }
+                } else {
+                    $refundStatus = 'failed'; $refundMessage = 'Refund library unavailable';
+                }
+            }
+        } elseif ($paid <= 0.0) {
+            $refundStatus = 'none'; // nothing collected — a clean cancel, no money to return
+        }
+
+        // Cancel the umrah domain row + generic row, and RELEASE the inventory hold
+        // (the leak fix) — all best-effort but logged. A failed refund still cancels
+        // (admin intent) but the response makes the refund failure explicit so staff
+        // can reconcile manually.
+        try {
+            $ubUpd = ['booking_status' => 'cancelled', 'updated_at' => $now];
+            if ($refundStatus === 'refunded') { $ubUpd['payment_status'] = 'refunded'; }
+            $db->update('umrah_bookings', $ubUpd, ['id' => (int) $ub['id']]);
+
+            $genUpd = ['booking_status' => 'cancelled', 'updated_at' => $now];
+            if ($refundStatus === 'refunded') { $genUpd['payment_status'] = 'refunded'; }
+            $genUpd['cancellation_status']  = 1;
+            $db->update('bookings', $genUpd, ['invoice_id' => $invoiceId]);
+
+            // Release the hold so the seat returns to capacity (capacity sums count
+            // 'held' + 'consumed' against availability; releasing frees it). Covers a
+            // still-held (unpaid) hold AND a consumed (paid) hold.
+            $holdId = (int) ($ub['hold_id'] ?? 0);
+            if ($holdId > 0) {
+                $db->update('umrah_inventory_holds',
+                    ['state' => 'released', 'updated_at' => $now],
+                    ['id' => $holdId, 'state' => ['held', 'consumed']]);
+            }
+        } catch (\Throwable $e) {
+            error_log('umrah_admin_cancel_refund finalize: ' . $e->getMessage());
+            return ['ok' => false, 'status' => 'error', 'refunded' => $refunded, 'refund_status' => $refundStatus, 'message' => 'Could not finalize cancellation'];
+        }
+
+        if (function_exists('umrah_audit')) {
+            umrah_audit($db, 'umrah_booking', (string) ($ub['booking_ref'] ?? $invoiceId), 'admin_cancel',
+                null, ['refunded' => $refunded, 'refund_status' => $refundStatus, 'paid' => $paid], $actor, 'admin', $reason);
+        }
+
+        // Best-effort customer notice.
+        if (function_exists('umrah_notify')) {
+            try {
+                $recipient = [
+                    'email' => (string) ($gen['email'] ?? ''),
+                    'name'  => trim((string) (($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? ''))),
+                    'phone' => (string) ($gen['phone'] ?? ''),
+                    'phone_country_code' => (string) ($gen['phone_country_code'] ?? ''),
+                ];
+                $ref     = (string) ($ub['booking_ref'] ?? $invoiceId);
+                $refLine = $refunded > 0
+                    ? ("A refund of " . number_format($refunded, 2) . ' ' . $currency . " has been processed to your original payment method.\n\n")
+                    : '';
+                $body = "Assalamu Alaikum,\n\nYour GoGlobia Umrah booking {$ref} has been cancelled.\n\n"
+                      . $refLine
+                      . "If you did not request this or have any questions, please contact us.\n";
+                umrah_notify($db, (int) $ub['id'], 'booking_cancelled', 'Umrah booking cancelled — ' . $ref, $body, 'email', $recipient, $invoiceId);
+            } catch (\Throwable $e) { error_log('umrah_admin_cancel_refund notify: ' . $e->getMessage()); }
+        }
+
+        $msg = 'Umrah booking cancelled.';
+        if ($refundStatus === 'refunded') { $msg .= ' Refunded ' . number_format($refunded, 2) . ' ' . $currency . '.'; }
+        elseif ($refundStatus === 'failed') { $msg .= ' NOTE: automatic refund failed (' . $refundMessage . ') — refund manually.'; }
+        elseif ($refundStatus === 'skipped') { $msg .= ' ' . $refundMessage . '.'; }
+        elseif ($paid <= 0) { $msg .= ' No payment had been collected, so no refund was needed.'; }
+
+        return [
+            'ok'            => true,
+            'status'        => 'cancelled',
+            'refunded'      => $refunded,
+            'refund_status' => $refundStatus,
+            'message'       => $msg,
+        ];
+    }
+}

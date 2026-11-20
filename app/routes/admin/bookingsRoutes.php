@@ -285,6 +285,25 @@ $router->post(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$
                 try { supplier_earning_void_for_booking($db, (string) $invoice_id); }
                 catch (\Throwable $e) { error_log('admin cancel earning-void ' . $invoice_id . ': ' . $e->getMessage()); }
             }
+        } elseif ($wasCancelledNow && strtolower((string) ($booking['module_type'] ?? '')) === 'umrah') {
+            // UMRAH (U-ENG-2): the edit-form flip to 'cancelled' previously freed NO
+            // inventory (umrah was absent from the branches above) so the seat's hold
+            // leaked. Route through the service layer, which reverses any money
+            // collected (only if this admin holds bookings.refund — a plain editor
+            // cancels + frees the seat without refunding) and ALWAYS releases the hold.
+            if (!function_exists('umrah_admin_cancel_refund')) {
+                $umrahLib = dirname(__DIR__, 2) . '/lib/umrah/services.php';
+                if (is_file($umrahLib)) { require_once $umrahLib; }
+            }
+            if (function_exists('umrah_admin_cancel_refund')) {
+                try {
+                    $__canRef = function_exists('admin_can') ? admin_can($db, 'bookings', 'refund') : false;
+                    umrah_admin_cancel_refund($db, (string) $invoice_id, [
+                        'refund' => $__canRef,
+                        'reason' => 'Umrah booking cancelled by admin (edit form)',
+                    ]);
+                } catch (\Throwable $e) { error_log('admin edit-cancel umrah ' . $invoice_id . ': ' . $e->getMessage()); }
+            }
         }
 
         $_SESSION['message'] = [
@@ -624,6 +643,36 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
         $_POST['invoice_id'] = $invoice_id;
         $_POST['module_type'] = $booking['module_type'];
 
+        // UMRAH (U-ENG-2): own-inventory, NOT a /modules gateway — there is no
+        // modules/umrah/umrah/actions/cancel.php to include (that legacy supplier
+        // dir was removed). Handle it via the v2 service layer: reverse any money
+        // collected, cancel, and RELEASE the inventory hold (the seat leak). Refund
+        // is gated separately (bookings.refund) — a plain cancel with bookings.cancel
+        // still releases the seat; the refund only runs when the admin also holds
+        // refund rights, otherwise we cancel-without-refund and say so.
+        if (strtolower((string) ($booking['module_type'] ?? '')) === 'umrah') {
+            if (!function_exists('umrah_admin_cancel_refund')) {
+                $umrahLib = dirname(__DIR__, 2) . '/lib/umrah/services.php';
+                if (is_file($umrahLib)) { require_once $umrahLib; }
+            }
+            if (!function_exists('umrah_admin_cancel_refund')) {
+                echo json_encode(['status' => false, 'success' => false, 'message' => 'Umrah cancel unavailable']);
+                exit;
+            }
+            $canRefund = function_exists('admin_can') ? admin_can($db, 'bookings', 'refund') : true;
+            $r = umrah_admin_cancel_refund($db, (string) $invoice_id, [
+                'refund' => $canRefund,
+                'reason' => 'Umrah booking cancelled by admin',
+            ]);
+            echo json_encode([
+                'status'  => !empty($r['ok']),
+                'success' => !empty($r['ok']),
+                'message' => $r['message'] ?? ($r['ok'] ? 'Cancelled' : 'Cancel failed'),
+                'refunded'=> $r['refunded'] ?? 0,
+            ]);
+            exit;
+        }
+
         $moduleType = $booking['module_type'] ?? 'hotels';
         $module = $booking['module'] ?? 'hotels';
         $basePath = dirname(__DIR__, 3);
@@ -658,6 +707,31 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
         admin_require($db, 'bookings', 'refund');
         $_POST['invoice_id'] = $invoice_id;
         $_POST['module_type'] = $booking['module_type'];
+
+        // UMRAH (U-ENG-2): own-inventory — no modules/umrah/umrah/actions/refund.php.
+        // Reverse the collected amount, cancel, release the hold via the service layer.
+        // This handler already requires bookings.refund (above), so refund=true.
+        if (strtolower((string) ($booking['module_type'] ?? '')) === 'umrah') {
+            if (!function_exists('umrah_admin_cancel_refund')) {
+                $umrahLib = dirname(__DIR__, 2) . '/lib/umrah/services.php';
+                if (is_file($umrahLib)) { require_once $umrahLib; }
+            }
+            if (!function_exists('umrah_admin_cancel_refund')) {
+                echo json_encode(['status' => false, 'success' => false, 'message' => 'Umrah refund unavailable']);
+                exit;
+            }
+            $r = umrah_admin_cancel_refund($db, (string) $invoice_id, [
+                'refund' => true,
+                'reason' => 'Umrah booking refunded by admin',
+            ]);
+            echo json_encode([
+                'status'  => !empty($r['ok']),
+                'success' => !empty($r['ok']),
+                'message' => $r['message'] ?? ($r['ok'] ? 'Refunded' : 'Refund failed'),
+                'refunded'=> $r['refunded'] ?? 0,
+            ]);
+            exit;
+        }
 
         $moduleType = $booking['module_type'] ?? 'hotels';
         $module = $booking['module'] ?? 'hotels';

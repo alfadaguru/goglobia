@@ -992,13 +992,20 @@ $router->get(admin.'/umrah-manager/groups', function () use ($SECURE, $db) {
 // Admin: drive a group's status + visa_status (full flexibility).
 $router->post(admin.'/umrah-manager/groups/status', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    // Base transition needs bookings.edit. Cancelling a PAID group is a REFUND event
+    // (U-ENG-1) — it reverses the agent's wallet charge — so it additionally requires
+    // bookings.refund. We pass can_refund into the engine, which rejects a paid-group
+    // cancel without it (so a plain editor can't silently strand the agent's money).
     admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $gid = (int) ($_POST['group_id'] ?? 0);
     if ($gid <= 0 || !function_exists('umrah_group_set_status')) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid request']); }
-    $r = umrah_group_set_status($db, $gid, trim((string) ($_POST['status'] ?? '')), $_POST['visa_status'] ?? null);
-    umrahV2AdminJson($r['ok'] ? ['success' => true, 'message' => 'Group updated'] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+    $canRefund = function_exists('admin_can') ? admin_can($db, 'bookings', 'refund') : false;
+    $r = umrah_group_set_status($db, $gid, trim((string) ($_POST['status'] ?? '')), $_POST['visa_status'] ?? null, ['can_refund' => $canRefund]);
+    umrahV2AdminJson($r['ok']
+        ? ['success' => true, 'message' => 'Group updated' . (!empty($r['refunded']) ? ' — agent refunded ' . number_format((float) $r['refunded'], 2) : '')]
+        : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
 });
 
 // Members of a group (JSON) — for the admin manage drawer visa/doc grid.
