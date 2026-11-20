@@ -17,7 +17,7 @@ $fmtName = function ($r) {
 
     <div class="mb-6">
         <h1 class="text-xl font-bold text-slate-800">Members</h1>
-        <p class="text-sm text-slate-600 mt-1">Who is on which agent tier, everyone's loyalty balance, and a manual points award / deduction. Configure the tiers &amp; scheme on <a class="text-primary hover:underline" href="<?= root . admin ?>/finance/tiers">Tiers &amp; Loyalty</a>.</p>
+        <p class="text-sm text-slate-600 mt-1">Who is on which agent tier, everyone's loyalty balance, and a manual points award / deduction. Configure the tiers &amp; scheme on <a class="text-primary hover:underline" href="<?= root . admin ?>/finance/tiers">Tiers &amp; Loyalty</a>, or review <a class="text-primary hover:underline" href="<?= root . admin ?>/finance/credit-aging">Credit aging</a>.</p>
     </div>
 
     <?php if (isset($_SESSION['message'])): ?>

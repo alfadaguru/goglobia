@@ -389,3 +389,73 @@ $router->get(admin.'/finance/members/([A-Za-z0-9_\-]+)', function ($uid) use ($S
     require_once "app/views/admin/money/member-detail.php";
     require_once views."includes/footer.php";
 });
+
+// ============================================================================
+// AG-G3b — CREDIT AGING. An on-screen admin view of which agents have drawn on
+// their credit line, how much is outstanding, and whether the payment window has
+// lapsed. The reminder CRON emails this; there was no in-portal aging view. The
+// "owed" amount mirrors the cron: SUM(credits debit) - SUM(credits credit) — i.e.
+// what the agent has actually used and not yet repaid (floored at 0). Due date =
+// first_credit_usage_date + credit_payment_days.  GET /admin/finance/credit-aging
+// ============================================================================
+$router->get(admin.'/finance/credit-aging', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    admin_require($db, 'money', 'view');
+
+    $todayTs = time();
+    // Agents who have a credit line OR have used credits.
+    $agents = $db->select('users',
+        ['user_id','first_name','last_name','email','credit_limits','credit_payment_days','first_credit_usage_date','status'],
+        ['role' => 'agent', 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 500]) ?: [];
+
+    $rows = [];
+    $totOwed = 0.0; $overdueCount = 0;
+    foreach ($agents as $a) {
+        $uid = (string) $a['user_id'];
+        // Used credits = SUM(debit) - SUM(credit) on the legacy `credits` ledger
+        // (the same basis the reminder cron + agent_api_wallet_balance use). Floored
+        // at 0 so a fully-repaid agent shows nothing outstanding.
+        $used = 0.0;
+        try {
+            $d = (float) ($db->sum('credits', 'credits', ['user_id' => $uid, 'type' => 'debit']) ?: 0);
+            $c = (float) ($db->sum('credits', 'credits', ['user_id' => $uid, 'type' => 'credit']) ?: 0);
+            $used = round(max(0.0, $d - $c), 2);
+        } catch (\Throwable $e) { $used = 0.0; }
+        if ($used <= 0) { continue; } // only show agents who actually owe
+
+        $limit = (float) ($a['credit_limits'] ?? 0);
+        $pct = $limit > 0 ? (int) round($used / $limit * 100) : 0;
+        $days = (int) ($a['credit_payment_days'] ?? 0);
+        $firstUse = (string) ($a['first_credit_usage_date'] ?? '');
+        $dueDate = null; $daysOverdue = null;
+        if ($days > 0 && $firstUse !== '') {
+            try {
+                $due = (new DateTime($firstUse))->modify("+{$days} days");
+                $dueDate = $due->format('Y-m-d');
+                $daysOverdue = (int) floor(($todayTs - $due->getTimestamp()) / 86400);
+            } catch (\Throwable $e) { $dueDate = null; }
+        }
+        $isOverdue = ($daysOverdue !== null && $daysOverdue > 0);
+        if ($isOverdue) { $overdueCount++; }
+        $totOwed += $used;
+        $rows[] = [
+            'user_id' => $uid,
+            'name' => trim(($a['first_name'] ?? '') . ' ' . ($a['last_name'] ?? '')) ?: $uid,
+            'email' => (string) ($a['email'] ?? ''),
+            'status' => (string) ($a['status'] ?? ''),
+            'used' => $used, 'limit' => $limit, 'pct' => $pct,
+            'due_date' => $dueDate, 'days_overdue' => $isOverdue ? $daysOverdue : 0,
+            'is_overdue' => $isOverdue,
+        ];
+    }
+    // Overdue first, then by amount owed desc.
+    usort($rows, fn($x, $y) => ($y['is_overdue'] <=> $x['is_overdue']) ?: ($y['used'] <=> $x['used']));
+
+    $defaultCurrency = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
+    $summary = ['agents' => count($rows), 'overdue' => $overdueCount, 'owed' => round($totOwed, 2)];
+
+    $title = 'Credit Aging';
+    require_once views."includes/header.php";
+    require_once "app/views/admin/money/credit-aging.php";
+    require_once views."includes/footer.php";
+});
