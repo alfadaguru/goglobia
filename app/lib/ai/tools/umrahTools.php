@@ -243,23 +243,32 @@ if (!class_exists('App\\lib\\ai\\umrahBookTool')) {
                 return ['ok' => false, 'error_code' => 'AI_UMRAH_BOOK', 'message' => (string) ($res['message'] ?? 'Could not create the umrah booking.')];
             }
             // Signal the channel to start pilgrim collection + (later) show pay options.
-            return [
-                'ok' => true,
-                'data' => [
-                    'invoice_id'       => $res['invoice_id'],
-                    'booking_ref'      => $res['booking_ref'],
-                    'umrah_booking_id' => $res['umrah_booking_id'],
-                    'module'           => 'umrah',
-                    'pax'              => $res['pax'],
-                    'needs_travellers' => true,
-                    'amount'           => $res['total_price'],
-                    'amount_due_now'   => $res['amount_due_now'],
-                    'currency'         => $res['currency'],
-                    'installments'     => $res['installments'],
-                    'plan_code'        => $res['plan_code'],
-                ],
-                'message' => 'Umrah booking created (unpaid). Next: collect each pilgrim\'s passport, then payment.',
+            // price_changed/quoted_total (audit D7-1) are surfaced so the model knows the
+            // committed total drifted from the quote it showed and can re-confirm the new
+            // amount (giaAgent::compactToolOutput whitelists price_changed to the model).
+            $data = [
+                'invoice_id'       => $res['invoice_id'],
+                'booking_ref'      => $res['booking_ref'],
+                'umrah_booking_id' => $res['umrah_booking_id'],
+                'module'           => 'umrah',
+                'pax'              => $res['pax'],
+                'needs_travellers' => true,
+                'amount'           => $res['total_price'],
+                'amount_due_now'   => $res['amount_due_now'],
+                'currency'         => $res['currency'],
+                'installments'     => $res['installments'],
+                'plan_code'        => $res['plan_code'],
             ];
+            if (!empty($res['price_changed'])) {
+                $data['price_changed'] = true;
+                $data['quoted_total']  = (float) ($res['quoted_total'] ?? 0);
+            }
+            $msg = !empty($res['price_changed'])
+                ? 'Umrah booking created (unpaid) — note the price UPDATED since the quote to '
+                    . $res['currency'] . ' ' . number_format((float) $res['total_price'], 2)
+                    . '; confirm the new total with the traveller. Next: collect each pilgrim\'s passport, then payment.'
+                : 'Umrah booking created (unpaid). Next: collect each pilgrim\'s passport, then payment.';
+            return ['ok' => true, 'data' => $data, 'message' => $msg];
         }
     }
 }

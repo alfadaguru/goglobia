@@ -536,7 +536,8 @@ if (!function_exists('gia_bp_confirm')) {
         // pending -> paying; if another worker already did, bail as 'already'. The
         // claim is released back to 'pending' on any RETRYABLE early-return below so a
         // genuine retry isn't blocked, and is overwritten by 'paid'/'refunded' on the
-        // success path (line ~598). Fail-open on DB variance (never block a lone confirm).
+        // success path (line ~598). If the claim UPDATE itself THROWS we FAIL CLOSED
+        // (return retryable) rather than proceed unclaimed — see the catch (audit D3-1).
         try {
             $claim = $db->update('gia_booking_payments',
                 ['status' => 'paying', 'updated_at' => date('Y-m-d H:i:s')],

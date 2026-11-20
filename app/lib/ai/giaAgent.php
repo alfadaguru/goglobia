@@ -648,13 +648,26 @@ class giaAgent
         }
         if (!$hasConfirmEvidence) {
             // Does the reply CLAIM success? Match explicit, present-tense assertions —
-            // not conditional/future ("once confirmed", "I'll get you booked"). Also catch
-            // a stated PNR token ("PNR ABC123", "reference: ABC1234").
-            $claimsConfirmed = (bool) preg_match(
-                '/\b(?:your\s+)?(?:booking|flight|ticket|trip|hotel|stay|seat|room)\b[^.?!]{0,40}\b(?:is|are|has been|have been|now)\b[^.?!]{0,20}\b(?:confirmed|issued|ticketed|booked|secured)\b/i',
+            // NOT conditional/future ("once confirmed", "I'll get you booked"), and NOT
+            // the sold-out sense of "booked" ("fully booked"). (Re-audit fixes: the first
+            // version missed "PNR is ABC123" [the connective word "is" broke the token
+            // match] + "confirmation code is 7788QQ", and false-flagged "fully booked"
+            // [sold out] + "booking reference already" [the word "already" matched the
+            // code class]. Now: 'booked' as confirmation excludes fully/over/sold/double;
+            // the token must contain BOTH a digit and a letter so dictionary words never
+            // match; a connective word is allowed between the label and the code.)
+            $claimsConfirmed =
+                (bool) preg_match('/\b(?:your\s+)?(?:booking|flight|ticket|trip|hotel|stay|seat|room)\b[^.?!]{0,40}\b(?:is|are|has been|have been|now)\b[^.?!]{0,20}\b(?:confirmed|issued|ticketed|secured)\b/i', $reply)
+                || (bool) preg_match('/\b(?:your\s+)?(?:booking|flight|ticket|trip|hotel|stay|seat|room)\b[^.?!]{0,40}\b(?:is|are|has been|have been|now)\b[^.?!]{0,20}(?<!fully )(?<!over )(?<!sold )(?<!double )\bbooked\b/i', $reply)
+                || (bool) preg_match('/\b(?:you(?:\'re| are)\s+(?:all\s+)?(?:set|booked|confirmed))\b/i', $reply);
+            // A stated reference TOKEN: label, optional connective (is/:/#/=), then a code
+            // that MUST hold >=1 digit AND >=1 letter (5-10 chars) so plain words like
+            // "already"/"reference" never match, and a code-less "reference will be emailed"
+            // is ignored.
+            $statesPnr = (bool) preg_match(
+                '/\b(?:PNR|booking\s+(?:ref(?:erence)?|code)|confirmation\s+(?:code|number))\b\s*(?:is|:|#|is[:#]|=)?\s*(?=[A-Z0-9]{5,10}\b)(?=[A-Z0-9]*[0-9])(?=[A-Z0-9]*[A-Z])[A-Z0-9]{5,10}\b/i',
                 $reply
-            ) || (bool) preg_match('/\b(?:you(?:\'re| are)\s+(?:all\s+)?(?:set|booked|confirmed))\b/i', $reply);
-            $statesPnr = (bool) preg_match('/\b(?:PNR|booking\s+(?:ref(?:erence)?|code)|confirmation\s+(?:code|number))\b[:\s#]*[A-Z0-9]{5,8}\b/i', $reply);
+            );
             if ($claimsConfirmed || $statesPnr) {
                 error_log('[gia][containment] blocked reply asserting confirmation/PNR with NO tool evidence this turn'
                     . ' (claimsConfirmed=' . ($claimsConfirmed ? '1' : '0') . ' statesPnr=' . ($statesPnr ? '1' : '0') . ')');
