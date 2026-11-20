@@ -43,6 +43,7 @@ email you every run.)
 
 # ── Customer price alerts (notify on a watched price drop) ───────────
 */30 * * * *    curl -s "https://goglobia.com/price_alerts_sweep"        > /dev/null 2>&1
+0 * * * *       curl -s --max-time 300 "https://goglobia.com/price_alerts_supplier_sweep" > /dev/null 2>&1
 
 # ── Daily maintenance ────────────────────────────────────────────────
 */15 * * * *    curl -s "https://goglobia.com/update_currency_rates"     > /dev/null 2>&1
@@ -73,7 +74,8 @@ email you every run.)
 | */5 | `/umrah_expire_holds` | Releases expired umrah seat holds so inventory frees. | `crons/umrahHoldsRoutes.php` |
 | */15 | `/supplier_release_earnings` | Advances supplier earnings `pending → available` after the clearance window. | `crons/supplierEarningsRoutes.php` |
 | hourly | `/referral_release_sweep` | Releases referral rewards after the refund hold window; claws back on refund. | `crons/referralReleaseRoutes.php` |
-| */30 | `/price_alerts_sweep` | Re-checks customer price-alert watches; notifies (bell + email) on the first qualifying price drop. Skips watches whose module has no cheap re-price wired (never a false fire). | `users/priceAlertsRoutes.php` → `price_alerts_sweep()` |
+| */30 | `/price_alerts_sweep` | Re-checks **own-inventory** price-alert watches (flights/stays/tours/cars/cruises/umrah) — DB-only, instant; notifies on the first qualifying drop. | `users/priceAlertsRoutes.php` → `price_alerts_sweep()` |
+| hourly | `/price_alerts_supplier_sweep` | THROTTLED **real-supplier** flight re-price (Adivaha live search). Separate because each watch is an external call; capped per run (`?max=`, default 15) with per-call + total-time limits so it can't hang or hammer the supplier. Run LESS often than the fast sweep. Use `--max-time 300`. | `users/priceAlertsRoutes.php` → `price_alerts_supplier_sweep()` |
 | */15 | `/update_currency_rates` | Refreshes FX rates from the currency API. | `crons/currencyRatesRoutes.php` |
 | daily 02:30 | `/cron/airalo-sync` | Syncs the Airalo eSIM country/package catalogue. | `crons/airaloSyncRoutes.php` |
 | daily 09:00 | `/send_credits_reminders` | Reminds agents of credit-line payment due dates. | `crons/creditsRemindersRoutes.php` |

@@ -229,6 +229,12 @@ $router->get('/price_alerts_sweep', function () use ($SECURE, $db) {
 // See docs/CRON.md. ----
 $router->get('/price_alerts_supplier_sweep', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
+    // This is a legitimate long-running batch (each watch = an external search).
+    // Give it headroom so a few slow supplier calls can't trip max_execution_time
+    // mid-run (which would abort before results/JSON). Still bounded by $maxCalls ×
+    // the per-call curl timeout in the lib.
+    @set_time_limit(300);
+    @ignore_user_abort(true);
     // Absolute base URL for the internal search call: prefer APP_URL (correct in
     // prod), fall back to the inbound scheme+host + the app's root path.
     $base = '';

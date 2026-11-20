@@ -550,11 +550,15 @@ if (!function_exists('price_alerts_supplier_sweep')) {
      *
      * @param string $baseUrl absolute site base for the server-to-server search call.
      */
-    function price_alerts_supplier_sweep($db, string $baseUrl, int $maxCalls = 15, int $perCallTimeout = 40): array
+    function price_alerts_supplier_sweep($db, string $baseUrl, int $maxCalls = 15, int $perCallTimeout = 15): array
     {
         ensurePriceAlertsSchema($db);
         $checked = 0; $triggered = 0; $skipped = 0;
         if (trim($baseUrl) === '') { return ['ok' => false, 'message' => 'no base url']; }
+
+        // Total wall-time budget so the run always finishes cleanly (and never trips
+        // max_execution_time mid-loop). Stop starting new supplier calls past this.
+        $deadline = time() + 240;
 
         try {
             // Supplier-flight watches carry params.supplier — match on the raw JSON.
@@ -568,6 +572,8 @@ if (!function_exists('price_alerts_supplier_sweep')) {
         } catch (\Throwable $e) { error_log('price_alerts_supplier_sweep select: ' . $e->getMessage()); return ['ok' => false]; }
 
         foreach ($rows as $a) {
+            // Budget guard: leave enough room for one more call + the DB updates.
+            if (time() + $perCallTimeout + 5 > $deadline) { break; }
             $checked++;
             $cur = null;
             try { $cur = price_alert_price_flights_supplier($db, $a, $baseUrl, $perCallTimeout); }
