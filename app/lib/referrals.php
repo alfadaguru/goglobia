@@ -59,14 +59,24 @@ if (!function_exists('ensureReferralSchema')) {
                     `referee_id` varchar(255) NOT NULL,
                     `code_used` varchar(32) NOT NULL,
                     `status` varchar(20) NOT NULL DEFAULT 'pending',
+                    `referee_signup_ip` varchar(45) DEFAULT NULL,
                     `qualifying_invoice_id` varchar(191) DEFAULT NULL,
                     `qualified_at` datetime DEFAULT NULL,
                     `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (`id`),
                     UNIQUE KEY `uq_referee` (`referee_id`),
                     KEY `idx_referrer` (`referrer_id`),
-                    KEY `idx_status` (`status`)
+                    KEY `idx_status` (`status`),
+                    KEY `idx_signup_ip` (`referee_signup_ip`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            } else {
+                // Self-heal: the device/IP fraud guard needs the signup IP on existing
+                // installs too (added after the table shipped).
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `referrals` LIKE 'referee_signup_ip'")->fetch()) {
+                        $db->query("ALTER TABLE `referrals` ADD COLUMN `referee_signup_ip` varchar(45) DEFAULT NULL, ADD KEY `idx_signup_ip` (`referee_signup_ip`)");
+                    }
+                } catch (\Throwable $e) { error_log('ensureReferralSchema referrals.referee_signup_ip: ' . $e->getMessage()); }
             }
 
             if (!dbTableExists($db, 'referral_rewards')) {
@@ -80,6 +90,8 @@ if (!function_exists('ensureReferralSchema')) {
                     `referee_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
                     `currency` varchar(3) DEFAULT NULL,
                     `status` varchar(20) NOT NULL DEFAULT 'hold',
+                    `flagged` tinyint(1) NOT NULL DEFAULT 0,
+                    `flag_reason` varchar(191) DEFAULT NULL,
                     `hold_expires_at` datetime DEFAULT NULL,
                     `rewarded_at` datetime DEFAULT NULL,
                     `reversed_at` datetime DEFAULT NULL,
@@ -88,8 +100,22 @@ if (!function_exists('ensureReferralSchema')) {
                     UNIQUE KEY `uq_reward_referral` (`referral_id`),
                     UNIQUE KEY `uq_reward_invoice` (`invoice_id`),
                     KEY `idx_reward_status` (`status`),
-                    KEY `idx_reward_referrer` (`referrer_id`)
+                    KEY `idx_reward_referrer` (`referrer_id`),
+                    KEY `idx_reward_flagged` (`flagged`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            } else {
+                // Self-heal: the "flag for review" fraud guard needs these on existing
+                // installs (added after the reward table shipped).
+                foreach ([
+                    'flagged'     => "ADD COLUMN `flagged` tinyint(1) NOT NULL DEFAULT 0, ADD KEY `idx_reward_flagged` (`flagged`)",
+                    'flag_reason' => "ADD COLUMN `flag_reason` varchar(191) DEFAULT NULL",
+                ] as $col => $sql) {
+                    try {
+                        if (!$db->query("SHOW COLUMNS FROM `referral_rewards` LIKE '{$col}'")->fetch()) {
+                            $db->query("ALTER TABLE `referral_rewards` {$sql}");
+                        }
+                    } catch (\Throwable $e) { error_log("ensureReferralSchema referral_rewards.{$col}: " . $e->getMessage()); }
+                }
             }
 
             // Admin-editable referral config lives on the single settings row (same
@@ -101,8 +127,15 @@ if (!function_exists('ensureReferralSchema')) {
                 'referral_referee_amount'     => "ADD COLUMN `referral_referee_amount` decimal(14,2) NOT NULL DEFAULT 0.00",
                 'referral_currency'           => "ADD COLUMN `referral_currency` varchar(3) DEFAULT NULL",
                 'referral_hold_days'          => "ADD COLUMN `referral_hold_days` int(11) NOT NULL DEFAULT 14",
-                'referral_min_booking_amount' => "ADD COLUMN `referral_min_booking_amount` decimal(14,2) NOT NULL DEFAULT 0.00",
-                'referral_cap_per_month'      => "ADD COLUMN `referral_cap_per_month` int(11) NOT NULL DEFAULT 0",
+                // Launch-safe defaults for fresh installs: a ₦50k-equivalent minimum
+                // (mirrors Airbnb's ~$50 floor) and a 25/month per-referrer cap. An
+                // admin can change both under Marketing → Referral Program.
+                'referral_min_booking_amount' => "ADD COLUMN `referral_min_booking_amount` decimal(14,2) NOT NULL DEFAULT 50000.00",
+                'referral_cap_per_month'      => "ADD COLUMN `referral_cap_per_month` int(11) NOT NULL DEFAULT 25",
+                // Device/IP fraud guard: when on, a reward is blocked if the referee
+                // signed up from the same IP as their referrer or as another of that
+                // referrer's referees (self-referral across multiple accounts).
+                'referral_ip_guard_enabled'   => "ADD COLUMN `referral_ip_guard_enabled` tinyint(1) NOT NULL DEFAULT 1",
             ] as $col => $sql) {
                 try {
                     if (!$db->query("SHOW COLUMNS FROM `settings` LIKE '{$col}'")->fetch()) {
@@ -139,7 +172,34 @@ if (!function_exists('referral_config')) {
             'hold_days'          => max(0, (int) ($s['referral_hold_days'] ?? 14)),
             'min_booking_amount' => round((float) ($s['referral_min_booking_amount'] ?? 0), 2),
             'cap_per_month'      => max(0, (int) ($s['referral_cap_per_month'] ?? 0)), // 0 = unlimited
+            // Device/IP fraud guard. Defaults ON (1) so same-device self-referral is
+            // blocked out of the box; an admin can turn it off under Marketing →
+            // Referral Program.
+            'ip_guard_enabled'   => (int) ($s['referral_ip_guard_enabled'] ?? 1) === 1,
         ];
+    }
+}
+
+if (!function_exists('referral_client_ip')) {
+    /**
+     * Best-effort client IP for the device/IP fraud guard. Prefers the real socket
+     * peer (REMOTE_ADDR); only trusts a forwarded header when REMOTE_ADDR is a
+     * known private/loopback proxy address (so a client can't spoof X-Forwarded-For
+     * to dodge the guard). Returns '' when nothing usable.
+     */
+    function referral_client_ip(): string
+    {
+        $remote = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        $isProxy = $remote === '' || filter_var($remote, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+        if ($isProxy) {
+            foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP'] as $h) {
+                if (!empty($_SERVER[$h])) {
+                    $first = trim(explode(',', (string) $_SERVER[$h])[0]);
+                    if (filter_var($first, FILTER_VALIDATE_IP)) { return $first; }
+                }
+            }
+        }
+        return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '';
     }
 }
 
@@ -226,9 +286,14 @@ if (!function_exists('referral_attach')) {
      * Creates a `referrals` row in 'pending'. The reward itself is only created
      * later, on the referee's first paid booking.
      *
+     * The referee's signup IP is captured for the device/IP fraud guard (checked at
+     * reward time, not here — attaching is always allowed so legitimate family/office
+     * referrals still link; only the payout is gated). Pass $signupIp explicitly or
+     * let it default to the current request IP.
+     *
      * @return array{ok:bool, message:string, referrer_id?:string}
      */
-    function referral_attach($db, string $refereeId, string $code): array
+    function referral_attach($db, string $refereeId, string $code, ?string $signupIp = null): array
     {
         $refereeId = trim($refereeId);
         $cfg = referral_config($db);
@@ -246,13 +311,17 @@ if (!function_exists('referral_attach')) {
             return ['ok' => false, 'message' => 'This account already has a referrer'];
         }
 
+        $ip = $signupIp !== null ? trim($signupIp) : referral_client_ip();
+        if ($ip !== '' && !filter_var($ip, FILTER_VALIDATE_IP)) { $ip = ''; }
+
         try {
             $db->insert('referrals', [
-                'referrer_id' => $referrerId,
-                'referee_id'  => $refereeId,
-                'code_used'   => strtoupper(trim($code)),
-                'status'      => 'pending',
-                'created_at'  => date('Y-m-d H:i:s'),
+                'referrer_id'       => $referrerId,
+                'referee_id'        => $refereeId,
+                'code_used'         => strtoupper(trim($code)),
+                'status'            => 'pending',
+                'referee_signup_ip' => $ip !== '' ? $ip : null,
+                'created_at'        => date('Y-m-d H:i:s'),
             ]);
         } catch (\Throwable $e) {
             error_log('referral_attach: ' . $e->getMessage());
@@ -325,6 +394,9 @@ if (!function_exists('referral_record_reward')) {
                 'referee_amount'  => round((float) ($opts['referee_amount'] ?? $cfg['referee_amount']), 2),
                 'currency'        => strtoupper((string) ($opts['currency'] ?? $cfg['currency'])),
                 'status'          => 'hold',
+                // Fraud-guard flag: held for admin review, not auto-released (see sweep).
+                'flagged'         => !empty($opts['flagged']) ? 1 : 0,
+                'flag_reason'     => !empty($opts['flagged']) ? substr((string) ($opts['flag_reason'] ?? 'Flagged for review'), 0, 191) : null,
                 'hold_expires_at' => $holdExpires,
                 'created_at'      => date('Y-m-d H:i:s'),
             ]);
@@ -344,7 +416,9 @@ if (!function_exists('referral_record_reward')) {
         // Read the id back by its UNIQUE key (reliable even if the insert raced or
         // $db->id() was clobbered by the preceding lifecycle UPDATE).
         $rid = (int) ($db->get('referral_rewards', 'id', ['referral_id' => $referralId]) ?: 0);
-        return ['ok' => true, 'reward_id' => $rid, 'message' => 'Reward held'];
+        $flagged = !empty($opts['flagged']);
+        return ['ok' => true, 'reward_id' => $rid, 'flagged' => $flagged,
+                'message' => $flagged ? 'Reward held — flagged for review' : 'Reward held'];
     }
 }
 
@@ -442,6 +516,50 @@ if (!function_exists('referral_reverse_reward')) {
     }
 }
 
+if (!function_exists('referral_clear_flag')) {
+    /**
+     * Admin ACTION — clear the fraud-guard flag on a held reward after review. The
+     * reward returns to the normal flow: the next release sweep will credit it once
+     * its hold window passes (like any unflagged reward). No-op if not flagged/held.
+     *
+     * @return array{ok:bool, message:string}
+     */
+    function referral_clear_flag($db, int $rewardId): array
+    {
+        ensureReferralSchema($db);
+        $reward = $db->get('referral_rewards', ['id', 'status', 'flagged'], ['id' => $rewardId]);
+        if (!$reward) { return ['ok' => false, 'message' => 'Reward not found']; }
+        if ((int) ($reward['flagged'] ?? 0) !== 1) { return ['ok' => true, 'message' => 'Not flagged']; }
+        if (($reward['status'] ?? '') !== 'hold') { return ['ok' => false, 'message' => 'Only a held reward can be cleared']; }
+        $db->update('referral_rewards', ['flagged' => 0, 'flag_reason' => null], ['id' => $rewardId]);
+        return ['ok' => true, 'message' => 'Flag cleared — reward will release after its hold window'];
+    }
+}
+
+if (!function_exists('referral_reject_flagged')) {
+    /**
+     * Admin ACTION — reject a flagged held reward (confirmed abuse). Marks it
+     * reversed so it never pays out. Nothing to claw back (never credited while
+     * held). No-op if already processed.
+     *
+     * @return array{ok:bool, message:string}
+     */
+    function referral_reject_flagged($db, int $rewardId): array
+    {
+        ensureReferralSchema($db);
+        $reward = $db->get('referral_rewards', ['id', 'status', 'referral_id'], ['id' => $rewardId]);
+        if (!$reward) { return ['ok' => false, 'message' => 'Reward not found']; }
+        if (($reward['status'] ?? '') !== 'hold') { return ['ok' => true, 'message' => 'Already processed']; }
+        $db->update('referral_rewards', [
+            'status'      => 'reversed',
+            'flagged'     => 0,
+            'reversed_at' => date('Y-m-d H:i:s'),
+        ], ['id' => $rewardId]);
+        $db->update('referrals', ['status' => 'reversed'], ['id' => (int) $reward['referral_id']]);
+        return ['ok' => true, 'message' => 'Flagged reward rejected — no payout'];
+    }
+}
+
 if (!function_exists('referral_is_first_paid_booking')) {
     /**
      * True if the given invoice is the referee's FIRST paid booking — the single
@@ -514,6 +632,36 @@ if (!function_exists('referral_on_booking_paid')) {
             return ['ok' => false, 'message' => 'Below minimum booking amount'];
         }
 
+        // Device/IP fraud guard (admin-toggleable). When the referee signed up from
+        // the SAME IP as their referrer, or the same IP as any OTHER referee the same
+        // referrer brought in (the self-referral-ring signal), we DON'T block — we
+        // still create the reward but mark it FLAGGED so an admin reviews it before
+        // it's released. The release sweep holds flagged rewards until an admin clears
+        // or rejects them. This is forgiving to legit shared-network referrals while
+        // surfacing suspicious ones.
+        $flagReason = null;
+        if ($cfg['ip_guard_enabled']) {
+            $refereeIp = trim((string) ($referral['referee_signup_ip'] ?? ''));
+            if ($refereeIp !== '') {
+                $referrerId = (string) ($referral['referrer_id'] ?? '');
+                // (1) referrer's own signup IP (if they too were referred / have a row)
+                $referrerIp = (string) ($db->get('referrals', 'referee_signup_ip', ['referee_id' => $referrerId]) ?? '');
+                if ($referrerIp !== '' && hash_equals($referrerIp, $refereeIp)) {
+                    $flagReason = 'Same IP as referrer (' . $refereeIp . ')';
+                } else {
+                    // (2) any OTHER referee of this referrer from the same IP
+                    $sameIpSiblings = (int) $db->count('referrals', [
+                        'referrer_id'       => $referrerId,
+                        'referee_signup_ip' => $refereeIp,
+                        'referee_id[!]'     => $buyerId,
+                    ]);
+                    if ($sameIpSiblings > 0) {
+                        $flagReason = 'Shared signup IP with ' . $sameIpSiblings . ' other referee(s) of this referrer (' . $refereeIp . ')';
+                    }
+                }
+            }
+        }
+
         // Monthly cap per referrer (0 = unlimited): count rewards created this month.
         if ($cfg['cap_per_month'] > 0) {
             $monthStart = date('Y-m-01 00:00:00');
@@ -526,7 +674,9 @@ if (!function_exists('referral_on_booking_paid')) {
             }
         }
 
-        return referral_record_reward($db, (int) $referral['id'], $invoiceId);
+        $opts = [];
+        if ($flagReason !== null) { $opts['flagged'] = 1; $opts['flag_reason'] = $flagReason; }
+        return referral_record_reward($db, (int) $referral['id'], $invoiceId, $opts);
     }
 }
 
@@ -566,10 +716,18 @@ if (!function_exists('referral_release_sweep')) {
     function referral_release_sweep($db): array
     {
         ensureReferralSchema($db);
-        $out = ['released' => 0, 'reversed' => 0, 'skipped' => 0];
+        $out = ['released' => 0, 'reversed' => 0, 'skipped' => 0, 'held_flagged' => 0];
+
+        // FLAGGED rewards (device/IP fraud guard) are NEVER auto-released — they wait
+        // in hold for an admin to clear or reject them. Report the count so the cron
+        // response surfaces a growing review queue.
+        try {
+            $out['held_flagged'] = (int) $db->count('referral_rewards', ['status' => 'hold', 'flagged' => 1]);
+        } catch (\Throwable $e) { /* column self-heals on next boot */ }
 
         $due = $db->select('referral_rewards', ['id', 'invoice_id', 'referrer_id', 'referee_id', 'referrer_amount', 'currency'], [
             'status'            => 'hold',
+            'flagged'           => 0, // skip flagged — admin review required
             'hold_expires_at[<=]' => date('Y-m-d H:i:s'),
             'LIMIT'             => 200,
         ]);

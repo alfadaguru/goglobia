@@ -258,7 +258,9 @@ $router->post('/signup', function () use ($SECURE, $db) {
                     referral_get_or_mint_code($db, $insert_data['user_id']);
                     $refCodeIn = strtoupper(trim((string) ($_POST['ref'] ?? $_SESSION['pending_ref_code'] ?? '')));
                     if ($refCodeIn !== '' && function_exists('referral_attach')) {
-                        referral_attach($db, $insert_data['user_id'], $refCodeIn);
+                        // Capture the signup IP for the device/IP fraud guard.
+                        $__refIp = function_exists('referral_client_ip') ? referral_client_ip() : (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+                        referral_attach($db, $insert_data['user_id'], $refCodeIn, $__refIp);
                     }
                     unset($_SESSION['pending_ref_code']);
                 } catch (\Throwable $e) {
