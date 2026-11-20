@@ -26,9 +26,13 @@ $router->get('/price-alerts', function () use ($SECURE, $db) {
     $enabled = $db->select('modules', 'type', ['status' => 1]) ?: [];
     $enabledMap = array_flip($enabled);
     $watchable = [];
-    foreach (['flights' => 'Flights', 'stays' => 'Stays', 'tours' => 'Tours', 'cars' => 'Cars',
-              'bus' => 'Bus', 'ferries' => 'Ferries', 'rail' => 'Rail', 'cruises' => 'Cruises',
-              'esim' => 'eSIM', 'visa' => 'Visa', 'umrah' => 'Umrah'] as $k => $lbl) {
+    // Only modules the sweep can actually RE-PRICE are offered — otherwise a watch
+    // would be saved but never fire (a dead watch). Wired = own-inventory price that
+    // can drop: flights, stays, tours, cars, cruises, umrah. Deliberately excluded:
+    // bus/ferries/rail (no own inventory — supplier-only) and visa/esim (fixed
+    // supplier/fee price — a "drop" is meaningless). Add here as more get wired.
+    foreach (['flights' => 'Flights', 'stays' => 'Stays', 'tours' => 'Tours',
+              'cars' => 'Cars', 'cruises' => 'Cruises', 'umrah' => 'Umrah'] as $k => $lbl) {
         if (isset($enabledMap[$k])) { $watchable[$k] = $lbl; }
     }
 
@@ -159,6 +163,50 @@ $router->get('/price-alerts/stay-suggest', function () use ($SECURE, $db) {
         }, $rows));
     } catch (\Throwable $e) {
         error_log('PRICE_ALERTS_STAY_SUGGEST: ' . $e->getMessage());
+        echo json_encode([]);
+    }
+    exit;
+});
+
+// ---- GET /price-alerts/item-suggest?module=&q= : generic own-inventory item
+// picker for tours / cars / cruises / umrah watches. Returns {id, label, params}
+// where params carries whatever the resolver needs for that module. Login-only. ----
+$router->get('/price-alerts/item-suggest', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) { echo json_encode([]); exit; }
+    $module = strtolower(trim((string) ($_GET['module'] ?? '')));
+    $q = trim((string) ($_GET['q'] ?? ''));
+    if (strlen($q) < 2) { echo json_encode([]); exit; }
+    $like = '%' . $q . '%'; // self-wrap % (Medoo [~] gotcha)
+    $out = [];
+    try {
+        if ($module === 'tours') {
+            $rows = $db->select('tours', ['id', 'name'], ['name[~]' => $like, 'status' => 1, 'ORDER' => ['name' => 'ASC'], 'LIMIT' => 12]) ?: [];
+            foreach ($rows as $r) { $out[] = ['id' => (int) $r['id'], 'label' => (string) $r['name'], 'params' => ['tour_id' => (int) $r['id']]]; }
+        } elseif ($module === 'cars') {
+            $rows = $db->select('cars', ['id', 'name', 'brand', 'model'], ['OR' => ['name[~]' => $like, 'brand[~]' => $like, 'model[~]' => $like], 'status' => 1, 'ORDER' => ['name' => 'ASC'], 'LIMIT' => 12]) ?: [];
+            foreach ($rows as $r) {
+                $lbl = trim(implode(' ', array_filter([(string) ($r['brand'] ?? ''), (string) ($r['model'] ?? ''), (string) ($r['name'] ?? '')])));
+                $out[] = ['id' => (int) $r['id'], 'label' => $lbl ?: ('Car #' . (int) $r['id']), 'params' => ['car_id' => (int) $r['id']]];
+            }
+        } elseif ($module === 'cruises') {
+            $rows = $db->select('cruises', ['id', 'name'], ['name[~]' => $like, 'status' => 1, 'ORDER' => ['name' => 'ASC'], 'LIMIT' => 12]) ?: [];
+            foreach ($rows as $r) { $out[] = ['id' => (int) $r['id'], 'label' => (string) $r['name'], 'params' => ['cruise_id' => (int) $r['id']]]; }
+        } elseif ($module === 'umrah') {
+            // Match on the parent departure's origin city; label each bookable tier.
+            $deps = $db->select('umrah_departures', ['id', 'origin_city', 'departure_date'], ['origin_city[~]' => $like, 'status' => 'published', 'ORDER' => ['departure_date' => 'ASC'], 'LIMIT' => 8]) ?: [];
+            if (!$deps) { $deps = $db->select('umrah_departures', ['id', 'origin_city', 'departure_date'], ['origin_city[~]' => $like, 'ORDER' => ['departure_date' => 'ASC'], 'LIMIT' => 8]) ?: []; }
+            foreach ($deps as $d) {
+                $tiers = $db->select('umrah_departure_tiers', ['id', 'tier_id'], ['departure_id' => (int) $d['id'], 'status' => 'active', 'LIMIT' => 10]) ?: [];
+                foreach ($tiers as $t) {
+                    $lbl = trim(((string) ($d['origin_city'] ?? 'Umrah')) . ' — ' . date('d M Y', strtotime((string) ($d['departure_date'] ?? 'now'))) . ' (tier ' . (int) $t['tier_id'] . ')');
+                    $out[] = ['id' => (int) $t['id'], 'label' => $lbl, 'params' => ['tier_id' => (int) $t['id']]];
+                }
+            }
+        }
+        echo json_encode(array_slice($out, 0, 20));
+    } catch (\Throwable $e) {
+        error_log('PRICE_ALERTS_ITEM_SUGGEST: ' . $e->getMessage());
         echo json_encode([]);
     }
     exit;

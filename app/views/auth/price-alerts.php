@@ -160,6 +160,23 @@ $statusChip = static function ($s) {
                </div>
             </template>
 
+            <!-- TOURS / CARS / CRUISES / UMRAH: pick the exact item to watch. -->
+            <template x-if="['tours','cars','cruises','umrah'].includes(form.module)">
+               <div class="space-y-2 rounded-lg bg-slate-50 border border-slate-200 p-3">
+                  <p class="text-[11px] text-slate-500">We'll watch this item's price and notify you when it drops.</p>
+                  <div class="relative">
+                     <label class="text-xs font-medium text-slate-600" x-text="itemLabel()"></label>
+                     <input type="text" x-model="itemQuery" @input.debounce.250ms="suggestItem()" @focus="suggestItem()"
+                            class="input w-full" :placeholder="itemPlaceholder()" autocomplete="off">
+                     <div x-show="itemOpen && itemOptions.length" x-cloak class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        <template x-for="o in itemOptions" :key="o.id">
+                           <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @click="pickItem(o)" x-text="o.label"></button>
+                        </template>
+                     </div>
+                  </div>
+               </div>
+            </template>
+
             <div class="grid grid-cols-2 gap-3">
                <div>
                   <label class="text-xs font-medium text-slate-600">Price you saw (<?= $__ccy ?>)</label>
@@ -196,13 +213,22 @@ function priceAlerts(initial, watchable, ccy) {
       fromQuery: '', toQuery: '', fromOptions: [], toOptions: [], fromOpen: false, toOpen: false,
       // Stay property picker state.
       stayQuery: '', stayOptions: [], stayOpen: false,
+      // Generic item picker (tours/cars/cruises/umrah) state.
+      itemQuery: '', itemOptions: [], itemOpen: false, itemParams: null,
       blank() { return { module:'', label:'', baseline_price:'', target_price:'', from_airport_id:0, to_airport_id:0, departure_date:'', stay_id:0 }; },
       openAdd() {
          this.form = this.blank();
          this.fromQuery = ''; this.toQuery = '';
          this.fromOptions = []; this.toOptions = []; this.fromOpen = false; this.toOpen = false;
          this.stayQuery = ''; this.stayOptions = []; this.stayOpen = false;
+         this.itemQuery = ''; this.itemOptions = []; this.itemOpen = false; this.itemParams = null;
          this.err=''; this.modal = true;
+      },
+      itemLabel() {
+         return { tours:'Tour', cars:'Car', cruises:'Cruise', umrah:'Umrah departure' }[this.form.module] || 'Item';
+      },
+      itemPlaceholder() {
+         return { tours:'Tour name', cars:'Car / brand / model', cruises:'Cruise name', umrah:'Departure city' }[this.form.module] || 'Search';
       },
       async suggest(which) {
          const q = (which === 'from' ? this.fromQuery : this.toQuery).trim();
@@ -228,10 +254,21 @@ function priceAlerts(initial, watchable, ccy) {
          } catch(e) {}
       },
       pickStay(o) { this.form.stay_id = o.id; this.stayQuery = o.label; this.stayOpen = false; },
+      async suggestItem() {
+         const q = this.itemQuery.trim();
+         if (q.length < 2) { this.itemOpen = false; return; }
+         try {
+            const res = await fetch('<?= root ?>price-alerts/item-suggest?module=' + encodeURIComponent(this.form.module) + '&q=' + encodeURIComponent(q), { credentials: 'same-origin' });
+            const data = await res.json();
+            this.itemOptions = Array.isArray(data) ? data : []; this.itemOpen = true;
+         } catch(e) {}
+      },
+      pickItem(o) { this.itemParams = o.params || null; this.itemQuery = o.label; this.itemOpen = false; },
       // True unless a wired module is still missing its required selection.
       moduleReady() {
          if (this.form.module === 'flights') { return this.form.from_airport_id > 0 && this.form.to_airport_id > 0; }
          if (this.form.module === 'stays')   { return this.form.stay_id > 0; }
+         if (['tours','cars','cruises','umrah'].includes(this.form.module)) { return this.itemParams !== null; }
          return true;
       },
       async save() {
@@ -241,6 +278,9 @@ function priceAlerts(initial, watchable, ccy) {
          }
          if (this.form.module === 'stays' && !this.moduleReady()) {
             this.err = 'Pick the property from the suggestions.'; return;
+         }
+         if (['tours','cars','cruises','umrah'].includes(this.form.module) && !this.moduleReady()) {
+            this.err = 'Pick the ' + this.itemLabel().toLowerCase() + ' from the suggestions.'; return;
          }
          if (this.form.target_price && this.form.target_price >= this.form.baseline_price) {
             this.err = 'Your target should be below the price you saw.'; return;
@@ -252,6 +292,8 @@ function priceAlerts(initial, watchable, ccy) {
             params = { from_airport_id: this.form.from_airport_id, to_airport_id: this.form.to_airport_id, departure_date: this.form.departure_date || '' };
          } else if (this.form.module === 'stays') {
             params = { stay_id: this.form.stay_id };
+         } else if (['tours','cars','cruises','umrah'].includes(this.form.module)) {
+            params = this.itemParams;
          }
          const payload = {
             module: this.form.module,
