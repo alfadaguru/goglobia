@@ -656,9 +656,13 @@ class giaAgent
             // code class]. Now: 'booked' as confirmation excludes fully/over/sold/double;
             // the token must contain BOTH a digit and a letter so dictionary words never
             // match; a connective word is allowed between the label and the code.)
+            // The (?<!being )(?<!be ) lookbehinds exclude the IN-PROGRESS sense — a legit
+            // async reply ("your ticket is BEING issued", "booking is BEING confirmed")
+            // is NOT a completed-confirmation claim and must ship (critical for the async
+            // Tiqwa flight flow, which is genuinely paid-pending until the PNR webhook).
             $claimsConfirmed =
-                (bool) preg_match('/\b(?:your\s+)?(?:booking|flight|ticket|trip|hotel|stay|seat|room)\b[^.?!]{0,40}\b(?:is|are|has been|have been|now)\b[^.?!]{0,20}\b(?:confirmed|issued|ticketed|secured)\b/i', $reply)
-                || (bool) preg_match('/\b(?:your\s+)?(?:booking|flight|ticket|trip|hotel|stay|seat|room)\b[^.?!]{0,40}\b(?:is|are|has been|have been|now)\b[^.?!]{0,20}(?<!fully )(?<!over )(?<!sold )(?<!double )\bbooked\b/i', $reply)
+                (bool) preg_match('/\b(?:your\s+)?(?:booking|flight|ticket|trip|hotel|stay|seat|room)\b[^.?!]{0,40}\b(?:is|are|has been|have been|now)\b[^.?!]{0,20}(?<!being )(?<!be )\b(?:confirmed|issued|ticketed|secured)\b/i', $reply)
+                || (bool) preg_match('/\b(?:your\s+)?(?:booking|flight|ticket|trip|hotel|stay|seat|room)\b[^.?!]{0,40}\b(?:is|are|has been|have been|now)\b[^.?!]{0,20}(?<!fully )(?<!over )(?<!sold )(?<!double )(?<!being )(?<!be )\bbooked\b/i', $reply)
                 || (bool) preg_match('/\b(?:you(?:\'re| are)\s+(?:all\s+)?(?:set|booked|confirmed))\b/i', $reply);
             // A stated reference TOKEN: label, optional connective (is/:/#/=), then a code
             // that MUST hold >=1 digit AND >=1 letter (5-10 chars) so plain words like
