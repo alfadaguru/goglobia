@@ -767,8 +767,17 @@ if (!function_exists('umrah_group_set_status')) {
      * Admin/agent lifecycle transition. Agents may cancel a draft/pending group.
      * Admin may drive any transition incl. visa_status (none/partial/all/rejected)
      * and processing/confirmed. Returns ['ok'=>bool,'message'=>..].
+     *
+     * U-ENG-1: cancelling a PAID group moves money — the agent's wallet was debited
+     * at confirm. This used to write status='cancelled' with NO refund, stranding the
+     * agent's funds. Now a paid-group cancel (a) requires $opts['can_refund'] (the
+     * route gates it on bookings.refund) and (b) refunds the remaining unrefunded
+     * amount to the agent wallet (idempotent) + releases the inventory hold + cancels
+     * the generic booking. An UNPAID group cancel is unchanged (no money to move).
+     *
+     * @param array $opts ['can_refund'=>bool] — may this actor trigger a money refund?
      */
-    function umrah_group_set_status($db, int $groupId, string $status, ?string $visaStatus = null): array
+    function umrah_group_set_status($db, int $groupId, string $status, ?string $visaStatus = null, array $opts = []): array
     {
         $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
         $g = umrah_group_owned($db, $groupId);
@@ -776,6 +785,12 @@ if (!function_exists('umrah_group_set_status')) {
 
         $valid = ['draft', 'pending', 'paid', 'submitted', 'processing', 'confirmed', 'cancelled'];
         $u = ['updated_at' => date('Y-m-d H:i:s')];
+        // A group is "paid" once it has been charged + materialized (confirm sets
+        // paid=1 + invoice_id and advances to processing/approved/…).
+        $groupIsPaid = ((int) ($g['paid'] ?? 0) === 1)
+            || in_array((string) $g['status'], ['processing', 'confirmed', 'approved', 'partially_approved', 'completed'], true);
+        $cancellingPaid = ($status === 'cancelled' && $groupIsPaid);
+
         if ($status !== '') {
             if (!in_array($status, $valid, true)) { return ['ok' => false, 'message' => 'Invalid status']; }
             // Agents (non-admin) may only cancel a not-yet-paid group or move
@@ -786,6 +801,11 @@ if (!function_exists('umrah_group_set_status')) {
                     return ['ok' => false, 'message' => 'This status change requires staff'];
                 }
             }
+            // U-ENG-1: cancelling a PAID group is a refund event — gate it on the
+            // refund permission the route passes in, and reverse the money below.
+            if ($cancellingPaid && empty($opts['can_refund'])) {
+                return ['ok' => false, 'message' => 'Cancelling a paid group refunds the agent — you need the refund permission.'];
+            }
             $u['status'] = $status;
         }
         if ($visaStatus !== null && $visaStatus !== '') {
@@ -793,8 +813,74 @@ if (!function_exists('umrah_group_set_status')) {
             if (!in_array($visaStatus, ['none', 'partial', 'all', 'rejected'], true)) { return ['ok' => false, 'message' => 'Invalid visa status']; }
             $u['visa_status'] = $visaStatus;
         }
+
+        // ── PAID-GROUP CANCEL REFUND (U-ENG-1) ──────────────────────────────────
+        // Reverse the agent's remaining (not-yet-refunded) wallet charge BEFORE
+        // flipping status, so a failure leaves the group payable (not silently
+        // cancelled-unrefunded). refunded_total already tracks per-member visa
+        // refunds, so we return only (total_price − refunded_total).
+        $refundedNow = 0.0;
+        if ($cancellingPaid) {
+            $agent    = (string) ($g['agent_user_id'] ?? '');
+            $currency = (string) ($g['currency'] ?? 'NGN');
+            $total    = round((float) ($g['total_price'] ?? 0), 2);
+            $already  = round((float) ($g['refunded_total'] ?? 0), 2);
+            $toRefund = round(max(0, $total - $already), 2);
+            if ($toRefund > 0 && $agent !== '') {
+                if (!function_exists('wallet_refund')) {
+                    $walletLib = dirname(__DIR__) . '/wallet.php';
+                    if (is_file($walletLib)) { require_once $walletLib; }
+                }
+                if (function_exists('wallet_refund')) {
+                    try {
+                        $rf = wallet_refund($db, $agent, $toRefund, $currency, [
+                            'reason'          => 'refund',
+                            'invoice_id'      => (string) ($g['invoice_id'] ?? ''),
+                            'ref_type'        => 'umrah_group',
+                            'ref_id'          => (string) $groupId,
+                            'idempotency_key' => 'UMRAH-GROUP-CANCEL-REF-' . (string) ($g['invoice_id'] ?: $groupId),
+                            'note'            => 'Umrah group cancel refund ' . ($g['group_ref'] ?? '') . ' (' . ($g['invoice_id'] ?? '') . ')',
+                        ]);
+                        if (empty($rf['ok'])) {
+                            return ['ok' => false, 'message' => 'Could not refund the agent wallet (' . ($rf['message'] ?? 'error') . ') — cancellation aborted.'];
+                        }
+                        $refundedNow = $toRefund;
+                        $u['refunded_total'] = round($already + $toRefund, 2);
+                    } catch (\Throwable $e) {
+                        error_log('umrah_group_set_status refund: ' . $e->getMessage());
+                        return ['ok' => false, 'message' => 'Refund failed — cancellation aborted.'];
+                    }
+                } else {
+                    return ['ok' => false, 'message' => 'Wallet unavailable — cancellation aborted.'];
+                }
+            }
+        }
+
         $db->update('umrah_groups', $u, ['id' => $groupId]);
-        if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_group', (string) $g['group_ref'], 'status_' . ($status ?: $visaStatus), null, $u, $_SESSION['user_id'] ?? null, $_SESSION['user_role'] ?? null); }
-        return ['ok' => true];
+
+        // On a paid-group cancel, also cancel the materialized booking + release the
+        // inventory hold (seat leak), mirroring the single-booking cancel path.
+        if ($cancellingPaid) {
+            $inv = (string) ($g['invoice_id'] ?? '');
+            if ($inv !== '') {
+                try {
+                    $db->update('umrah_bookings',
+                        ['booking_status' => 'cancelled', 'payment_status' => $refundedNow > 0 ? 'refunded' : (string) ($g['payment_status'] ?? 'unpaid'), 'updated_at' => $u['updated_at']],
+                        ['invoice_id' => $inv]);
+                    $db->update('bookings',
+                        ['booking_status' => 'cancelled', 'payment_status' => $refundedNow > 0 ? 'refunded' : null, 'cancellation_status' => 1, 'updated_at' => $u['updated_at']],
+                        ['invoice_id' => $inv, 'module_type' => 'umrah']);
+                    // Release any hold tied to the group's umrah booking.
+                    $ubRow = $db->get('umrah_bookings', ['hold_id'], ['invoice_id' => $inv]);
+                    $holdId = (int) ($ubRow['hold_id'] ?? 0);
+                    if ($holdId > 0) {
+                        $db->update('umrah_inventory_holds', ['state' => 'released', 'updated_at' => $u['updated_at']], ['id' => $holdId, 'state' => ['held', 'consumed']]);
+                    }
+                } catch (\Throwable $e) { error_log('umrah_group_set_status cancel-booking: ' . $e->getMessage()); }
+            }
+        }
+
+        if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_group', (string) $g['group_ref'], 'status_' . ($status ?: $visaStatus), null, $u + ($refundedNow > 0 ? ['refunded' => $refundedNow] : []), $_SESSION['user_id'] ?? null, $_SESSION['user_role'] ?? null); }
+        return ['ok' => true, 'refunded' => $refundedNow];
     }
 }
