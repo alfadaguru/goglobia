@@ -159,6 +159,9 @@ if (!function_exists('price_alert_price_flights')) {
             $decoded = json_decode((string) $alert['params'], true);
             if (is_array($decoded)) { $p = $decoded; }
         }
+        // A real-SUPPLIER flight watch (params.supplier set) is re-priced only by the
+        // separate throttled supplier sweep — never here in the fast DB-only path.
+        if (!empty($p['supplier'])) { return null; }
         $from = (int) ($p['from_airport_id'] ?? 0);
         $to   = (int) ($p['to_airport_id'] ?? 0);
         $date = trim((string) ($p['departure_date'] ?? ''));
@@ -193,6 +196,86 @@ if (!function_exists('price_alert_price_flights')) {
             return $cheapest; // null when nothing priced cleanly → skip
         } catch (\Throwable $e) {
             error_log('price_alert_price_flights: ' . $e->getMessage());
+            return null;
+        }
+    }
+}
+
+if (!function_exists('price_alert_price_flights_supplier')) {
+    /**
+     * REAL-SUPPLIER (Adivaha) flight re-price. Unlike the DB-only resolvers, this
+     * makes an EXTERNAL search call, so it is run ONLY from the dedicated, throttled
+     * supplier sweep (price_alerts_supplier_sweep) — never the fast every-30-min sweep.
+     *
+     * It POSTs the SAME search the storefront uses (/modules/flights/adivaha/search),
+     * which returns a normalised offers array (each offer already marked-up + in the
+     * requested currency). We take the cheapest offer's `price`. The call is wrapped
+     * in a HARD curl timeout so one slow/failed supplier response can't hang the
+     * cron, and returns null on ANY problem (timeout / empty / error) → the watch is
+     * skipped, never a false fire.
+     *
+     * @param string $baseUrl absolute site base (e.g. https://host/goglobia/) built
+     *                        by the sweep from the inbound request.
+     */
+    function price_alert_price_flights_supplier($db, array $alert, string $baseUrl, int $timeout = 40): ?float
+    {
+        $p = [];
+        if (!empty($alert['params'])) { $d = json_decode((string) $alert['params'], true); if (is_array($d)) { $p = $d; } }
+        $origin = strtoupper(trim((string) ($p['origin'] ?? '')));
+        $dest   = strtoupper(trim((string) ($p['destination'] ?? '')));
+        $date   = trim((string) ($p['departure_date'] ?? ''));
+        if ($origin === '' || $dest === '' || $date === '') { return null; }
+        if ($origin === $dest) { return null; }
+
+        $baseUrl = rtrim($baseUrl, '/') . '/';
+        $url = $baseUrl . 'modules/flights/adivaha/search';
+
+        $post = [
+            'origin'         => $origin,
+            'destination'    => $dest,
+            'departure_date' => $date,
+            'type'           => 'oneway',
+            'class'          => strtolower((string) ($p['class'] ?? 'economy')),
+            'adults'         => (int) ($p['adults'] ?? 1) ?: 1,
+            'childrens'      => (int) ($p['children'] ?? 0),
+            'infants'        => (int) ($p['infants'] ?? 0),
+            'currency'       => strtoupper((string) ($alert['currency'] ?? 'USD')),
+        ];
+
+        try {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => http_build_query($post),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => max(10, min(90, $timeout)),
+                CURLOPT_CONNECTTIMEOUT => 8,
+                // Internal server-to-server call; mark it so the endpoint treats it
+                // like the site's own JS (not an external API client).
+                CURLOPT_HTTPHEADER     => ['X-Requested-With: XMLHttpRequest'],
+                CURLOPT_FOLLOWLOCATION => false,
+            ]);
+            $raw  = curl_exec($ch);
+            $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err  = curl_error($ch);
+            curl_close($ch);
+
+            if ($raw === false || $err !== '' || $code < 200 || $code >= 300) {
+                error_log('price_alert_price_flights_supplier: http ' . $code . ' ' . $err);
+                return null;
+            }
+            $offers = json_decode((string) $raw, true);
+            if (!is_array($offers) || !$offers) { return null; } // no offers → skip
+
+            $cheapest = null;
+            foreach ($offers as $o) {
+                if (!is_array($o)) { continue; }
+                $pr = (float) str_replace(',', '', (string) ($o['price'] ?? $o['adult_price'] ?? 0));
+                if ($pr > 0 && ($cheapest === null || $pr < $cheapest)) { $cheapest = $pr; }
+            }
+            return $cheapest;
+        } catch (\Throwable $e) {
+            error_log('price_alert_price_flights_supplier: ' . $e->getMessage());
             return null;
         }
     }
@@ -431,6 +514,78 @@ if (!function_exists('price_alerts_sweep')) {
 
             if ($cur <= $threshold && $cur > 0) {
                 // Fire once: notify + mark triggered.
+                $cur2 = number_format($cur, 2);
+                $curr = (string) ($a['currency'] ?? 'USD');
+                if (function_exists('notify_user')) {
+                    notify_user($db, (string) $a['user_id'], [
+                        'type'       => 'price_alert',
+                        'title'      => 'Price drop: ' . (string) $a['label'],
+                        'body'       => 'Now ' . $curr . ' ' . $cur2 . ' (you saw ' . $curr . ' ' . number_format($baseline, 2) . ').',
+                        'url'        => root . 'price-alerts',
+                        'icon'       => 'trending_down',
+                        'ref_type'   => 'price_alert',
+                        'ref_id'     => (string) $a['id'],
+                        'dedupe_key' => 'pricealert-' . $a['id'] . '-trig',
+                    ]);
+                }
+                try {
+                    $db->update('price_alerts',
+                        ['status' => 'triggered', 'triggered_at' => date('Y-m-d H:i:s')],
+                        ['id' => (int) $a['id']]);
+                } catch (\Throwable $e) { /* non-fatal */ }
+                $triggered++;
+            }
+        }
+        return ['ok' => true, 'checked' => $checked, 'triggered' => $triggered, 'skipped' => $skipped];
+    }
+}
+
+if (!function_exists('price_alerts_supplier_sweep')) {
+    /**
+     * THROTTLED real-supplier flight sweep. Separate from the fast DB-only sweep
+     * because each re-price is an EXTERNAL Adivaha search (seconds, can fail). Keep
+     * $maxCalls small and the cadence low (hourly) so one slow/failed supplier call
+     * can neither hang the fast sweep nor hammer the supplier. Processes the
+     * longest-unchecked supplier-flight watches first (fair rotation).
+     *
+     * @param string $baseUrl absolute site base for the server-to-server search call.
+     */
+    function price_alerts_supplier_sweep($db, string $baseUrl, int $maxCalls = 15, int $perCallTimeout = 40): array
+    {
+        ensurePriceAlertsSchema($db);
+        $checked = 0; $triggered = 0; $skipped = 0;
+        if (trim($baseUrl) === '') { return ['ok' => false, 'message' => 'no base url']; }
+
+        try {
+            // Supplier-flight watches carry params.supplier — match on the raw JSON.
+            $rows = $db->select('price_alerts', '*', [
+                'status'     => 'active',
+                'module'     => 'flights',
+                'params[~]'  => '%"supplier"%',
+                'ORDER'      => ['last_checked_at' => 'ASC'],
+                'LIMIT'      => max(1, min(100, $maxCalls)),
+            ]) ?: [];
+        } catch (\Throwable $e) { error_log('price_alerts_supplier_sweep select: ' . $e->getMessage()); return ['ok' => false]; }
+
+        foreach ($rows as $a) {
+            $checked++;
+            $cur = null;
+            try { $cur = price_alert_price_flights_supplier($db, $a, $baseUrl, $perCallTimeout); }
+            catch (\Throwable $e) { $cur = null; }
+
+            try {
+                $db->update('price_alerts',
+                    ['last_checked_at' => date('Y-m-d H:i:s'), 'last_price' => $cur],
+                    ['id' => (int) $a['id']]);
+            } catch (\Throwable $e) { /* non-fatal */ }
+
+            if ($cur === null) { $skipped++; continue; }
+
+            $baseline = (float) ($a['baseline_price'] ?? 0);
+            $target   = ($a['target_price'] !== null && $a['target_price'] !== '') ? (float) $a['target_price'] : null;
+            $threshold = $target !== null ? $target : $baseline;
+
+            if ($cur <= $threshold && $cur > 0) {
                 $cur2 = number_format($cur, 2);
                 $curr = (string) ($a['currency'] ?? 'USD');
                 if (function_exists('notify_user')) {

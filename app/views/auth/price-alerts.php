@@ -113,7 +113,16 @@ $statusChip = static function ($s) {
             <!-- FLIGHTS: capture the route so the cron can actually re-price it. -->
             <template x-if="form.module === 'flights'">
                <div class="space-y-3 rounded-lg bg-slate-50 border border-slate-200 p-3">
-                  <p class="text-[11px] text-slate-500">We'll watch GoGlobia fares on this exact route and notify you when they drop.</p>
+                  <!-- Source: own-inventory fares vs a live all-airlines search. -->
+                  <div class="flex gap-2">
+                     <button type="button" class="flex-1 text-xs font-medium px-3 py-2 rounded-lg border transition-colors"
+                             :class="flightSource === 'own' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'"
+                             @click="flightSource = 'own'">GoGlobia fares</button>
+                     <button type="button" class="flex-1 text-xs font-medium px-3 py-2 rounded-lg border transition-colors"
+                             :class="flightSource === 'supplier' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'"
+                             @click="flightSource = 'supplier'">All airlines (live)</button>
+                  </div>
+                  <p class="text-[11px] text-slate-500" x-text="flightSource === 'supplier' ? 'We\'ll run a live all-airlines search on this exact route+date periodically and notify you when the lowest fare drops.' : 'We\'ll watch GoGlobia fares on this exact route and notify you when they drop.'"></p>
                   <div class="grid grid-cols-2 gap-3">
                      <div class="relative">
                         <label class="text-xs font-medium text-slate-600">From (airport)</label>
@@ -137,7 +146,7 @@ $statusChip = static function ($s) {
                      </div>
                   </div>
                   <div>
-                     <label class="text-xs font-medium text-slate-600">Departure date (optional — leave blank for any date on this route)</label>
+                     <label class="text-xs font-medium text-slate-600" x-text="flightSource === 'supplier' ? 'Departure date (required for a live search)' : 'Departure date (optional — leave blank for any date on this route)'"></label>
                      <input type="date" x-model="form.departure_date" class="input w-full">
                   </div>
                </div>
@@ -211,14 +220,15 @@ function priceAlerts(initial, watchable, ccy) {
       form: {},
       // Flight airport picker state.
       fromQuery: '', toQuery: '', fromOptions: [], toOptions: [], fromOpen: false, toOpen: false,
+      flightSource: 'own', // 'own' = GoGlobia fares (DB) | 'supplier' = live all-airlines search
       // Stay property picker state.
       stayQuery: '', stayOptions: [], stayOpen: false,
       // Generic item picker (tours/cars/cruises/umrah) state.
       itemQuery: '', itemOptions: [], itemOpen: false, itemParams: null,
-      blank() { return { module:'', label:'', baseline_price:'', target_price:'', from_airport_id:0, to_airport_id:0, departure_date:'', stay_id:0 }; },
+      blank() { return { module:'', label:'', baseline_price:'', target_price:'', from_airport_id:0, to_airport_id:0, from_code:'', to_code:'', departure_date:'', stay_id:0 }; },
       openAdd() {
          this.form = this.blank();
-         this.fromQuery = ''; this.toQuery = '';
+         this.fromQuery = ''; this.toQuery = ''; this.flightSource = 'own';
          this.fromOptions = []; this.toOptions = []; this.fromOpen = false; this.toOpen = false;
          this.stayQuery = ''; this.stayOptions = []; this.stayOpen = false;
          this.itemQuery = ''; this.itemOptions = []; this.itemOpen = false; this.itemParams = null;
@@ -241,8 +251,8 @@ function priceAlerts(initial, watchable, ccy) {
          } catch(e) {}
       },
       pick(which, o) {
-         if (which === 'from') { this.form.from_airport_id = o.id; this.fromQuery = o.label; this.fromOpen = false; }
-         else { this.form.to_airport_id = o.id; this.toQuery = o.label; this.toOpen = false; }
+         if (which === 'from') { this.form.from_airport_id = o.id; this.form.from_code = o.code || ''; this.fromQuery = o.label; this.fromOpen = false; }
+         else { this.form.to_airport_id = o.id; this.form.to_code = o.code || ''; this.toQuery = o.label; this.toOpen = false; }
       },
       async suggestStay() {
          const q = this.stayQuery.trim();
@@ -266,7 +276,12 @@ function priceAlerts(initial, watchable, ccy) {
       pickItem(o) { this.itemParams = o.params || null; this.itemQuery = o.label; this.itemOpen = false; },
       // True unless a wired module is still missing its required selection.
       moduleReady() {
-         if (this.form.module === 'flights') { return this.form.from_airport_id > 0 && this.form.to_airport_id > 0; }
+         if (this.form.module === 'flights') {
+            if (!(this.form.from_airport_id > 0 && this.form.to_airport_id > 0)) { return false; }
+            // A live all-airlines watch also needs a concrete date + both IATA codes.
+            if (this.flightSource === 'supplier') { return !!(this.form.departure_date && this.form.from_code && this.form.to_code); }
+            return true;
+         }
          if (this.form.module === 'stays')   { return this.form.stay_id > 0; }
          if (['tours','cars','cruises','umrah'].includes(this.form.module)) { return this.itemParams !== null; }
          return true;
@@ -274,7 +289,10 @@ function priceAlerts(initial, watchable, ccy) {
       async save() {
          if (!this.form.module || !this.form.label.trim() || !(this.form.baseline_price > 0)) return;
          if (this.form.module === 'flights' && !this.moduleReady()) {
-            this.err = 'Pick both airports from the suggestions.'; return;
+            this.err = this.flightSource === 'supplier'
+               ? 'Pick both airports and a departure date for a live search.'
+               : 'Pick both airports from the suggestions.';
+            return;
          }
          if (this.form.module === 'stays' && !this.moduleReady()) {
             this.err = 'Pick the property from the suggestions.'; return;
@@ -289,7 +307,12 @@ function priceAlerts(initial, watchable, ccy) {
          // Pass structured params so the cron can re-price the right thing.
          let params = null;
          if (this.form.module === 'flights') {
-            params = { from_airport_id: this.form.from_airport_id, to_airport_id: this.form.to_airport_id, departure_date: this.form.departure_date || '' };
+            if (this.flightSource === 'supplier') {
+               // Live all-airlines watch: the supplier search uses IATA codes + date.
+               params = { supplier: 'adivaha', origin: this.form.from_code, destination: this.form.to_code, departure_date: this.form.departure_date, adults: 1 };
+            } else {
+               params = { from_airport_id: this.form.from_airport_id, to_airport_id: this.form.to_airport_id, departure_date: this.form.departure_date || '' };
+            }
          } else if (this.form.module === 'stays') {
             params = { stay_id: this.form.stay_id };
          } else if (['tours','cars','cruises','umrah'].includes(this.form.module)) {

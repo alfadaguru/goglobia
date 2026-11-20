@@ -221,3 +221,32 @@ $router->get('/price_alerts_sweep', function () use ($SECURE, $db) {
     echo json_encode(array_merge(['status' => true, 'ran_at' => date('Y-m-d H:i:s')], (array) $res));
     exit;
 });
+
+// ---- GET /price_alerts_supplier_sweep : THROTTLED real-supplier (Adivaha) flight
+// re-price. Separate cron, run LESS often (hourly) — each watch is an external
+// search. Capped per run so it can't hammer the supplier or hang. Builds the
+// absolute site base from the inbound request for its server-to-server call.
+// See docs/CRON.md. ----
+$router->get('/price_alerts_supplier_sweep', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    // Absolute base URL for the internal search call: prefer APP_URL (correct in
+    // prod), fall back to the inbound scheme+host + the app's root path.
+    $base = '';
+    $env = function_exists('getenv') ? (getenv('APP_URL') ?: '') : '';
+    if (defined('root') && is_string(root) && strpos((string) root, 'http') === 0) {
+        $base = (string) root;
+    } elseif ($env !== '') {
+        $base = $env;
+    } else {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host   = (string) ($_SERVER['HTTP_HOST'] ?? 'localhost');
+        $base   = $scheme . '://' . $host . (defined('root') ? (string) root : '/');
+    }
+    // Allow the scheduler to tune the per-run cap: ?max=10 (bounded in the lib).
+    $max = max(1, min(50, (int) ($_GET['max'] ?? 15)));
+    $res = function_exists('price_alerts_supplier_sweep')
+        ? price_alerts_supplier_sweep($db, $base, $max)
+        : ['ok' => false];
+    echo json_encode(array_merge(['status' => true, 'ran_at' => date('Y-m-d H:i:s')], (array) $res));
+    exit;
+});
