@@ -369,6 +369,16 @@ $router->post(admin.'/bookings/change-flight/(.*)', function ($invoice_id) use (
         exit;
     }
 
+    // Store the uploaded CHANGED ticket (optional) exactly like a manual booking's
+    // document — same validated storage (bmStoreManualDocument: extension + real MIME
+    // check, 8MB cap, uploads/booking_manager/). It becomes the booking's current
+    // manual_document; the PRIOR document path is retained in the change history below.
+    $priorDocument = (string) ($booking['manual_document'] ?? '');
+    $newDocument = null;
+    if (!empty($_FILES['changed_ticket']['name']) && function_exists('bmStoreManualDocument')) {
+        $newDocument = bmStoreManualDocument($_FILES['changed_ticket'], (string) $invoice_id);
+    }
+
     // Merge the rebuilt flight_data/passengers into the EXISTING booking_data so we
     // keep meta (adjustments, change ref, no_show) and any other stored keys.
     $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
@@ -377,17 +387,31 @@ $router->post(admin.'/bookings/change-flight/(.*)', function ($invoice_id) use (
     $bd['flight_data'] = $newFlightData;
     if (isset($built['passengers'])) { $bd['passengers'] = $built['passengers']; }
     if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
-    $bd['meta']['last_changed'] = [
-        'at'   => date('Y-m-d H:i:s'),
-        'by'   => $_SESSION['user_id'] ?? null,
-        'from' => ['from' => $prevFlight['from'] ?? '', 'to' => $prevFlight['to'] ?? '', 'departure_date' => $prevFlight['departure_date'] ?? ''],
-        'to'   => ['from' => $newFlightData['from'] ?? '', 'to' => $newFlightData['to'] ?? '', 'departure_date' => $newFlightData['departure_date'] ?? ''],
+
+    // FULL CHANGE HISTORY — append one entry per change so the system has the complete
+    // record (old itinerary → new itinerary, the document on file at the time, actor,
+    // money). The most recent entry is also mirrored to meta.last_changed for quick reads.
+    $histEntry = [
+        'at'        => date('Y-m-d H:i:s'),
+        'by'        => $_SESSION['user_id'] ?? null,
+        'from'      => ['from' => $prevFlight['from'] ?? '', 'to' => $prevFlight['to'] ?? '', 'departure_date' => $prevFlight['departure_date'] ?? '', 'segments' => $prevFlight['segments'] ?? []],
+        'to'        => ['from' => $newFlightData['from'] ?? '', 'to' => $newFlightData['to'] ?? '', 'departure_date' => $newFlightData['departure_date'] ?? '', 'segments' => $newFlightData['segments'] ?? []],
+        'prior_document' => $priorDocument,
+        'new_document'   => $newDocument,
     ];
+    if (!isset($bd['meta']['change_history']) || !is_array($bd['meta']['change_history'])) { $bd['meta']['change_history'] = []; }
+    $bd['meta']['change_history'][] = $histEntry;
+    $bd['meta']['last_changed'] = $histEntry;
 
     // If the booking was marked no_show, a successful rebook returns it to confirmed.
     $statusUpdate = [];
     if (strtolower((string) ($booking['booking_status'] ?? '')) === 'no_show') {
         $statusUpdate['booking_status'] = 'confirmed';
+    }
+    // Promote the newly uploaded ticket to the booking's current document.
+    if ($newDocument !== null) {
+        $statusUpdate['manual_document'] = $newDocument;
+        $histEntry['new_document'] = $newDocument; // (already set; explicit for clarity)
     }
 
     $ok = $db->update('bookings', array_merge(['booking_data' => json_encode($bd)], $statusUpdate), ['invoice_id' => $invoice_id]);
@@ -427,10 +451,13 @@ $router->post(admin.'/bookings/change-flight/(.*)', function ($invoice_id) use (
 
     echo json_encode([
         'success'     => true,
-        'message'     => 'Flight itinerary updated.' . (($money['direction'] ?? 'none') !== 'none' ? ' ' . ($money['message'] ?? '') : ''),
+        'message'     => 'Flight itinerary updated.'
+            . ($newDocument !== null ? ' Changed ticket saved to the booking.' : '')
+            . (($money['direction'] ?? 'none') !== 'none' ? ' ' . ($money['message'] ?? '') : ''),
         'money'       => $money,
         'payment_due' => $money['payment_due'] ?? 0,
         'refunded'    => $money['refunded'] ?? 0,
+        'document'    => $newDocument,
     ]);
     exit;
 

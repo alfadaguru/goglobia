@@ -255,7 +255,27 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
             <!-- MANUAL: editable itinerary + money reconcile -->
             <template x-if="isManualFlight">
                 <div class="p-6 space-y-4">
-                    <p class="text-sm text-slate-600">Edit the itinerary below. The ticket PDF is regenerated when you save, and any fare difference or change fee is recorded against the booking.</p>
+                    <p class="text-sm text-slate-600">Upload the changed ticket and let AI fill the new itinerary, or edit it below. The ticket is saved to the booking, the PDF is regenerated, and any fare difference or change fee is recorded — with full change history.</p>
+
+                    <!-- AI: read the CHANGED ticket and auto-fill the new itinerary (same engine as manual booking) -->
+                    <div class="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="material-symbols-outlined text-indigo-700 text-base">auto_fix_high</span>
+                            <span class="text-sm font-semibold text-indigo-900">Read the changed ticket with AI</span>
+                        </div>
+                        <p class="text-xs text-indigo-700/80 mb-2">Upload the new/changed ticket (PDF, or a photo/screenshot). The AI reads the new flights and fills the itinerary below — review before saving. The file is stored on the booking as the updated ticket.</p>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" class="text-sm"
+                                   @change="changeTicketFile = $event.target.files[0] || null">
+                            <button type="button" class="btn sm primary inline-flex items-center gap-1" :disabled="!changeTicketFile || changeTicketReading" @click="readChangeTicket()">
+                                <span class="material-symbols-outlined text-base" x-show="!changeTicketReading">auto_fix_high</span>
+                                <span class="material-symbols-outlined text-base animate-spin" x-show="changeTicketReading">progress_activity</span>
+                                <span x-text="changeTicketReading ? 'Reading…' : 'Read ticket'"></span>
+                            </button>
+                        </div>
+                        <p class="text-xs mt-2" x-show="changeTicketMsg" :class="changeTicketOk ? 'text-emerald-700' : 'text-red-600'" x-text="changeTicketMsg"></p>
+                    </div>
+
                     <div class="space-y-3">
                         <template x-for="(seg,i) in changeSegments" :key="i">
                             <div class="grid sm:grid-cols-3 gap-2 border border-slate-200 rounded-lg p-3">
@@ -1164,6 +1184,50 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     </div>
                 </div>
                 <?php endforeach; ?>
+
+                <?php
+                // Current ticket document on file (set at create or replaced by a change).
+                $__doc = trim((string) ($booking['manual_document'] ?? ''));
+                // Change history (most recent first).
+                $__history = $booking_data['meta']['change_history'] ?? [];
+                if (!is_array($__history)) { $__history = []; }
+                ?>
+                <?php if ($__doc !== '' || !empty($__history)): ?>
+                <div class="mt-4 pt-4 border-t border-slate-200 space-y-3">
+                    <?php if ($__doc !== ''): ?>
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="material-symbols-outlined text-slate-500 text-base">description</span>
+                        <span class="text-slate-600">Ticket on file:</span>
+                        <a href="<?= root . htmlspecialchars(ltrim($__doc, '/')) ?>" target="_blank" rel="noopener" class="font-medium text-indigo-700 hover:text-indigo-900 underline">View / download</a>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($__history)): ?>
+                    <div>
+                        <button type="button" class="inline-flex items-center gap-1 text-sm font-semibold text-slate-700" onclick="this.nextElementSibling.classList.toggle('hidden')">
+                            <span class="material-symbols-outlined text-base">history</span>
+                            Change history (<?= count($__history) ?>)
+                        </button>
+                        <div class="hidden mt-2 space-y-2">
+                            <?php foreach (array_reverse($__history) as $__h):
+                                $__hFrom = ($__h['from']['from'] ?? '') . '→' . ($__h['from']['to'] ?? '');
+                                $__hTo   = ($__h['to']['from'] ?? '') . '→' . ($__h['to']['to'] ?? '');
+                                $__hDoc  = trim((string) ($__h['new_document'] ?? ''));
+                            ?>
+                            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-xs">
+                                <span class="text-slate-400"><?= htmlspecialchars((string) ($__h['at'] ?? '')) ?></span>
+                                <span class="font-mono text-slate-700"><?= htmlspecialchars($__hFrom) ?></span>
+                                <span class="material-symbols-outlined text-slate-400 text-sm">arrow_forward</span>
+                                <span class="font-mono font-semibold text-slate-800"><?= htmlspecialchars($__hTo) ?></span>
+                                <?php if (!empty($__h['to']['departure_date'])): ?><span class="text-slate-500">· <?= htmlspecialchars((string) $__h['to']['departure_date']) ?></span><?php endif; ?>
+                                <?php if ($__hDoc !== ''): ?><a href="<?= root . htmlspecialchars(ltrim($__hDoc, '/')) ?>" target="_blank" rel="noopener" class="text-indigo-600 underline">ticket</a><?php endif; ?>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
@@ -1828,6 +1892,11 @@ function bookingEdit() {
         changeFareDiff: 0,
         changeFee: 0,
         changeState: <?= json_encode($change_ref ?: null) ?>,
+        // AI changed-ticket reader (reuses the manual-booking read-ticket engine)
+        changeTicketFile: null,
+        changeTicketReading: false,
+        changeTicketMsg: '',
+        changeTicketOk: false,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
@@ -1848,22 +1917,66 @@ function bookingEdit() {
         closeChangeFlight() { this.changeOpen = false; },
         addChangeSeg() { this.changeSegments.push(this.blankChangeSeg()); },
         removeChangeSeg(i) { if (this.changeSegments.length > 1) this.changeSegments.splice(i, 1); },
-        // MANUAL: rewrite the stored itinerary + reconcile money (record edit).
+        // AI-read the CHANGED ticket and prefill the new itinerary. Reuses the SAME
+        // endpoint + extractor the manual-booking flow uses (read-ticket). Does NOT
+        // save — it only fills the form for review; the file is sent on Save.
+        async readChangeTicket() {
+            if (!this.changeTicketFile || this.changeTicketReading) return;
+            this.changeTicketReading = true; this.changeTicketMsg = ''; this.changeTicketOk = false;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+                fd.append('ticket', this.changeTicketFile);
+                const res = await fetch('<?= root . admin ?>/booking-manager/read-ticket', { method: 'POST', body: fd });
+                const d = await res.json();
+                if (!d || !d.status || !d.data) {
+                    this.changeTicketMsg = (d && d.message) ? d.message : 'Could not read the ticket.';
+                    return;
+                }
+                this.applyChangeTicket(d.data);
+                this.changeTicketOk = true;
+                this.changeTicketMsg = 'Filled from the ticket — please review the itinerary below.';
+            } catch (e) {
+                this.changeTicketMsg = 'The ticket reader did not respond. Enter the details manually.';
+            } finally {
+                this.changeTicketReading = false;
+            }
+        },
+        // Map the extractor's normalized segments onto changeSegments (same shape).
+        applyChangeTicket(data) {
+            const segs = Array.isArray(data.segments) ? data.segments : [];
+            if (segs.length) {
+                this.changeSegments = segs.map(s => {
+                    const seg = this.blankChangeSeg();
+                    seg.airline = s.airline || '';
+                    seg.airline_code = s.airline_code || '';
+                    seg.flight_number = s.flight_number || '';
+                    seg.from = (s.from || '').toUpperCase();
+                    seg.to = (s.to || '').toUpperCase();
+                    seg.depart = s.depart || '';
+                    seg.arrive = s.arrive || '';
+                    seg.cabin = s.cabin || '';
+                    seg.baggage = s.baggage || '';
+                    seg.cabin_baggage = s.cabin_baggage || '';
+                    return seg;
+                });
+            }
+        },
+        // MANUAL: rewrite the stored itinerary + reconcile money + store the changed
+        // ticket (record edit). Sent as multipart so the ticket FILE is uploaded.
         submitManualChange() {
             const segs = (this.changeSegments || []).filter(s => (s.from || s.to || s.depart));
             if (!segs.length) { alert('Add at least one flight segment.'); return; }
             if (!confirm('Save the new itinerary and apply the money change?')) { return; }
             this.changeBusy = true;
-            const params = new URLSearchParams();
-            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
-            params.set('segments', JSON.stringify(segs));
-            params.set('fare_difference', String(Number(this.changeFareDiff) || 0));
-            params.set('change_fee', String(Number(this.changeFee) || 0));
-            fetch('<?= root . admin ?>/bookings/change-flight/<?= $invoiceIdEsc ?>', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: params.toString()
-            })
+            const fd = new FormData();
+            fd.append('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+            fd.append('invoice_id', '<?= $invoiceIdEsc ?>');
+            fd.append('segments', JSON.stringify(segs));
+            fd.append('fare_difference', String(Number(this.changeFareDiff) || 0));
+            fd.append('change_fee', String(Number(this.changeFee) || 0));
+            if (this.changeTicketFile) { fd.append('changed_ticket', this.changeTicketFile); }
+            fetch('<?= root . admin ?>/bookings/change-flight/<?= $invoiceIdEsc ?>', { method: 'POST', body: fd })
             .then(r => r.json())
             .then(data => {
                 this.changeBusy = false;
