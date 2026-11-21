@@ -3179,6 +3179,54 @@ try {
                 `;
             },
 
+            // Prominent itinerary-level CAUTION boxes for the details panel (Phase 5):
+            // self-transfer + transit-visa (critical, bordered) and baggage re-check
+            // (info). Uses the full explanatory text the engine already produced in
+            // flags[].text — deduped across outbound + return (a flag can appear on
+            // both legs; the transit-visa flag already carries its country, so we dedupe
+            // by text). Returns '' when none apply. Rendered at the TOP of the details
+            // tab so a traveller sees the safety cautions immediately on expand.
+            renderItineraryCautions(obFlags, rtFlags) {
+                const all = [].concat(obFlags && obFlags.flags || [], rtFlags && rtFlags.flags || []);
+                const want = { self_transfer: 1, transit_visa: 1, baggage_recheck: 1 };
+                // Dedupe by type+text (transit_visa differs per country, so keep each).
+                const seen = {};
+                const picked = [];
+                all.forEach(fl => {
+                    if (!want[fl.type]) { return; }
+                    const key = fl.type + '|' + (fl.text || '');
+                    if (seen[key]) { return; }
+                    seen[key] = 1;
+                    picked.push(fl);
+                });
+                if (!picked.length) { return ''; }
+                // Order: critical cautions first, baggage note last.
+                const rank = { self_transfer: 0, transit_visa: 1, baggage_recheck: 2 };
+                picked.sort((a, b) => (rank[a.type] - rank[b.type]));
+                const box = fl => {
+                    const crit = fl.severity === 'critical';
+                    const cls = crit
+                        ? 'bg-red-50 dark:bg-red-900/15 border-red-300 dark:border-red-800 text-red-900 dark:text-red-200'
+                        : 'bg-slate-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300';
+                    const icon = fl.type === 'self_transfer' ? 'swap_horiz'
+                              : fl.type === 'transit_visa' ? 'passport'
+                              : 'luggage';
+                    const iconCls = crit ? 'text-red-600 dark:text-red-400' : 'text-gray-500';
+                    const title = fl.type === 'self_transfer' ? 'Self-transfer'
+                               : fl.type === 'transit_visa' ? 'Transit visa may be required'
+                               : 'Baggage re-check';
+                    return `
+                        <div class="rounded-xl border ${cls} p-4 flex items-start gap-3">
+                            <span class="material-symbols-outlined ${iconCls} shrink-0" style="font-size:22px;">${icon}</span>
+                            <div class="min-w-0">
+                                <p class="text-sm font-bold mb-0.5">${title}</p>
+                                <p class="text-[13px] leading-relaxed">${fl.text || ''}</p>
+                            </div>
+                        </div>`;
+                };
+                return `<div class="space-y-3">${picked.map(box).join('')}</div>`;
+            },
+
             // At-a-glance connection warnings for the COLLAPSED card (Phase 4), so a
             // traveller sees a risky connection without expanding. Shows only the
             // high-signal RISK flags (short/tight connection, overnight, airport change,
@@ -3501,6 +3549,8 @@ try {
                         <div class="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
                             <!-- Flight Details Tab -->
                             <div x-show="activeTab === 'details'" class="space-y-6">
+                                <!-- Safety cautions (self-transfer / transit-visa / baggage re-check) -->
+                                ${this.renderItineraryCautions(obFlags, rtFlags)}
                                 <!-- Outbound Flight Details -->
                                 <div class="bg-blue-50/80 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-100 dark:border-blue-800">
                                     <div class="flex items-center justify-between flex-wrap gap-3">
