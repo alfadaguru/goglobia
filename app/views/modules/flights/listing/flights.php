@@ -1593,6 +1593,25 @@ try {
 
                     const finalPrice = Math.round(rawPrice * 100) / 100;
 
+                    // MULTI-CARRIER facts for the whole journey (outbound + return).
+                    // An itinerary can span several airlines (e.g. Air Peace -> Egyptair
+                    // -> Air Cairo). We collect the DISTINCT operating-carrier codes (the
+                    // same code the logo + name resolve from) across every segment, in
+                    // first-seen order, so the card can show all of them instead of just
+                    // the first. marketingCodes is the union used for the "Multiple
+                    // airlines" label (the resolver already prefers the true operating
+                    // carrier per segment, so seg.img is the right code here).
+                    const airlineCodes = [];
+                    const airlineNameByCode = {};
+                    [...outboundSegs, ...returnSegs].forEach(s => {
+                        const c = (s && (s.img || s.airline_code || s.airline) || '').toString().trim().toUpperCase();
+                        if (c && !airlineCodes.includes(c)) {
+                            airlineCodes.push(c);
+                            airlineNameByCode[c] = s.airlineName || s.airline || c;
+                        }
+                    });
+                    const multiAirline = airlineCodes.length > 1;
+
                     return {
                         ...firstOutbound,
                         supplier,
@@ -1604,6 +1623,11 @@ try {
                         isRoundTrip: returnSegs.length > 0,
                         returnStops: returnStops,
                         returnDuration: returnDuration,
+
+                        // Multi-carrier display facts (see above).
+                        airlineCodes: airlineCodes,
+                        airlineNameByCode: airlineNameByCode,
+                        multiAirline: multiAirline,
 
                         arrival_code: lastOutbound.arrival_code,
                         arrival_time: lastOutbound.arrival_time,
@@ -2968,12 +2992,93 @@ try {
                 return `<div class="flex gap-1.5 my-2.5">${chips}</div>`;
             },
 
+            // Render the card's airline identity block (logo[s] + name). A single-
+            // carrier itinerary shows that one logo + name, exactly as before. A
+            // MULTI-carrier itinerary (f.multiAirline) shows up to three overlapping
+            // carrier logos (+N for the rest) and the label "Multiple airlines (N)",
+            // the established pattern (Skyscanner/Expedia wording). `size` = logo box
+            // px; `stack` true = compact overlap for the desktop rail.
+            renderCardAirline(f, size) {
+                const px = size || 56;
+                const flt = f.flight_no ? `<?= T::flight ?? 'Flight' ?> ${f.flight_no}` : '';
+                // Single carrier (or codes not resolved) — original treatment.
+                if (!f.multiAirline || !Array.isArray(f.airlineCodes) || f.airlineCodes.length < 2) {
+                    return `
+                        <div class="bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1 shrink-0" style="width:${px}px;height:${px}px">
+                            <img src="${this.airlineLogoSrc(f.img)}" alt="${f.airline || ''}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
+                        </div>
+                        <div class="min-w-0">
+                            <p class="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">${f.airlineName || f.airline || ''}</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">${flt}</p>
+                        </div>`;
+                }
+                // Multi-carrier: overlapping mini-logos (max 3) + "+N", then label.
+                const codes = f.airlineCodes;
+                const shown = codes.slice(0, 3);
+                const extra = codes.length - shown.length;
+                const mini = Math.round(px * 0.72);
+                let logos = '';
+                shown.forEach((c, i) => {
+                    logos += `<div class="bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-0.5" style="width:${mini}px;height:${mini}px;margin-left:${i === 0 ? 0 : -Math.round(mini * 0.35)}px;z-index:${10 - i}">
+                        <img src="${this.airlineLogoSrc(c)}" alt="${c}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
+                    </div>`;
+                });
+                if (extra > 0) {
+                    logos += `<div class="rounded-lg flex items-center justify-center bg-gray-100 dark:bg-gray-600 border border-gray-200 dark:border-gray-600 text-[10px] font-bold text-gray-600 dark:text-gray-200" style="width:${mini}px;height:${mini}px;margin-left:${-Math.round(mini * 0.35)}px">+${extra}</div>`;
+                }
+                return `
+                    <div class="flex items-center shrink-0">${logos}</div>
+                    <div class="min-w-0">
+                        <p class="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">Multiple airlines (${codes.length})</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">${codes.join(' · ')}</p>
+                    </div>`;
+            },
+
+            // Vertical variant for the desktop airline rail (logo[s] stacked above the
+            // name, centred in a ~96px column). Single carrier = original; multi =
+            // overlapping logos + "Multiple airlines (N)".
+            renderCardAirlineVertical(f) {
+                if (!f.multiAirline || !Array.isArray(f.airlineCodes) || f.airlineCodes.length < 2) {
+                    return `
+                        <div class="w-16 h-16 bg-white dark:bg-gray-700 rounded-xl flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1">
+                            <img src="${this.airlineLogoSrc(f.img)}" alt="${f.airline || ''}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
+                        </div>
+                        <p class="text-xs font-bold text-gray-800 dark:text-gray-200 text-center leading-tight">${f.airlineName || f.airline || ''}</p>
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400 text-center"><?= T::flight ?? 'Flight' ?> ${f.flight_no || ''}</p>`;
+                }
+                const codes = f.airlineCodes;
+                const shown = codes.slice(0, 3);
+                const extra = codes.length - shown.length;
+                let logos = '';
+                shown.forEach((c, i) => {
+                    logos += `<div class="w-9 h-9 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-0.5" style="margin-left:${i === 0 ? 0 : -12}px;z-index:${10 - i}">
+                        <img src="${this.airlineLogoSrc(c)}" alt="${c}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
+                    </div>`;
+                });
+                if (extra > 0) {
+                    logos += `<div class="w-9 h-9 rounded-lg flex items-center justify-center bg-gray-100 dark:bg-gray-600 border border-gray-200 dark:border-gray-600 text-[10px] font-bold text-gray-600 dark:text-gray-200" style="margin-left:-12px">+${extra}</div>`;
+                }
+                return `
+                    <div class="flex items-center justify-center">${logos}</div>
+                    <p class="text-xs font-bold text-gray-800 dark:text-gray-200 text-center leading-tight">Multiple airlines (${codes.length})</p>
+                    <p class="text-[11px] text-gray-500 dark:text-gray-400 text-center">${codes.join(' · ')}</p>`;
+            },
+
             renderFlightCard(f, idx) {
                 if (f.isMultiCity) {
                     return this.renderMulticityFlightCard(f, idx);
                 }
                 const stopText = f.stops === 0 ? '<?= T::direct ?>' : `${f.stops} <?= T::stop ?>${f.stops > 1 ? 's' : ''}`;
-                const layover = f.stops > 0 && f.segments[1]?.layover?.duration ? ` • ${f.segments[1].layover.duration} in ${f.segments[1].departure_code}` : '';
+                // Layover summary for the OUTBOUND leg. For a single stop, compute the
+                // real layover (duration + airport) from the two segments; for multi-
+                // stop, keep the card clean (the Details panel lists each layover). The
+                // old code read a `.layover.duration` object that no longer exists after
+                // segments were expanded, so it silently showed nothing.
+                let layover = '';
+                if (f.stops === 1 && Array.isArray(f.segments) && f.segments.length >= 2) {
+                    const lay = this.layoverLabel(f.segments[0], f.segments[1]);
+                    if (lay) { layover = ` • ${lay}`; }
+                }
 
                 const isRoundTrip = f.isRoundTrip;
                 const returnStopText = f.returnFlight ? (f.returnSegments.length - 1 === 0 ? '<?= T::direct ?>' : `${f.returnSegments.length - 1} <?= T::stop ?>${f.returnSegments.length - 1 > 1 ? 's' : ''}`) : '';
@@ -2998,13 +3103,7 @@ try {
                         <div class="block lg:hidden">
                             <div class="flex items-start justify-between gap-3 mb-3">
                                 <div class="flex items-center gap-2.5 min-w-0">
-                                    <div class="w-14 h-14 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1 shrink-0">
-                                        <img src="${this.airlineLogoSrc(f.img)}" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
-                                    </div>
-                                    <div class="min-w-0">
-                                        <p class="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">${f.airlineName || f.airline}</p>
-                                        <p class="text-xs text-gray-500 dark:text-gray-400"><?= T::flight ?? 'Flight' ?> ${f.flight_no || ''}</p>
-                                    </div>
+                                    ${this.renderCardAirline(f, 56)}
                                 </div>
                                 <div class="text-right shrink-0">
                                     <p class="text-[10px] text-gray-500 dark:text-gray-400">Price per adult</p>
@@ -3051,11 +3150,7 @@ try {
                             <div class="flex items-stretch gap-5">
                                 <!-- Airline -->
                                 <div class="flex flex-col items-center justify-center gap-1.5 shrink-0 w-[96px]">
-                                    <div class="w-16 h-16 bg-white dark:bg-gray-700 rounded-xl flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1">
-                                        <img src="${this.airlineLogoSrc(f.img)}" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
-                                    </div>
-                                    <p class="text-xs font-bold text-gray-800 dark:text-gray-200 text-center leading-tight">${f.airlineName || f.airline}</p>
-                                    <p class="text-[11px] text-gray-500 dark:text-gray-400 text-center"><?= T::flight ?? 'Flight' ?> ${f.flight_no || ''}</p>
+                                    ${this.renderCardAirlineVertical(f)}
                                 </div>
 
                                 <!-- Routes (stacked for round-trip like design) -->
