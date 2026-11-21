@@ -461,6 +461,11 @@ $router->post('flights/adivaha/search', function () use ($db) {
                     '_checkin_baggage' => (string) ($sg['checkin_baggage'] ?? ''),
                     '_cabin_baggage'   => (string) ($sg['cabin_baggage'] ?? ''),
                     '_cabin_class'     => (string) ($sg['cabin_class'] ?? ''),
+                    // Per-segment terminals + aircraft (Phase 2/3: terminal-change flag
+                    // + aircraft display). Carried through to the emitted $flight below.
+                    '_terminal_from'   => (string) ($sg['terminal_from'] ?? ''),
+                    '_terminal_to'     => (string) ($sg['terminal_to'] ?? ''),
+                    '_aircraft'        => (string) ($sg['aircraft'] ?? ''),
                 ];
                 $unitLegIdx[] = (int) ($sg['leg'] ?? 0);
             }
@@ -581,6 +586,11 @@ $router->post('flights/adivaha/search', function () use ($db) {
                 // when these are absent (older bookings / other suppliers).
                 'departure_iso'     => $depAt ? (string) $depAt : '',
                 'arrival_iso'       => $arrAt ? (string) $arrAt : '',
+                // Per-segment terminals + aircraft (empty when the provider omits them;
+                // the client flag engine suppresses the terminal-change flag on empties).
+                'terminal_from'     => (string) ($leg['_terminal_from'] ?? ''),
+                'terminal_to'       => (string) ($leg['_terminal_to'] ?? ''),
+                'aircraft'          => (string) ($leg['_aircraft'] ?? ''),
                 'departure_code'    => (string) ($leg['origin'] ?? ''),
                 'arrival_code'      => (string) ($leg['destination'] ?? ''),
                 'currency'          => $currency,
@@ -692,6 +702,14 @@ $router->post('flights/adivaha/search', function () use ($db) {
     if ($type !== 'oneway' && $type !== 'multicity') {
         error_log('adivaha search: round search -> ' . $packagedRT . ' package round-trip offer(s), '
             . $twoXsurfaced . ' single-sector (2x) offer(s) surfaced as one-ways.');
+    }
+
+    // Phase 2 (itinerary intelligence): attach origin/destination country + IANA
+    // timezone to every segment from the master flights_airports table, so the
+    // client flag engine can derive overnight/red-eye/connection-class/transit-visa.
+    // One batch lookup; degrades to '' on unknown airports. Provider-agnostic helper.
+    if (function_exists('flight_enrich_offer_segments')) {
+        flight_enrich_offer_segments($db, $final_array);
     }
 
     echo json_encode($final_array);

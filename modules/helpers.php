@@ -1960,3 +1960,120 @@ if (!function_exists('supplier_resolve_contact')) {
         return ['mode' => 'company', 'name' => $name, 'email' => $email, 'phone' => $phone];
     }
 }
+
+if (!function_exists('flight_airport_meta_map')) {
+    /**
+     * PROVIDER-AGNOSTIC airport enrichment for flight itineraries (Phase 2 of the
+     * itinerary-intelligence plan). Given a set of IATA codes, batch-look-up the
+     * master `flights_airports` table ONCE and return a map
+     *   code => ['country' => <name|''>, 'tz' => <IANA|''>, 'city' => <name|''>]
+     * so the search can attach country + timezone to every segment. The client-side
+     * flag engine (deriveItineraryFlags) needs these for the tz/country-dependent
+     * flags (overnight, red-eye, DD/DI/ID/II connection class, transit-visa country).
+     *
+     * The `region` column holds the IANA timezone (e.g. "Africa/Cairo"), but some
+     * rows carry the literal placeholder "\N" or are empty — those are returned as
+     * '' (unknown) so the client can SKIP tz-dependent flags for that airport rather
+     * than guess. Never throws; returns [] on any DB error.
+     *
+     * @param array $codes IATA codes (any case; de-duplicated internally)
+     * @return array<string,array{country:string,tz:string,city:string}>
+     */
+    function flight_airport_meta_map($db, array $codes): array
+    {
+        $clean = [];
+        foreach ($codes as $c) {
+            $c = strtoupper(trim((string) $c));
+            if ($c !== '' && strlen($c) <= 4) { $clean[$c] = true; }
+        }
+        if (!$clean) { return []; }
+        $out = [];
+        try {
+            $rows = $db->select('flights_airports', ['code', 'country', 'region', 'city'], [
+                'code' => array_keys($clean),
+            ]) ?: [];
+            foreach ($rows as $r) {
+                $code = strtoupper(trim((string) ($r['code'] ?? '')));
+                if ($code === '') { continue; }
+                $tz = trim((string) ($r['region'] ?? ''));
+                // "\N" (null placeholder from the data import) or anything that isn't
+                // an IANA-looking "Area/Location" string → treat as unknown.
+                if ($tz === '\\N' || $tz === 'N' || strpos($tz, '/') === false) { $tz = ''; }
+                $out[$code] = [
+                    'country' => trim((string) ($r['country'] ?? '')),
+                    'tz'      => $tz,
+                    'city'    => trim((string) ($r['city'] ?? '')),
+                ];
+            }
+        } catch (\Throwable $e) {
+            error_log('flight_airport_meta_map: ' . $e->getMessage());
+            return [];
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('flight_enrich_offer_segments')) {
+    /**
+     * Annotate every segment of a normalized offers array with origin/destination
+     * country + IANA timezone, in place. Works on the shape every provider emits:
+     *   $offers = [ ['segments' => [ [seg, seg], [seg] ], ...], ... ]
+     * where each $seg has 'departure_code' / 'arrival_code'. Adds to each segment:
+     *   from_country, to_country, from_tz, to_tz, from_city, to_city
+     * (empty string when the airport or its timezone is unknown — the client flag
+     * engine degrades gracefully on empties). One batch DB lookup for the whole set.
+     *
+     * Call this once, just before echoing the offers JSON. Safe on any shape — a
+     * segment without the code fields is left untouched.
+     */
+    function flight_enrich_offer_segments($db, array &$offers): void
+    {
+        // 1) Collect every distinct airport code across all offers/legs/segments.
+        $codes = [];
+        foreach ($offers as $offer) {
+            if (!is_array($offer) || !isset($offer['segments']) || !is_array($offer['segments'])) { continue; }
+            foreach ($offer['segments'] as $leg) {
+                if (!is_array($leg)) { continue; }
+                foreach ($leg as $seg) {
+                    // Segments may be objects (stdClass) or arrays depending on provider.
+                    $dep = is_array($seg) ? ($seg['departure_code'] ?? '') : ($seg->departure_code ?? '');
+                    $arr = is_array($seg) ? ($seg['arrival_code'] ?? '')   : ($seg->arrival_code ?? '');
+                    if ($dep !== '') { $codes[strtoupper(trim((string) $dep))] = true; }
+                    if ($arr !== '') { $codes[strtoupper(trim((string) $arr))] = true; }
+                }
+            }
+        }
+        if (!$codes) { return; }
+
+        $meta = flight_airport_meta_map($db, array_keys($codes));
+        if (!$meta) { return; }
+
+        // 2) Attach to each segment (handle both array + object segment shapes).
+        foreach ($offers as &$offer) {
+            if (!is_array($offer) || !isset($offer['segments']) || !is_array($offer['segments'])) { continue; }
+            foreach ($offer['segments'] as &$leg) {
+                if (!is_array($leg)) { continue; }
+                foreach ($leg as &$seg) {
+                    $depC = strtoupper(trim((string) (is_array($seg) ? ($seg['departure_code'] ?? '') : ($seg->departure_code ?? ''))));
+                    $arrC = strtoupper(trim((string) (is_array($seg) ? ($seg['arrival_code'] ?? '')   : ($seg->arrival_code ?? ''))));
+                    $dm = $meta[$depC] ?? ['country' => '', 'tz' => '', 'city' => ''];
+                    $am = $meta[$arrC] ?? ['country' => '', 'tz' => '', 'city' => ''];
+                    if (is_array($seg)) {
+                        $seg['from_country'] = $dm['country']; $seg['to_country'] = $am['country'];
+                        $seg['from_tz'] = $dm['tz'];           $seg['to_tz'] = $am['tz'];
+                        $seg['from_city'] = $seg['from_city'] ?? ''; if ($seg['from_city'] === '') { $seg['from_city'] = $dm['city']; }
+                        $seg['to_city'] = $seg['to_city'] ?? '';     if ($seg['to_city'] === '') { $seg['to_city'] = $am['city']; }
+                    } else {
+                        $seg->from_country = $dm['country']; $seg->to_country = $am['country'];
+                        $seg->from_tz = $dm['tz'];           $seg->to_tz = $am['tz'];
+                        if (empty($seg->from_city)) { $seg->from_city = $dm['city']; }
+                        if (empty($seg->to_city))   { $seg->to_city = $am['city']; }
+                    }
+                }
+                unset($seg);
+            }
+            unset($leg);
+        }
+        unset($offer);
+    }
+}
