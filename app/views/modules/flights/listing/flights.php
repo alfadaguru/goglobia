@@ -3315,6 +3315,11 @@ try {
                 if (f.isMultiCity) {
                     return this.renderMulticityFlightCard(f, idx);
                 }
+                // Itinerary-intelligence flags (Phase 3 render). Compute once per leg;
+                // the details panel reads obFlags.layovers[i] / rtFlags.layovers[i].
+                const engOpts = { protected: f.isProtected, transitVisaCountries: this.transitVisaCountries, mct: this.mctBands };
+                const obFlags = this.deriveItineraryFlags(f.segments || [], engOpts);
+                const rtFlags = this.deriveItineraryFlags(f.returnSegments || [], engOpts);
                 const stopText = f.stops === 0 ? '<?= T::direct ?>' : `${f.stops} <?= T::stop ?>${f.stops > 1 ? 's' : ''}`;
                 // Layover summary for the OUTBOUND leg. For a single stop, compute the
                 // real layover (duration + airport) from the two segments; for multi-
@@ -3480,8 +3485,9 @@ try {
                                 <!-- Outbound Flight Segments -->
                                 ${f.segments.map((seg, i) => {
                                     const body = this.renderFlightSegment(seg, i, 'outbound');
-                                    const lay = (i < f.segments.length - 1) ? this.layoverLabel(seg, f.segments[i + 1]) : '';
-                                    return body + (lay ? `<div class="flex items-center gap-2 my-2 ml-2"><span class="material-symbols-outlined text-amber-600" style="font-size:16px;">hourglass_empty</span><span class="text-xs font-medium text-amber-700 dark:text-amber-400"><?= T::layover ?>: ${lay}</span></div>` : '');
+                                    const fallback = (i < f.segments.length - 1) ? this.layoverLabel(seg, f.segments[i + 1]) : '';
+                                    const L = (i < f.segments.length - 1) ? (obFlags.layovers[i] || null) : null;
+                                    return body + ((L || fallback) ? this.renderLayoverBlock(L, fallback) : '');
                                 }).join('')}
 
                                 <!-- Return Flight Details (if roundtrip) -->
@@ -3505,8 +3511,9 @@ try {
                                     <!-- Return Flight Segments -->
                                     ${f.returnSegments.map((seg, i) => {
                                         const body = this.renderFlightSegment(seg, i, 'return');
-                                        const lay = (i < f.returnSegments.length - 1) ? this.layoverLabel(seg, f.returnSegments[i + 1]) : '';
-                                        return body + (lay ? `<div class="flex items-center gap-2 my-2 ml-2"><span class="material-symbols-outlined text-amber-600" style="font-size:16px;">hourglass_empty</span><span class="text-xs font-medium text-amber-700 dark:text-amber-400"><?= T::layover ?>: ${lay}</span></div>` : '');
+                                        const fallback = (i < f.returnSegments.length - 1) ? this.layoverLabel(seg, f.returnSegments[i + 1]) : '';
+                                        const L = (i < f.returnSegments.length - 1) ? (rtFlags.layovers[i] || null) : null;
+                                        return body + ((L || fallback) ? this.renderLayoverBlock(L, fallback) : '');
                                     }).join('')}
                                 ` : ''}
                             </div>
@@ -3572,10 +3579,69 @@ try {
             },
 
             // Helper function to render flight segments
+            // Render the connection block shown BETWEEN two segments, from one engine
+            // layover object (L). Shows the layover duration + airport, plus any Phase-3
+            // flags: airport change, terminal change, overnight / late-night, long
+            // layover. Severity-coloured (warning=amber, info=slate). Degrades to the
+            // plain duration when L is absent.
+            renderLayoverBlock(L, fallbackLabel) {
+                if (!L) {
+                    return fallbackLabel
+                        ? `<div class="flex items-center gap-2 my-2 ml-2"><span class="material-symbols-outlined text-amber-600" style="font-size:16px;">hourglass_empty</span><span class="text-xs font-medium text-amber-700 dark:text-amber-400"><?= T::layover ?>: ${fallbackLabel}</span></div>`
+                        : '';
+                }
+                const where = L.city || L.airport || '';
+                const warn = (L.timing === 'short' || L.timing === 'tight' || L.overnight || L.airportChange || L.terminalChange);
+                const tone = warn
+                    ? 'bg-amber-50 dark:bg-amber-900/15 border-amber-200 dark:border-amber-800/50'
+                    : 'bg-slate-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700';
+                const icon = warn ? 'warning' : 'hourglass_empty';
+                const iconColor = warn ? 'text-amber-600' : 'text-gray-400';
+                const notes = [];
+                if (L.timing === 'short') { notes.push(['error', 'Short connection — a delay could make you miss it.']); }
+                else if (L.timing === 'tight') { notes.push(['schedule', 'Tight connection — little buffer if the first flight is late.']); }
+                if (L.airportChange) { notes.push(['transfer_within_a_station', 'Airport change — arrive ' + L.airport + ', depart ' + L.nextDepartureAirport + '. Allow travel time.']); }
+                if (L.terminalChange) { notes.push(['meeting_room', 'Terminal change (' + L.terminalFrom + ' → ' + L.terminalTo + ').']); }
+                if (L.overnight) { notes.push(['dark_mode', 'Overnight layover — crosses into the next day.']); }
+                else if (L.nightConnection) { notes.push(['bedtime', 'Late-night connection' + (L.departsLocal ? ' — departs around ' + L.departsLocal + ' local.' : '.')]); }
+                else if (L.timing === 'long') { notes.push(['schedule', 'Long layover.']); }
+                const noteHtml = notes.map(n => `<div class="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-300 mt-1"><span class="material-symbols-outlined" style="font-size:13px;">${n[0]}</span><span>${n[1]}</span></div>`).join('');
+                return `
+                    <div class="my-2 ml-2 rounded-lg border ${tone} px-3 py-2">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined ${iconColor}" style="font-size:16px;">${icon}</span>
+                            <span class="text-xs font-semibold text-gray-700 dark:text-gray-200"><?= T::layover ?>: ${L.durationText || ''}${where ? ' in ' + where : ''}</span>
+                        </div>
+                        ${noteHtml}
+                    </div>`;
+            },
+
+            // "Operated by X" when this segment's OPERATING carrier differs from its
+            // marketing/display carrier (a codeshare). '' otherwise. Prefers a resolved
+            // name from the airline cache, else the raw operating code.
+            segOperatedByName(seg) {
+                const op = (seg.operating_code || '').toString().trim().toUpperCase();
+                const mk = (seg.img || seg.airline_code || '').toString().trim().toUpperCase();
+                if (!op || op === mk) { return ''; }
+                return this.airlineNamesCache[op] || seg.operating_name || op;
+            },
+            // Red-eye: departs late (≥21:00 or ≤01:00 local) AND arrives next local
+            // morning (crosses midnight, before ~08:00). Uses the ISO local wall time;
+            // returns false when ISO datetimes are absent (never guesses).
+            segIsRedEye(seg) {
+                const p = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/); return m ? { d: +m[1] * 10000 + +m[2] * 100 + +m[3], hh: +m[4] } : null; };
+                const dep = p(seg.departure_iso), arr = p(seg.arrival_iso);
+                if (!dep || !arr) { return false; }
+                return (arr.d !== dep.d) && (dep.hh >= 21 || dep.hh <= 1) && (arr.hh <= 8);
+            },
+
             renderFlightSegment(seg, index, type) {
                 const cabinClass = this.formatCabinClass(seg.class);
                 const cabinBag = this.formatBaggageLabel(seg.cabin_baggage);
                 const checkedBag = this.formatBaggageLabel(seg.baggage);
+                const operatedBy = this.segOperatedByName(seg);
+                const aircraft = (seg.aircraft || '').toString().trim();
+                const redEye = this.segIsRedEye(seg);
                 return `
                 <div class="relative">
                     <!-- Segment Header -->
@@ -3583,6 +3649,7 @@ try {
                         <div class="px-3 py-1 ${type === 'outbound' ? 'bg-blue-600' : 'bg-emerald-600'} text-white text-xs font-bold rounded-full">
                             ${type === 'outbound' ? '<?= T::outbound ?> ' : '<?= T::return ?> '}<?= T::flight ?> ${index + 1}
                         </div>
+                        ${redEye ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 text-[11px] font-semibold"><span class="material-symbols-outlined" style="font-size:13px;">dark_mode</span>Red-eye</span>` : ''}
                         <div class="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
                     </div>
 
@@ -3624,6 +3691,7 @@ try {
                                         <div class="min-w-0">
                                             <p class="text-sm font-bold text-gray-900 dark:text-gray-100">${seg.airlineName || seg.airline || ''}</p>
                                             <p class="text-xs text-gray-500 dark:text-gray-400">${seg.airline || ''} · <?= T::flight ?> ${seg.flight_no || ''}</p>
+                                            ${operatedBy ? `<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:12px;">info</span>Operated by ${operatedBy}</p>` : ''}
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -3656,6 +3724,7 @@ try {
                                             </div>
                                         </div>
                                     </div>
+                                    ${aircraft ? `<div class="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-dashed border-gray-200 dark:border-gray-700 text-[11px] text-gray-500 dark:text-gray-400"><span class="material-symbols-outlined" style="font-size:14px;">flight</span><span>Aircraft: ${aircraft}</span></div>` : ''}
                                 </div>
 
                                 <!-- Arrival -->
