@@ -591,6 +591,12 @@ $router->post('flights/adivaha/search', function () use ($db) {
                 'terminal_from'     => (string) ($leg['_terminal_from'] ?? ''),
                 'terminal_to'       => (string) ($leg['_terminal_to'] ?? ''),
                 'aircraft'          => (string) ($leg['_aircraft'] ?? ''),
+                // TRUE operating carrier when it differs from the DISPLAYED (marketing)
+                // code — a genuine codeshare, e.g. a BA-marketed flight operated by AA.
+                // '' when there's no codeshare (operating == marketing) or we already
+                // swapped a ticketing shell to its operator above. Powers the client's
+                // "Operated by X" note (EU 2111/2005 / DOT 257 disclosure).
+                'operating_code'    => ($segOperatedBy !== '' && strtoupper($segOperatedBy) !== strtoupper($legCode)) ? strtoupper($segOperatedBy) : '',
                 'departure_code'    => (string) ($leg['origin'] ?? ''),
                 'arrival_code'      => (string) ($leg['destination'] ?? ''),
                 'currency'          => $currency,
