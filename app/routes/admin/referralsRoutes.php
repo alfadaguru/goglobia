@@ -49,6 +49,7 @@ $router->post(admin.'/referrals/save', function () use ($SECURE, $db) {
     $holdDays = max(0, min(90, (int) ($_POST['referral_hold_days'] ?? 14)));
     $minBook  = max(0, round((float) ($_POST['referral_min_booking_amount'] ?? 0), 2));
     $cap      = max(0, (int) ($_POST['referral_cap_per_month'] ?? 0));
+    $ipGuard  = isset($_POST['referral_ip_guard_enabled']) && $_POST['referral_ip_guard_enabled'] ? 1 : 0;
 
     try {
         if (function_exists('ensureReferralSchema')) { ensureReferralSchema($db); }
@@ -60,6 +61,7 @@ $router->post(admin.'/referrals/save', function () use ($SECURE, $db) {
             'referral_hold_days'          => $holdDays,
             'referral_min_booking_amount' => $minBook,
             'referral_cap_per_month'      => $cap,
+            'referral_ip_guard_enabled'   => $ipGuard,
         ], ['id' => 1]);
         // Refresh the in-request cache so the dashboard reflects the save immediately.
         if (isset($GLOBALS['app']) && is_array($GLOBALS['app'])) {
@@ -67,13 +69,46 @@ $router->post(admin.'/referrals/save', function () use ($SECURE, $db) {
                 'referral_enabled' => $enabled, 'referral_referrer_amount' => $referrer,
                 'referral_referee_amount' => $referee, 'referral_currency' => $currency,
                 'referral_hold_days' => $holdDays, 'referral_min_booking_amount' => $minBook,
-                'referral_cap_per_month' => $cap,
+                'referral_cap_per_month' => $cap, 'referral_ip_guard_enabled' => $ipGuard,
             ]);
         }
         $_SESSION['success'] = 'Referral settings saved.';
     } catch (\Throwable $e) {
         error_log('referral save: ' . $e->getMessage());
         $_SESSION['error'] = 'Could not save referral settings.';
+    }
+    header('Location: ' . root . admin . '/referrals');
+    exit;
+});
+
+// POST — clear the fraud-guard flag on a held reward (admin approves after review).
+// The reward rejoins the normal flow and releases after its hold window.
+$router->post(admin.'/referrals/reward/clear-flag', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('admin_require')) { admin_require($db, 'referrals', 'edit'); }
+    CSRF::verifyRequest();
+    $id = (int) ($_POST['reward_id'] ?? 0);
+    if ($id > 0 && function_exists('referral_clear_flag')) {
+        $r = referral_clear_flag($db, $id);
+        $_SESSION[!empty($r['ok']) ? 'success' : 'error'] = $r['message'] ?? 'Done.';
+    } else {
+        $_SESSION['error'] = 'Invalid reward.';
+    }
+    header('Location: ' . root . admin . '/referrals');
+    exit;
+});
+
+// POST — reject a flagged held reward (confirmed abuse). Reversed, no payout.
+$router->post(admin.'/referrals/reward/reject', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('admin_require')) { admin_require($db, 'referrals', 'edit'); }
+    CSRF::verifyRequest();
+    $id = (int) ($_POST['reward_id'] ?? 0);
+    if ($id > 0 && function_exists('referral_reject_flagged')) {
+        $r = referral_reject_flagged($db, $id);
+        $_SESSION[!empty($r['ok']) ? 'success' : 'error'] = $r['message'] ?? 'Done.';
+    } else {
+        $_SESSION['error'] = 'Invalid reward.';
     }
     header('Location: ' . root . admin . '/referrals');
     exit;

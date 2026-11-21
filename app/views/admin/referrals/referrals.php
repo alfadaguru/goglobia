@@ -128,6 +128,14 @@ $statusChip = function (string $s): string {
                 </div>
             </div>
 
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox" name="referral_ip_guard_enabled" value="1" <?= !empty($cfg['ip_guard_enabled']) ? 'checked' : '' ?> class="w-5 h-5">
+                <div>
+                    <div class="font-semibold text-gray-900">Device / IP fraud guard <span class="text-xs font-normal text-green-600">(recommended)</span></div>
+                    <div class="text-xs text-gray-500">Flag a reward for review when the friend signed up from the same IP as the referrer, or the same IP as another of that referrer's friends (self-referral across accounts). The referral is still recorded and held — the payout just waits for you to Clear or Reject it below. Legit shared-WiFi referrals aren't blocked, only surfaced.</div>
+                </div>
+            </label>
+
             <div class="pt-2">
                 <button type="submit" class="btn">Save settings</button>
             </div>
@@ -172,19 +180,47 @@ $statusChip = function (string $s): string {
             <table class="w-full text-sm">
                 <thead><tr class="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200">
                     <th class="py-2 pr-3">Referrer</th><th class="py-2 pr-3">Booking</th><th class="py-2 pr-3">Referrer credit</th>
-                    <th class="py-2 pr-3">Status</th><th class="py-2 pr-3">Hold until</th><th class="py-2">Rewarded</th>
+                    <th class="py-2 pr-3">Status</th><th class="py-2 pr-3">Hold until</th><th class="py-2 pr-3">Rewarded</th>
+                    <th class="py-2">Review</th>
                 </tr></thead>
                 <tbody>
                 <?php if (empty($rewards)): ?>
-                    <tr><td colspan="6" class="py-4 text-center text-gray-400">No rewards yet.</td></tr>
-                <?php else: foreach ($rewards as $w): ?>
-                    <tr class="border-b border-gray-50">
+                    <tr><td colspan="7" class="py-4 text-center text-gray-400">No rewards yet.</td></tr>
+                <?php else: foreach ($rewards as $w):
+                    $__flagged = !empty($w['flagged']);
+                    $__held    = (string) ($w['status'] ?? '') === 'hold';
+                ?>
+                    <tr class="border-b border-gray-50 <?= $__flagged ? 'bg-amber-50/60' : '' ?>">
                         <td class="py-2 pr-3 font-mono text-xs"><?= htmlspecialchars((string) ($w['referrer_id'] ?? '')) ?></td>
                         <td class="py-2 pr-3 text-xs text-gray-500"><?= htmlspecialchars((string) ($w['invoice_id'] ?? '')) ?></td>
                         <td class="py-2 pr-3 tabular-nums"><?= htmlspecialchars((string) ($w['currency'] ?? '')) ?> <?= number_format((float) ($w['referrer_amount'] ?? 0), 2) ?></td>
                         <td class="py-2 pr-3"><?= $statusChip((string) ($w['status'] ?? '')) ?></td>
                         <td class="py-2 pr-3 text-xs text-gray-400"><?= htmlspecialchars((string) ($w['hold_expires_at'] ?? '—')) ?></td>
-                        <td class="py-2 text-xs text-gray-400"><?= htmlspecialchars((string) ($w['rewarded_at'] ?? '—')) ?></td>
+                        <td class="py-2 pr-3 text-xs text-gray-400"><?= htmlspecialchars((string) ($w['rewarded_at'] ?? '—')) ?></td>
+                        <td class="py-2">
+                        <?php if ($__flagged && $__held): ?>
+                            <div class="flex flex-col gap-1">
+                                <span class="inline-flex items-center gap-1 text-xs font-semibold text-amber-700" title="<?= htmlspecialchars((string) ($w['flag_reason'] ?? '')) ?>">
+                                    <span class="material-symbols-outlined" style="font-size:14px;">flag</span> Flagged
+                                </span>
+                                <span class="text-[11px] text-gray-500 max-w-[220px]"><?= htmlspecialchars((string) ($w['flag_reason'] ?? '')) ?></span>
+                                <div class="flex gap-1 mt-1">
+                                    <form method="POST" action="<?= root.admin ?>/referrals/reward/clear-flag" onsubmit="return confirm('Approve this reward? It will release after its hold window.');">
+                                        <?= CSRF::tokenField() ?>
+                                        <input type="hidden" name="reward_id" value="<?= (int) ($w['id'] ?? 0) ?>">
+                                        <button type="submit" class="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700">Approve</button>
+                                    </form>
+                                    <form method="POST" action="<?= root.admin ?>/referrals/reward/reject" onsubmit="return confirm('Reject this reward? No payout will be made.');">
+                                        <?= CSRF::tokenField() ?>
+                                        <input type="hidden" name="reward_id" value="<?= (int) ($w['id'] ?? 0) ?>">
+                                        <button type="submit" class="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700">Reject</button>
+                                    </form>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <span class="text-xs text-gray-300">—</span>
+                        <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endforeach; endif; ?>
                 </tbody>
