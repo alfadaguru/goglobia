@@ -322,6 +322,120 @@ $router->post(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$
 
 });
 
+// ================================ POST /admin/bookings/change-flight/{invoice_id}
+// MANUAL flight CHANGE (record edit). A manual booking has no supplier, so a change
+// is purely rewriting the stored itinerary + reconciling the money. Guarded to
+// module='manual' && module_type='flights'. Rebuilds booking_data.flight_data from the
+// edited segments using the SAME pure builder the create path uses
+// (bmBuildManualBookingData), applies the fare-difference/change-fee via
+// bm_apply_booking_adjustment, and (since GENERATE_BOOKING_PDF re-reads booking_data on
+// every call) the regenerated ticket/invoice reflect the new flight automatically.
+// LIVE flights do NOT use this route — they go through the guided cancel+rebook flow.
+$router->post(admin.'/bookings/change-flight/(.*)', function ($invoice_id) use ($SECURE,$db) {
+
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
+    if (!$booking) { echo json_encode(['success' => false, 'message' => 'Booking not found']); exit; }
+
+    $moduleType = strtolower((string) ($booking['module_type'] ?? ''));
+    $module     = strtolower((string) ($booking['module'] ?? ''));
+    if ($moduleType !== 'flights' || $module !== 'manual') {
+        echo json_encode(['success' => false, 'message' => 'This change path is for manual flight bookings only. Use the guided change for live supplier bookings.']);
+        exit;
+    }
+    if (in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+        echo json_encode(['success' => false, 'message' => 'A cancelled/voided booking cannot be changed.']);
+        exit;
+    }
+    if (!function_exists('bmBuildManualBookingData')) {
+        echo json_encode(['success' => false, 'message' => 'Itinerary builder unavailable.']);
+        exit;
+    }
+
+    // Rebuild the flight_data from the edited segments, reusing the create builder.
+    // Preserve existing travellers (the change is itinerary + money, not passengers).
+    $travellers = json_decode((string) ($booking['travellers'] ?? '[]'), true);
+    if (!is_array($travellers)) { $travellers = []; }
+    $currency = strtoupper(trim((string) ($booking['currency_markup'] ?? 'NGN'))) ?: 'NGN';
+
+    $built = bmBuildManualBookingData('flights', $_POST, $currency, $travellers);
+    $newFlightData = $built['flight_data'] ?? null;
+    if (!is_array($newFlightData) || empty($newFlightData['segments'])) {
+        echo json_encode(['success' => false, 'message' => 'At least one valid flight segment is required.']);
+        exit;
+    }
+
+    // Merge the rebuilt flight_data/passengers into the EXISTING booking_data so we
+    // keep meta (adjustments, change ref, no_show) and any other stored keys.
+    $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+    if (!is_array($bd)) { $bd = []; }
+    $prevFlight = $bd['flight_data'] ?? [];
+    $bd['flight_data'] = $newFlightData;
+    if (isset($built['passengers'])) { $bd['passengers'] = $built['passengers']; }
+    if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+    $bd['meta']['last_changed'] = [
+        'at'   => date('Y-m-d H:i:s'),
+        'by'   => $_SESSION['user_id'] ?? null,
+        'from' => ['from' => $prevFlight['from'] ?? '', 'to' => $prevFlight['to'] ?? '', 'departure_date' => $prevFlight['departure_date'] ?? ''],
+        'to'   => ['from' => $newFlightData['from'] ?? '', 'to' => $newFlightData['to'] ?? '', 'departure_date' => $newFlightData['departure_date'] ?? ''],
+    ];
+
+    // If the booking was marked no_show, a successful rebook returns it to confirmed.
+    $statusUpdate = [];
+    if (strtolower((string) ($booking['booking_status'] ?? '')) === 'no_show') {
+        $statusUpdate['booking_status'] = 'confirmed';
+    }
+
+    $ok = $db->update('bookings', array_merge(['booking_data' => json_encode($bd)], $statusUpdate), ['invoice_id' => $invoice_id]);
+    if ($ok === false) {
+        echo json_encode(['success' => false, 'message' => 'Failed to save the new itinerary.']);
+        exit;
+    }
+
+    // Money reconcile: fare difference (signed) + change fee. $delta is the NET the
+    // customer owes(+)/is owed(−). The caller supplies fare_difference (new−old) and
+    // change_fee. Charge = fare_diff + fee; refund = −(|fare_diff| − fee) i.e. the fee
+    // is retained out of any refund. We compute the net here and hand it to the primitive.
+    $fareDiff = (float) ($_POST['fare_difference'] ?? 0);
+    $changeFee = max(0.0, (float) ($_POST['change_fee'] ?? 0));
+    $delta = 0.0;
+    if ($fareDiff > 0)      { $delta = $fareDiff + $changeFee; }          // owes more
+    elseif ($fareDiff < 0)  { $delta = $fareDiff + $changeFee; }          // refund minus fee (fee offsets refund)
+    else                    { $delta = $changeFee; }                      // flat fee only
+
+    $money = ['direction' => 'none', 'message' => 'No money movement.'];
+    if (function_exists('bm_apply_booking_adjustment') && abs($delta) > 0.001) {
+        $money = bm_apply_booking_adjustment($db, (string) $invoice_id, round($delta, 2), $changeFee,
+            'Manual flight change', ['actor' => $_SESSION['user_id'] ?? null]);
+    }
+
+    // Customer notice + regenerated ticket (GENERATE_BOOKING_PDF re-reads booking_data).
+    try {
+        $ticketPath = GENERATE_BOOKING_PDF($invoice_id, 'ticket');
+        NOTIFY::resend($booking['module'], $booking, [
+            'invoice_id'  => $invoice_id,
+            'amount'      => $booking['price_markup'],
+            'currency'    => $booking['currency'] ?? '',
+            'module_type' => 'Flights',
+            'event_note'  => 'changed',
+        ], $ticketPath);
+    } catch (\Throwable $e) { error_log('change-flight notify ' . $invoice_id . ': ' . $e->getMessage()); }
+
+    echo json_encode([
+        'success'     => true,
+        'message'     => 'Flight itinerary updated.' . (($money['direction'] ?? 'none') !== 'none' ? ' ' . ($money['message'] ?? '') : ''),
+        'money'       => $money,
+        'payment_due' => $money['payment_due'] ?? 0,
+        'refunded'    => $money['refunded'] ?? 0,
+    ]);
+    exit;
+
+});
+
 // ================================ POST /admin/bookings/action/{invoice_id}
 $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE,$db) {
 
@@ -566,6 +680,112 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
             ob_clean();
             echo json_encode(['success' => false, 'message' => 'Failed to update booking status']);
         }
+        exit;
+    }
+
+    // MARK NO-SHOW — flight missed-flight / passenger did not fly. Sets the dedicated
+    // 'no_show' booking_status (added to the enum by ensureBookingHoldSchema) so the
+    // booking stops reading as a live/confirmed trip, stamps who/when into booking_data
+    // meta for traceability, and sends the customer an informational notice. From a
+    // no_show booking staff can then start a rebook (the Change-flight flow). NO money
+    // moves here — any penalty/refund is a separate explicit adjustment.
+    if ($action === 'mark_no_show') {
+        if (strtolower((string) ($booking['module_type'] ?? '')) !== 'flights') {
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'No-show applies to flight bookings only.']);
+            exit;
+        }
+        $curStatus = strtolower((string) ($booking['booking_status'] ?? ''));
+        if (in_array($curStatus, ['cancelled', 'no_show'], true)) {
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'Booking is already ' . $curStatus . '.']);
+            exit;
+        }
+
+        // Stamp no-show meta (actor/time) into booking_data without disturbing the rest.
+        $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+        if (!is_array($bd)) { $bd = []; }
+        if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+        $bd['meta']['no_show'] = [
+            'at'    => date('Y-m-d H:i:s'),
+            'by'    => $_SESSION['user_id'] ?? null,
+            'prior' => $booking['booking_status'] ?? '',
+        ];
+
+        $updated = $db->update('bookings', [
+            'booking_status' => 'no_show',
+            'booking_data'   => json_encode($bd),
+        ], ['invoice_id' => $invoice_id]);
+
+        if ($updated !== false) {
+            // Informational notice to the customer (reuse the resend channel — carries
+            // the booking's current ticket; copy is driven by the template layer).
+            try {
+                NOTIFY::resend($booking['module'], $booking, [
+                    'invoice_id'   => $invoice_id,
+                    'amount'       => $booking['price_markup'],
+                    'currency'     => $booking['currency'] ?? '',
+                    'module_type'  => ucfirst((string) ($booking['module'] ?? 'flights')),
+                    'event_note'   => 'no_show',
+                ]);
+            } catch (\Throwable $e) { error_log('mark_no_show notify ' . $invoice_id . ': ' . $e->getMessage()); }
+
+            ob_clean();
+            echo json_encode(['success' => true, 'message' => 'Booking marked as no-show. You can now start a rebook if the passenger wants a new flight.']);
+        } else {
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'Failed to mark no-show.']);
+        }
+        exit;
+    }
+
+    // CHANGE REFUND — step 2 of the LIVE guided cancel+rebook flow. Refunds the
+    // customer the amount paid MINUS the change fee (fee retained), via the shared
+    // money primitive, and stamps a linked change record onto this (the ORIGINAL)
+    // booking so the rebook can cross-reference it. Requires the refund grant.
+    if ($action === 'change_refund') {
+        admin_require($db, 'bookings', 'refund');
+        if (strtolower((string) ($booking['module_type'] ?? '')) !== 'flights') {
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'Change refund applies to flight bookings only.']);
+            exit;
+        }
+        $paid = (float) ($_POST['refund_amount'] ?? 0);
+        $fee  = max(0.0, (float) ($_POST['change_fee'] ?? 0));
+        // Net refund to the customer = paid − fee. As a signed adjustment delta this is
+        // negative (customer is owed). The primitive bakes the fee into the delta.
+        $delta = -1 * max(0.0, $paid - $fee);
+
+        $money = ['direction' => 'none', 'message' => 'No refund (zero net).'];
+        if (function_exists('bm_apply_booking_adjustment') && abs($delta) > 0.001) {
+            $money = bm_apply_booking_adjustment($db, (string) $invoice_id, round($delta, 2), $fee,
+                'Flight change — refund on cancel+rebook', ['actor' => $_SESSION['user_id'] ?? null]);
+        }
+
+        // Stamp/refresh the linked change record on the ORIGINAL booking (resumable).
+        $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+        if (!is_array($bd)) { $bd = []; }
+        if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+        $existing = $bd['meta']['change'] ?? [];
+        $changeId = $existing['change_id'] ?? ('CHG-' . $invoice_id . '-' . date('ymdHis'));
+        $bd['meta']['change'] = [
+            'change_id'          => $changeId,
+            'role'              => 'original',
+            'counterpart_invoice' => $existing['counterpart_invoice'] ?? null,
+            'step_state'        => 3, // refund done → next is rebook
+            'actor'             => $_SESSION['user_id'] ?? null,
+            'ts'                => date('Y-m-d H:i:s'),
+            'refund'            => ['paid' => $paid, 'fee' => $fee, 'net' => max(0.0, $paid - $fee), 'result' => $money['direction'] ?? 'none'],
+        ];
+        $db->update('bookings', ['booking_data' => json_encode($bd)], ['invoice_id' => $invoice_id]);
+
+        ob_clean();
+        echo json_encode([
+            'success'   => true,
+            'message'   => 'Refund step complete. ' . ($money['message'] ?? ''),
+            'change_id' => $changeId,
+            'refunded'  => $money['refunded'] ?? 0,
+        ]);
         exit;
     }
 

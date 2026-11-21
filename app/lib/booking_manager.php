@@ -833,3 +833,216 @@ if (!function_exists('bm_notify_pending_verification')) {
         } catch (\Throwable $e) { error_log('bm_notify_pending_verification: ' . $e->getMessage()); }
     }
 }
+
+if (!function_exists('bm_apply_booking_adjustment')) {
+    /**
+     * Apply a MONEY ADJUSTMENT to an existing booking — the single primitive behind
+     * flight CHANGE / RESCHEDULE / cancel+rebook reconciliation. There was previously
+     * NO helper for "customer owes a fare difference" or "refund the balance, keep a
+     * change fee"; bm_settle_booking_payment only settles a FULL first payment. This
+     * fills that gap and is the only new money code the change feature needs.
+     *
+     * The adjustment is a signed money delta the customer owes (+) or is owed (−),
+     * NET of any change fee:
+     *   $delta  > 0  → CHARGE: customer owes a fare difference (+ fee). We DO NOT
+     *                  invent a new charge rail — we record the amount owed on the
+     *                  booking (bumps price_original/price_markup + flips payment_status
+     *                  to 'partially_paid' when it was 'paid'), write a ledger audit row,
+     *                  and return payment_due so the caller surfaces the existing /pay
+     *                  (or offline-mark) flow to actually collect it.
+     *   $delta  < 0  → REFUND: customer is owed |delta|. For a gateway-paid booking we
+     *                  wrap the EXISTING refund_gateway_payment($db,$booking,$amount,...)
+     *                  with the exact partial amount. For a manual/offline booking (no
+     *                  gateway txn) we record a refund audit row only and surface it for
+     *                  a manual payout. The change fee is already baked into $delta by
+     *                  the caller (refund = paid_back_fare − fee), so NOTHING here keeps
+     *                  a fee separately — $feeAmount is recorded for the audit trail only.
+     *   $delta == 0  → no money moves; we still write an audit row (fee-only / zero-sum
+     *                  change) so the change is traceable.
+     *
+     * Idempotent per adjustment ref: pass $meta['adjustment_ref'] (else one is derived
+     * from invoice + a monotonic suffix in booking_data.meta.adjustments) — a repeated
+     * call with the same ref is a no-op. All writes are best-effort-logged, never fatal.
+     *
+     * @param  object $db
+     * @param  string $invoiceId
+     * @param  float  $delta       signed net amount owed(+)/owed-to-customer(−), in the booking currency
+     * @param  float  $feeAmount   the change fee component (audit only; already inside $delta)
+     * @param  string $reason      human reason, stored on the audit row + booking meta
+     * @param  array  $meta        optional: adjustment_ref, actor (user_id), gateway_id, no_gateway(bool)
+     * @return array  ['ok'=>bool,'direction'=>'charge'|'refund'|'none','amount'=>float,
+     *                 'payment_due'=>float,'refunded'=>float,'ref'=>string,'message'=>string]
+     */
+    function bm_apply_booking_adjustment($db, string $invoiceId, float $delta, float $feeAmount, string $reason, array $meta = []): array
+    {
+        // record_transaction + refund_gateway_payment live in payment-gateway.php,
+        // NOT in config's global require list — load on demand (idempotent), same as
+        // bm_settle_booking_payment does.
+        if (!function_exists('record_transaction') || !function_exists('refund_gateway_payment')) {
+            $pg = dirname(__DIR__) . '/lib/payment-gateway.php';
+            if (is_file($pg)) { require_once $pg; }
+        }
+
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+        if (!$booking) return ['ok' => false, 'direction' => 'none', 'amount' => 0.0, 'message' => 'Booking not found'];
+
+        $currency = strtoupper(trim((string) ($booking['currency_markup'] ?? 'NGN'))) ?: 'NGN';
+        $actor    = $meta['actor'] ?? ($_SESSION['user_id'] ?? null);
+
+        // ---- Idempotency: derive/validate a stable adjustment ref -------------------
+        $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+        if (!is_array($bd)) { $bd = []; }
+        $applied = $bd['meta']['adjustments'] ?? [];
+        if (!is_array($applied)) { $applied = []; }
+        $ref = trim((string) ($meta['adjustment_ref'] ?? ''));
+        if ($ref === '') {
+            $ref = 'CHGADJ-' . $invoiceId . '-' . (count($applied) + 1);
+        }
+        foreach ($applied as $a) {
+            if (isset($a['ref']) && (string) $a['ref'] === $ref) {
+                return ['ok' => true, 'direction' => $a['direction'] ?? 'none', 'amount' => (float) ($a['amount'] ?? 0),
+                        'payment_due' => (float) ($a['payment_due'] ?? 0), 'refunded' => (float) ($a['refunded'] ?? 0),
+                        'ref' => $ref, 'message' => 'Adjustment already applied (idempotent no-op).'];
+            }
+        }
+
+        $direction   = $delta > 0 ? 'charge' : ($delta < 0 ? 'refund' : 'none');
+        $paymentDue  = 0.0;
+        $refunded    = 0.0;
+        $message     = '';
+
+        // ---- CHARGE: customer owes more (fare difference + fee) ----------------------
+        if ($direction === 'charge') {
+            $amt = round((float) $delta, 2);
+            // Bump the booking's priced totals so the invoice/ledger reflect the new fare.
+            // price_original/price_markup are varchar on this schema (legacy) — keep numeric.
+            $newOriginal = round((float) ($booking['price_original'] ?? 0) + $amt, 2);
+            $newMarkup   = round((float) ($booking['price_markup'] ?? 0) + $amt, 2);
+            $update = [
+                'price_original' => $newOriginal,
+                'price_markup'   => (string) $newMarkup,
+            ];
+            // A fully-paid booking now has an outstanding balance → partially_paid so the
+            // existing pay/collect UI shows an amount due (never downgrade an unpaid one).
+            if (strtolower((string) ($booking['payment_status'] ?? '')) === 'paid') {
+                $update['payment_status'] = 'partially_paid';
+            }
+            try { $db->update('bookings', $update, ['invoice_id' => $invoiceId]); }
+            catch (\Throwable $e) { error_log('bm_adjust charge update ' . $invoiceId . ': ' . $e->getMessage()); }
+
+            $paymentDue = $amt;
+            // Audit row (type 'purchase' — matches the transactions enum for a charge).
+            _bm_adjustment_audit_row($db, $booking, $amt, $currency, 'purchase', $ref, $reason, $feeAmount, $actor, $meta);
+            $message = 'Fare difference of ' . $amt . ' ' . $currency . ' recorded as due — collect via the normal payment flow.';
+        }
+        // ---- REFUND: customer is owed |delta| (net of fee, baked in by caller) -------
+        elseif ($direction === 'refund') {
+            $amt = round(abs((float) $delta), 2);
+            $noGateway = !empty($meta['no_gateway'])
+                || trim((string) ($booking['payment_gateway'] ?? '')) === ''
+                || trim((string) ($booking['transaction_id'] ?? '')) === '';
+
+            if (!$noGateway && function_exists('refund_gateway_payment')) {
+                try {
+                    $r = refund_gateway_payment($db, $booking, $amt, $reason !== '' ? $reason : 'Flight change refund');
+                    $okRefund = is_array($r) && (string) ($r['status'] ?? '') === 'success';
+                    if ($okRefund) {
+                        $refunded = $amt;
+                        $message  = 'Refunded ' . $amt . ' ' . $currency . ' to the original payment method.';
+                    } else {
+                        // Gateway could not refund (unsupported/failed) → fall back to an
+                        // audit-only record so staff can pay out manually. Do NOT claim success.
+                        _bm_adjustment_audit_row($db, $booking, $amt, $currency, 'refund', $ref, $reason . ' [manual payout — gateway: ' . (string) ($r['message'] ?? 'n/a') . ']', $feeAmount, $actor, $meta);
+                        return _bm_adjustment_record_and_return($db, $invoiceId, $bd, $applied, [
+                            'ok' => true, 'direction' => 'refund', 'amount' => $amt, 'payment_due' => 0.0,
+                            'refunded' => 0.0, 'ref' => $ref,
+                            'message' => 'Gateway refund unavailable (' . (string) ($r['message'] ?? 'n/a') . ') — recorded ' . $amt . ' ' . $currency . ' as a manual payout.',
+                        ], $reason, $feeAmount, $actor);
+                    }
+                } catch (\Throwable $e) {
+                    error_log('bm_adjust refund ' . $invoiceId . ': ' . $e->getMessage());
+                    _bm_adjustment_audit_row($db, $booking, $amt, $currency, 'refund', $ref, $reason . ' [manual payout — refund error]', $feeAmount, $actor, $meta);
+                    $message = 'Refund could not be processed automatically — recorded ' . $amt . ' ' . $currency . ' as a manual payout.';
+                    $refunded = 0.0;
+                }
+            } else {
+                // Manual/offline booking (no gateway txn): audit-only, manual payout.
+                _bm_adjustment_audit_row($db, $booking, $amt, $currency, 'refund', $ref, $reason . ' [manual payout — no gateway txn]', $feeAmount, $actor, $meta);
+                $message = 'Recorded ' . $amt . ' ' . $currency . ' as a manual payout (no gateway payment to reverse).';
+                $refunded = 0.0;
+            }
+            // Successful gateway refund already wrote its own transactions row inside
+            // refund_gateway_payment; add our tagged change-adjustment audit row too so
+            // the change is attributable (idempotent via the ref).
+            if ($refunded > 0) {
+                _bm_adjustment_audit_row($db, $booking, $amt, $currency, 'refund', $ref, $reason, $feeAmount, $actor, $meta);
+            }
+        }
+        // ---- ZERO: fee-only / zero-sum change (still auditable) ----------------------
+        else {
+            _bm_adjustment_audit_row($db, $booking, round((float) $feeAmount, 2), $currency, 'purchase', $ref, $reason . ' [fee-only / zero-sum change]', $feeAmount, $actor, $meta);
+            $message = 'Change recorded (no net money movement).';
+        }
+
+        return _bm_adjustment_record_and_return($db, $invoiceId, $bd, $applied, [
+            'ok' => true, 'direction' => $direction, 'amount' => round(abs((float) $delta), 2),
+            'payment_due' => $paymentDue, 'refunded' => $refunded, 'ref' => $ref, 'message' => $message,
+        ], $reason, $feeAmount, $actor);
+    }
+}
+
+if (!function_exists('_bm_adjustment_audit_row')) {
+    /** Write ONE tagged change-adjustment row to the legacy `transactions` ledger.
+     *  Mirrors record_transaction's insert shape but sets `type` explicitly and tags
+     *  the change in gateway_response so the row is attributable/filterable. Idempotent
+     *  on trx_id (the adjustment ref). Best-effort — never throws. */
+    function _bm_adjustment_audit_row($db, array $booking, float $amount, string $currency, string $type, string $ref, string $reason, float $feeAmount, $actor, array $meta): void
+    {
+        try {
+            if ($db->get('transactions', 'id', ['trx_id' => $ref])) { return; } // idempotent
+        } catch (\Throwable $e) { /* col variance — fall through */ }
+        try {
+            $db->insert('transactions', [
+                'invoice_id'       => $booking['invoice_id'] ?? null,
+                'amount'           => (string) $amount,
+                'currency'         => $currency,
+                'gateway_id'       => $meta['gateway_id'] ?? ($booking['payment_gateway'] ?? null),
+                'trx_id'           => $ref,
+                'type'             => in_array($type, ['credit', 'purchase', 'refund', 'debit'], true) ? $type : null,
+                'date'             => date('Y-m-d H:i:s'),
+                'status'           => 'success',
+                'description'      => 'Change adjustment for Invoice ' . ($booking['invoice_id'] ?? ''),
+                'gateway_response' => json_encode(['source' => 'change_adjustment', 'reason' => $reason, 'fee' => $feeAmount]),
+                'client_email'     => $booking['email'] ?? null,
+                'user_id'          => $booking['user_id'] ?? null,
+                'created_by'       => $actor,
+                'created_at'       => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) { error_log('_bm_adjustment_audit_row ' . ($booking['invoice_id'] ?? '') . ': ' . $e->getMessage()); }
+    }
+}
+
+if (!function_exists('_bm_adjustment_record_and_return')) {
+    /** Append the applied adjustment to booking_data.meta.adjustments (idempotency log)
+     *  and return the result array. Best-effort persist. */
+    function _bm_adjustment_record_and_return($db, string $invoiceId, array $bd, array $applied, array $result, string $reason, float $feeAmount, $actor): array
+    {
+        try {
+            $applied[] = [
+                'ref'         => $result['ref'],
+                'direction'   => $result['direction'],
+                'amount'      => $result['amount'],
+                'payment_due' => $result['payment_due'] ?? 0,
+                'refunded'    => $result['refunded'] ?? 0,
+                'fee'         => round((float) $feeAmount, 2),
+                'reason'      => $reason,
+                'actor'       => $actor,
+                'ts'          => date('Y-m-d H:i:s'),
+            ];
+            if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+            $bd['meta']['adjustments'] = $applied;
+            $db->update('bookings', ['booking_data' => json_encode($bd)], ['invoice_id' => $invoiceId]);
+        } catch (\Throwable $e) { error_log('_bm_adjustment_record_and_return ' . $invoiceId . ': ' . $e->getMessage()); }
+        return $result;
+    }
+}

@@ -835,6 +835,46 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         'booking_date'        => $bookedAt,   // when the booking was made (staff-set; default now)
     ]);
 
+    // CHANGE LINKAGE (live cancel+rebook): when this create is the REBOOK leg of a
+    // flight change, link it to the ORIGINAL booking as a single change record on both
+    // sides. Pure metadata in booking_data.meta.change — no new table. Best-effort.
+    $changeFrom = trim((string) ($_POST['change_from'] ?? ''));
+    if ($changeFrom !== '' && $changeFrom !== $invoiceId) {
+        try {
+            $orig = $db->get('bookings', ['invoice_id', 'booking_data'], ['invoice_id' => $changeFrom]);
+            if ($orig) {
+                $origBd = json_decode((string) ($orig['booking_data'] ?? '{}'), true);
+                if (!is_array($origBd)) { $origBd = []; }
+                $origChange = $origBd['meta']['change'] ?? [];
+                $changeId = $origChange['change_id'] ?? ('CHG-' . $changeFrom . '-' . date('ymdHis'));
+
+                // New (replacement) booking points back at the original.
+                $newBd = $bookingData;
+                if (!isset($newBd['meta']) || !is_array($newBd['meta'])) { $newBd['meta'] = []; }
+                $newBd['meta']['change'] = [
+                    'change_id'           => $changeId,
+                    'role'                => 'replacement',
+                    'counterpart_invoice' => $changeFrom,
+                    'step_state'          => 'done',
+                    'actor'               => $adminId,
+                    'ts'                  => date('Y-m-d H:i:s'),
+                ];
+                $db->update('bookings', ['booking_data' => json_encode($newBd)], ['invoice_id' => $invoiceId]);
+
+                // Original points forward at the replacement (completes the link).
+                if (!isset($origBd['meta']) || !is_array($origBd['meta'])) { $origBd['meta'] = []; }
+                $origBd['meta']['change'] = array_merge(is_array($origChange) ? $origChange : [], [
+                    'change_id'           => $changeId,
+                    'role'                => 'original',
+                    'counterpart_invoice' => $invoiceId,
+                    'step_state'          => 'done',
+                    'ts'                  => date('Y-m-d H:i:s'),
+                ]);
+                $db->update('bookings', ['booking_data' => json_encode($origBd)], ['invoice_id' => $changeFrom]);
+            }
+        } catch (\Throwable $e) { error_log('BM change-link ' . $changeFrom . '->' . $invoiceId . ': ' . $e->getMessage()); }
+    }
+
     bmAdminJson([
         'status'     => true,
         'invoice_id' => $invoiceId,

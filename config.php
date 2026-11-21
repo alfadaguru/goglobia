@@ -579,7 +579,9 @@ try {
         // v22: per-area permission backfill (redesign 2026-11-16) — supplier_roles_backfill_per_area
         //      expands every role holding an OLD broad module into the NEW per-area sub-keys at the
         //      same action level, BEFORE routes re-gate onto those keys, so no staff loses access.
-        define('APP_SCHEMA_ENSURE_VERSION', 22);
+        // v23: flight change/no-show — widen bookings.booking_status ENUM to add 'no_show'
+        //      (ensureBookingHoldSchema now also ensures that member). Re-run once to apply.
+        define('APP_SCHEMA_ENSURE_VERSION', 23);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

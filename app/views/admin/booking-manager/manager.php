@@ -981,8 +981,13 @@ function bookingMgr() {
     // Inline form validation/result message (replaces the old blocking alert()s;
     // mirrors the pay step's settleMsg). formMsgOk=false renders red, true green.
     formMsg:'', formMsgOk:false,
+    changeFrom:'',   // set when this is the REBOOK leg of a flight change (?change_from=INV)
 
-    init(){ this.clientToken = this.newToken(); this.manual.segments=[this.blankSeg()]; this.bookedDate = this.nowLocal(); },
+    init(){
+        this.clientToken = this.newToken(); this.manual.segments=[this.blankSeg()]; this.bookedDate = this.nowLocal();
+        try { this.changeFrom = new URLSearchParams(window.location.search).get('change_from') || ''; } catch(e){ this.changeFrom=''; }
+        if(this.changeFrom){ this.service='flights'; this.formMsg='Rebooking as a flight change — this new booking will be linked to '+this.changeFrom+'.'; this.formMsgOk=true; }
+    },
     newToken(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); },
     // Show an inline validation error near the Create button + scroll it into view,
     // and return false so callers can `return this.formErr('…')`.
@@ -1727,6 +1732,7 @@ function bookingMgr() {
           passengers: JSON.stringify(this.buildPassengers()),
           pnr: this.manual.pnr||'',
           booked_date: this.bookedDate||'',   // when the booking was made (default now)
+          change_from: this.changeFrom||'',   // link this rebook to the original booking (flight change)
         };
         if(this.mode==='live' && this.service==='rail'){
           // Rail goes through the shared rail_create_order() money path on the

@@ -2056,12 +2056,14 @@ function ensureBookingHoldSchema($db): void
     $checked = true;
 
     try {
-        // 1) Add 'held' to the booking_status ENUM if missing.
+        // 1) Ensure the booking_status ENUM carries both 'held' (book-on-hold) and
+        //    'no_show' (flight missed-flight / no-show handling). This is the single
+        //    authority for widening this enum — add new members at the END, preserving
+        //    existing members + default. Fire the ALTER if EITHER member is missing.
         $col = $db->query("SHOW COLUMNS FROM `bookings` LIKE 'booking_status'")->fetch(\PDO::FETCH_ASSOC);
         $type = strtolower((string) ($col['Type'] ?? ''));
-        if ($type !== '' && strpos($type, "'held'") === false) {
-            // Preserve the existing members + default; just prepend 'held'.
-            $db->pdo->exec("ALTER TABLE `bookings` MODIFY `booking_status` enum('held','confirmed','pending','cancelled') NOT NULL DEFAULT 'pending'");
+        if ($type !== '' && (strpos($type, "'held'") === false || strpos($type, "'no_show'") === false)) {
+            $db->pdo->exec("ALTER TABLE `bookings` MODIFY `booking_status` enum('held','confirmed','pending','cancelled','no_show') NOT NULL DEFAULT 'pending'");
         }
     } catch (\Throwable $e) {
         error_log('ensureBookingHoldSchema enum: ' . $e->getMessage());

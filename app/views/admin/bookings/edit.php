@@ -66,6 +66,15 @@ $is_issued = $is_voided_or_cancelled
 $hotelbeds_show_reconcile = $hotelbeds_no_pnr && !$is_voided_or_cancelled;
 
 $is_rail_booking = ($booking['module_type'] ?? '') === 'rail';
+// FLIGHT CHANGE / NO-SHOW gating (new).
+$is_flight_booking = strtolower((string) ($booking['module_type'] ?? '')) === 'flights';
+$is_manual_flight  = $is_flight_booking && strtolower((string) ($booking['module'] ?? '')) === 'manual';
+$is_live_flight    = $is_flight_booking && !$is_manual_flight;
+$is_no_show        = $booking_status_lc === 'no_show';
+// A cross-reference to the counterpart of a cancel+rebook change, if any.
+$__bd_meta = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+$change_ref = (is_array($__bd_meta) && isset($__bd_meta['meta']['change']) && is_array($__bd_meta['meta']['change']))
+    ? $__bd_meta['meta']['change'] : null;
 $rail_cancellation_data = [];
 $rail_admin = [];
 $isRailRefundPending = false;
@@ -229,6 +238,106 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         </div>
     </div>
 
+    <!-- ===================== CHANGE FLIGHT MODAL ===================== -->
+    <div x-show="changeOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="display:none;">
+        <div class="absolute inset-0 bg-slate-900/60" @click="closeChangeFlight()"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined">flight_takeoff</span>
+                    <span x-text="isManualFlight ? 'Change flight (manual booking)' : 'Change flight (cancel &amp; rebook)'"></span>
+                </h3>
+                <button type="button" @click="closeChangeFlight()" class="text-slate-500 hover:text-slate-800">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- MANUAL: editable itinerary + money reconcile -->
+            <template x-if="isManualFlight">
+                <div class="p-6 space-y-4">
+                    <p class="text-sm text-slate-600">Edit the itinerary below. The ticket PDF is regenerated when you save, and any fare difference or change fee is recorded against the booking.</p>
+                    <div class="space-y-3">
+                        <template x-for="(seg,i) in changeSegments" :key="i">
+                            <div class="grid sm:grid-cols-3 gap-2 border border-slate-200 rounded-lg p-3">
+                                <label class="form-control"><span class="form-label">Airline</span><input class="input" x-model="seg.airline" placeholder="Air Peace"></label>
+                                <label class="form-control"><span class="form-label">Airline code</span><input class="input" x-model="seg.airline_code" placeholder="P4" maxlength="3"></label>
+                                <label class="form-control"><span class="form-label">Flight #</span><input class="input" x-model="seg.flight_number" placeholder="P47123"></label>
+                                <label class="form-control"><span class="form-label">From (IATA)</span><input class="input uppercase" x-model="seg.from" placeholder="LOS" maxlength="3"></label>
+                                <label class="form-control"><span class="form-label">To (IATA)</span><input class="input uppercase" x-model="seg.to" placeholder="ABV" maxlength="3"></label>
+                                <label class="form-control">
+                                    <span class="form-label">Cabin</span>
+                                    <select class="input" x-model="seg.cabin">
+                                        <option value="">—</option>
+                                        <option value="economy">Economy</option>
+                                        <option value="premium_economy">Premium Economy</option>
+                                        <option value="business">Business</option>
+                                        <option value="first">First</option>
+                                    </select>
+                                </label>
+                                <label class="form-control"><span class="form-label">Departs</span><input type="datetime-local" class="input" x-model="seg.depart"></label>
+                                <label class="form-control"><span class="form-label">Arrives</span><input type="datetime-local" class="input" x-model="seg.arrive"></label>
+                                <div class="flex items-end"><button type="button" class="btn outline sm" @click="removeChangeSeg(i)" x-show="changeSegments.length>1"><span class="material-symbols-outlined">delete</span></button></div>
+                                <label class="form-control"><span class="form-label">Checked baggage</span><input class="input" x-model="seg.baggage" placeholder="1 x 23kg"></label>
+                                <label class="form-control"><span class="form-label">Cabin baggage</span><input class="input" x-model="seg.cabin_baggage" placeholder="1 x 7kg"></label>
+                            </div>
+                        </template>
+                        <button type="button" class="btn outline sm inline-flex items-center gap-1" @click="addChangeSeg()"><span class="material-symbols-outlined text-base">add</span> Add segment</button>
+                    </div>
+                    <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                        <label class="form-control"><span class="form-label">Fare difference (new − old; negative = refund due)</span><input type="number" step="0.01" class="input" x-model.number="changeFareDiff" placeholder="0.00"></label>
+                        <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="changeFee" placeholder="0.00"></label>
+                    </div>
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" class="btn secondary" @click="closeChangeFlight()">Cancel</button>
+                        <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="changeBusy" @click="submitManualChange()">
+                            <span x-show="changeBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                            <span>Save new itinerary</span>
+                        </button>
+                    </div>
+                </div>
+            </template>
+
+            <!-- LIVE: guided cancel → refund → rebook -->
+            <template x-if="isLiveFlight">
+                <div class="p-6 space-y-5">
+                    <p class="text-sm text-slate-600">This supplier has no exchange API, so a change is handled as <strong>cancel + rebook</strong>, linked as one change. Follow the steps in order.</p>
+                    <ol class="space-y-4">
+                        <li class="flex gap-3" :class="changeStep>1 ? 'opacity-60' : ''">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">1</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Cancel the existing ticket at the supplier</p>
+                                <p class="text-xs text-slate-500 mb-2">Cancels the live PNR. Required before rebooking.</p>
+                                <button type="button" class="btn secondary sm" :disabled="changeBusy || changeStep>1" @click="liveChangeStep1Cancel()">Cancel ticket</button>
+                            </div>
+                        </li>
+                        <li class="flex gap-3" :class="changeStep>2 ? 'opacity-60' : (changeStep<2 ? 'opacity-40' : '')">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">2</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Refund the customer (minus change fee)</p>
+                                <div class="grid sm:grid-cols-2 gap-2 my-2">
+                                    <label class="form-control"><span class="form-label">Amount paid to refund</span><input type="number" step="0.01" class="input" x-model.number="changeFareDiff" placeholder="0.00"></label>
+                                    <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="changeFee" placeholder="0.00"></label>
+                                </div>
+                                <button type="button" class="btn secondary sm" :disabled="changeBusy || changeStep!==2" @click="liveChangeStep2Refund()">Process refund</button>
+                            </div>
+                        </li>
+                        <li class="flex gap-3" :class="changeStep<3 ? 'opacity-40' : ''">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">3</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Rebook the new itinerary</p>
+                                <p class="text-xs text-slate-500 mb-2">Opens the Booking Manager prefilled with this passenger, linked back to this booking.</p>
+                                <button type="button" class="btn primary sm" :disabled="changeStep!==3" @click="liveChangeStep3Rebook()">Rebook now</button>
+                            </div>
+                        </li>
+                    </ol>
+                    <div class="flex justify-end pt-2 border-t border-slate-200">
+                        <button type="button" class="btn secondary" @click="closeChangeFlight()">Close</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
     <!-- HEADER -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div class="flex items-center gap-5">
@@ -247,6 +356,19 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     <span class="mx-1">/</span>
                     <span class="capitalize"><?= htmlspecialchars($booking['module'] ?? 'N/A') ?></span>
                 </p>
+                <?php if (is_array($change_ref) && !empty($change_ref['counterpart_invoice'])): ?>
+                    <?php
+                    $__cpInv = (string) $change_ref['counterpart_invoice'];
+                    $__role  = (string) ($change_ref['role'] ?? '');
+                    $__dir   = $__role === 'original' ? 'Changed to' : 'Changed from';
+                    ?>
+                    <p class="text-xs mt-1 inline-flex items-center gap-1 text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-1">
+                        <span class="material-symbols-outlined text-sm">sync_alt</span>
+                        <?= $__dir ?>
+                        <a class="font-mono font-semibold underline" href="<?= root . admin ?>/bookings/edit/<?= htmlspecialchars($__cpInv) ?>">#<?= htmlspecialchars($__cpInv) ?></a>
+                        <?php if (!empty($change_ref['change_id'])): ?><span class="text-indigo-400">(change <?= htmlspecialchars((string) $change_ref['change_id']) ?>)</span><?php endif; ?>
+                    </p>
+                <?php endif; ?>
             </div>
         </div>
         <div class="flex flex-col sm:flex-row items-center gap-2">
@@ -509,6 +631,31 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                         <span class="material-symbols-outlined text-xl">cancel</span>
                         <span class="text-sm font-semibold"><?= T::cancel_booking ?></span>
                     </button>
+                    <?php endif; ?>
+
+                    <!-- FLIGHT: Change flight + No-show (manual = record edit, live = guided cancel+rebook) -->
+                    <?php if ($is_flight_booking): ?>
+                        <?php if (!$is_voided_or_cancelled): ?>
+                        <button type="button" @click="openChangeFlight()" class="group relative inline-flex items-center justify-center gap-3 px-5 py-3.5 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-medium rounded-lg transition-all duration-200">
+                            <span class="material-symbols-outlined text-xl">flight_takeoff</span>
+                            <span class="text-sm font-semibold">Change flight</span>
+                        </button>
+                        <?php endif; ?>
+                        <?php if (!$is_voided_or_cancelled && !$is_no_show): ?>
+                        <button type="button" @click="handleAction('Mark No-show')" :disabled="actionLoading['Mark No-show']" class="group relative inline-flex items-center justify-center gap-3 px-5 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-medium rounded-lg transition-all duration-200 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-700 disabled:cursor-not-allowed">
+                            <svg x-show="actionLoading['Mark No-show']" class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span x-show="!actionLoading['Mark No-show']" class="material-symbols-outlined text-xl">person_off</span>
+                            <span class="text-sm font-semibold">Mark no-show</span>
+                        </button>
+                        <?php elseif ($is_no_show): ?>
+                        <button type="button" @click="openChangeFlight()" class="group relative inline-flex items-center justify-center gap-3 px-5 py-3.5 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-medium rounded-lg transition-all duration-200">
+                            <span class="material-symbols-outlined text-xl">restart_alt</span>
+                            <span class="text-sm font-semibold">Rebook (no-show)</span>
+                        </button>
+                        <?php endif; ?>
                     <?php endif; ?>
 
                     <?php if ($is_wanderbeds_booking && !empty($wb_room_refs) && !$is_voided_or_cancelled): ?>
@@ -1563,12 +1710,131 @@ function bookingEdit() {
         errorModalOpen: false,
         errorModalText: '',
         errorModalMessage: '',
+        // ---- FLIGHT CHANGE / RESCHEDULE state ----
+        changeOpen: false,
+        isManualFlight: <?= !empty($is_manual_flight) ? 'true' : 'false' ?>,
+        isLiveFlight: <?= !empty($is_live_flight) ? 'true' : 'false' ?>,
+        changeBusy: false,
+        changeStep: 1,                 // live guided flow step (1 cancel → 2 refund → 3 rebook)
+        changeSegments: <?= json_encode(array_map(function ($s) {
+            return [
+                'airline'       => $s['airline_name'] ?? '',
+                'airline_code'  => $s['airline_code'] ?? '',
+                'flight_number' => $s['flight_number'] ?? '',
+                'from'          => $s['from_airport'] ?? '',
+                'to'            => $s['to_airport'] ?? '',
+                'depart'        => $s['departure_datetime'] ?? '',
+                'arrive'        => $s['arrival_datetime'] ?? '',
+                'cabin'         => $s['class'] ?? '',
+                'baggage'       => $s['baggage'] ?? '',
+                'cabin_baggage' => $s['cabin_baggage'] ?? '',
+            ];
+        }, (array) ($booking_data['flight_data']['segments'] ?? []))) ?: '[]' ?>,
+        changeFareDiff: 0,
+        changeFee: 0,
+        changeState: <?= json_encode($change_ref ?: null) ?>,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
             if (this.isRailRefundPending) {
                 this.startRefundPolling();
             }
+            if (!Array.isArray(this.changeSegments) || this.changeSegments.length === 0) {
+                this.changeSegments = [this.blankChangeSeg()];
+            }
+        },
+        blankChangeSeg() {
+            return { airline:'', airline_code:'', flight_number:'', from:'', to:'', depart:'', arrive:'', cabin:'', baggage:'', cabin_baggage:'' };
+        },
+        openChangeFlight() {
+            this.changeStep = this.changeState && this.changeState.step_state ? this.changeState.step_state : 1;
+            this.changeOpen = true;
+        },
+        closeChangeFlight() { this.changeOpen = false; },
+        addChangeSeg() { this.changeSegments.push(this.blankChangeSeg()); },
+        removeChangeSeg(i) { if (this.changeSegments.length > 1) this.changeSegments.splice(i, 1); },
+        // MANUAL: rewrite the stored itinerary + reconcile money (record edit).
+        submitManualChange() {
+            const segs = (this.changeSegments || []).filter(s => (s.from || s.to || s.depart));
+            if (!segs.length) { alert('Add at least one flight segment.'); return; }
+            if (!confirm('Save the new itinerary and apply the money change?')) { return; }
+            this.changeBusy = true;
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('segments', JSON.stringify(segs));
+            params.set('fare_difference', String(Number(this.changeFareDiff) || 0));
+            params.set('change_fee', String(Number(this.changeFee) || 0));
+            fetch('<?= root . admin ?>/bookings/change-flight/<?= $invoiceIdEsc ?>', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.changeBusy = false;
+                if (data.success === true) {
+                    if (confirm((data.message || 'Itinerary updated.') + '\n\nClick OK to refresh.')) window.location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'Could not change the flight.'));
+                }
+            })
+            .catch(err => { this.changeBusy = false; alert('Error: ' + err.message); });
+        },
+        // LIVE guided cancel+rebook: step 1 cancel old at supplier (existing gateway),
+        // step 2 refund minus fee, step 3 hand off to BM create prefilled.
+        liveChangeStep1Cancel() {
+            if (!confirm('Step 1 of 3 — CANCEL this ticket at the supplier. This cannot be undone. Continue?')) { return; }
+            this.changeBusy = true;
+            // Fire the SAME supplier cancel the Cancel button uses, but stay in the modal
+            // and advance to the refund step instead of reloading the page.
+            const moduleType = '<?= $moduleTypeEsc ?>';
+            const module = '<?= $moduleEsc ?>';
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('cancel_all', '1');
+            fetch('<?= root ?>modules/' + moduleType + '/' + module + '/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.changeBusy = false;
+                if (data.status === true || data.success === true) {
+                    this.changeStep = 2;
+                } else {
+                    alert('Cancel failed: ' + (data.message || 'supplier error') + '\nYou can retry, or cancel out and handle manually.');
+                }
+            })
+            .catch(err => { this.changeBusy = false; alert('Error: ' + err.message); });
+        },
+        liveChangeStep2Refund() {
+            const amt = Number(this.changeFareDiff) || 0; // for live, this input = amount paid to refund
+            const fee = Number(this.changeFee) || 0;
+            if (!confirm('Step 2 of 3 — refund ' + (amt - fee) + ' to the customer (keeping a ' + fee + ' change fee)?')) { return; }
+            this.changeBusy = true;
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('refund_amount', String(amt));
+            params.set('change_fee', String(fee));
+            params.set('action', 'change_refund');
+            fetch('<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.changeBusy = false;
+                if (data.success === true) { this.changeStep = 3; }
+                else { alert('Refund: ' + (data.message || 'failed')); }
+            })
+            .catch(err => { this.changeBusy = false; alert('Error: ' + err.message); });
+        },
+        liveChangeStep3Rebook() {
+            // Hand off to the Booking Manager create flow, prefilled + linked to this booking.
+            const url = '<?= root . admin ?>/booking-manager/flights?change_from=<?= $invoiceIdEsc ?>';
+            window.location.href = url;
         },
         startRefundPolling() {
             this.refundPollInterval = setInterval(() => {
@@ -1725,6 +1991,7 @@ function bookingEdit() {
             const actionMap = {
                 'Mark Paid': '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>',
                 'Mark Confirmed': '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>',
+                'Mark No-show': '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>',
                 'Issue Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/issue',
                 'Void Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/void',
                 'Cancel Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/cancel',
@@ -1734,6 +2001,7 @@ function bookingEdit() {
             const actionCodeMap = {
                 'Mark Paid': 'mark_paid',
                 'Mark Confirmed': 'mark_confirmed',
+                'Mark No-show': 'mark_no_show',
                 'Issue Booking': '',
                 'Void Booking': '',
                 'Cancel Booking': '',
