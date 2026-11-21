@@ -153,9 +153,21 @@ if ($activeStay > 0) {
     ]];
 
     // Service entry points — only GRANTED services. Stays → the hotels list (drill-in).
+    // "Hotels / Stays" is the drill-in to each property's PMS, so it must be visible to any
+    // staffer who can work INSIDE a property — not only those with hotels:view. A front-desk
+    // staffer granted reservations (but not hotels:view) otherwise had NO top-level path to
+    // reach a property → their front desk (Report 11.20 #1a). Mirror the property-mode entry
+    // rule (reservations/rooms/rates view all open a property) so the link appears whenever
+    // the drill-in would actually work.
+    $canEnterProperty = $can('hotels', 'view') || $can('reservations', 'view')
+        || $can('rooms', 'view') || $can('rates', 'view');
     $svcItems = [];
     if (isset($granted['stays'])) {
-        $svcItems[] = ['name' => 'Hotels / Stays', 'icon' => 'hotel', 'url' => 'supplier/stays', 'show' => $can('hotels', 'view')];
+        $svcItems[] = ['name' => 'Hotels / Stays', 'icon' => 'hotel', 'url' => 'supplier/stays', 'show' => $canEnterProperty];
+        // Direct Front desk shortcut for reservations staff. /supplier/front-desk auto-scopes
+        // to the staffer's single property (route lines 243-246), so this lands them straight
+        // on their desk without first hunting through the properties list.
+        $svcItems[] = ['name' => 'Front desk', 'icon' => 'concierge', 'url' => 'supplier/front-desk', 'show' => $can('reservations', 'view')];
     }
     // (flights/tours/cars/bus listing surfaces are admin-managed today; shown as the
     // public service pages for now — a granted non-stays service still appears so the
@@ -284,7 +296,7 @@ if ($activeStay > 0) {
   <?php endif; ?>
 
   <!-- Nav -->
-  <nav class="flex-1 min-h-0 overflow-y-auto py-2">
+  <nav id="supplier-nav-scroll" class="flex-1 min-h-0 overflow-y-auto py-2">
     <?php foreach ($groups as $g): ?>
       <?php
         // NOTE: use a nav-local variable name ($navItems), NOT $items — the sidebar is
@@ -308,8 +320,31 @@ if ($activeStay > 0) {
   </nav>
 
   <!-- Footer -->
-  <div class="border-t border-gray-100 p-2 flex-shrink-0">
+  <div class="border-t border-gray-100 p-2 flex-shrink-0" id="supplier-nav-footer">
     <a href="<?= root ?>profile" class="flex items-center gap-3 px-2 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg"><span class="material-symbols-outlined text-[20px] text-gray-400">person</span> Profile</a>
     <a href="<?= root ?>logout?t=<?= urlencode(class_exists('CSRF') ? CSRF::getToken() : '') ?>" class="flex items-center gap-3 px-2 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg"><span class="material-symbols-outlined text-[20px]">logout</span> Sign out</a>
   </div>
 </aside>
+<script>
+// Keep the supplier sidebar's scroll position across full-page navigations. Each page load
+// re-renders the sidebar at scrollTop=0, so a staffer who scrolled down to a link lost their
+// place and had to re-scroll on every click (Report 11.20 #2). We stash scrollTop in
+// sessionStorage on navigate/unload and restore it before paint on the next load.
+(function () {
+  var nav = document.getElementById('supplier-nav-scroll');
+  if (!nav) { return; }
+  var KEY = 'supplierNavScroll';
+  // Restore first — do it synchronously so there's no visible jump.
+  try {
+    var saved = sessionStorage.getItem(KEY);
+    if (saved !== null) { nav.scrollTop = parseInt(saved, 10) || 0; }
+  } catch (e) {}
+  // Save on any outbound click within the sidebar (covers both nav + footer links) and as a
+  // belt-and-braces on pagehide (back/forward, reloads).
+  function save() { try { sessionStorage.setItem(KEY, String(nav.scrollTop)); } catch (e) {} }
+  nav.addEventListener('click', save);
+  var footer = document.getElementById('supplier-nav-footer');
+  if (footer) { footer.addEventListener('click', save); }
+  window.addEventListener('pagehide', save);
+})();
+</script>

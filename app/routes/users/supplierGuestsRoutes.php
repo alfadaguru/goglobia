@@ -136,7 +136,16 @@ $router->post('/supplier/guests/quick-create', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard(); // X-CSRF-TOKEN header (fetch) or csrf_token field; JSON 403 on fail
     $c = _guests_ctx($db);
-    if ($c === null || (int) $c['org'] <= 0 || !supplier_can_orgwide($db, 'guests', 'edit')) {
+    // GATE: creating a guest here is a FRONT-DESK act — it is the "Add guest" popup on the
+    // reservation/group booking form, which itself is gated on supplier_can('reservations',
+    // 'edit', $hotelId). So gate quick-create on the SAME front-desk permission, NOT on
+    // supplier_can_orgwide('guests',…). The org-wide gate hard-denies every 'selected'-scope
+    // (property-restricted) staffer regardless of granted permission, which made a granted
+    // front-desk create permission silently fail with "Not authorised" (Report 11.20 #1).
+    // Creating a single contact to attach to a booking the staffer is making at their own
+    // property is not org-spanning data, so it correctly rides the reservations permission.
+    // (View/list/profile of guests spans every property and stays on supplier_can_orgwide.)
+    if ($c === null || (int) $c['org'] <= 0 || !supplier_can($db, 'reservations', 'edit')) {
         echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit;
     }
     $orgId = (int) $c['org'];
