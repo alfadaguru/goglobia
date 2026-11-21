@@ -1090,6 +1090,84 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         </div>
         <?php endif; ?>
 
+        <?php
+        // FLIGHT ITINERARY — readable per-segment trip (From→To, date/time, airline +
+        // flight number, cabin). Previously the only place staff could see the flight
+        // was the raw "Booking Data (JSON)" dump; this renders it as a proper panel and
+        // is the anchor for the Change-flight action.
+        $__flightSegments = [];
+        if ($is_flight_booking) {
+            $__fd = $booking_data['flight_data'] ?? [];
+            $__segs = $__fd['segments'] ?? [];
+            if (empty($__segs) && !empty($__fd['routes'][0]['segments'])) {
+                $__segs = $__fd['routes'][0]['segments'];
+            }
+            if (is_array($__segs)) {
+                foreach ($__segs as $__s) {
+                    if (is_array($__s)) { $__flightSegments[] = $__s; }
+                }
+            }
+        }
+        ?>
+        <?php if ($is_flight_booking && !empty($__flightSegments)): ?>
+        <!-- FLIGHT ITINERARY -->
+        <div class="card p-0">
+            <div class="card-header">
+                <div>
+                    <span class="card-header-icon">flight</span>
+                    <h3>Flight itinerary</h3>
+                </div>
+                <div>
+                    <?php if (!$is_voided_or_cancelled): ?>
+                    <button type="button" @click="openChangeFlight()" class="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-700 hover:text-indigo-900">
+                        <span class="material-symbols-outlined text-base">edit</span> Change flight / dates
+                    </button>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="p-6 space-y-3">
+                <?php foreach ($__flightSegments as $__i => $__seg):
+                    $__from = strtoupper((string) ($__seg['from_airport'] ?? $__seg['from'] ?? ''));
+                    $__to   = strtoupper((string) ($__seg['to_airport'] ?? $__seg['to'] ?? ($__seg['arrival_code'] ?? '')));
+                    $__dep  = (string) ($__seg['departure_datetime'] ?? $__seg['depart'] ?? '');
+                    $__arr  = (string) ($__seg['arrival_datetime'] ?? $__seg['arrive'] ?? '');
+                    $__al   = (string) ($__seg['airline_name'] ?? $__seg['airline'] ?? '');
+                    $__alc  = (string) ($__seg['airline_code'] ?? '');
+                    $__fn   = (string) ($__seg['flight_number'] ?? '');
+                    $__cab  = (string) ($__seg['class'] ?? $__seg['cabin'] ?? '');
+                    $__fmt = function ($dt) { $t = strtotime((string) $dt); return $t ? date('D, d M Y · H:i', $t) : htmlspecialchars((string) $dt); };
+                ?>
+                <div class="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border border-slate-200 p-4">
+                    <div class="flex items-center gap-3 flex-1 min-w-0">
+                        <div class="text-center">
+                            <div class="text-lg font-bold text-slate-800 leading-none"><?= htmlspecialchars($__from ?: '—') ?></div>
+                            <?php if ($__dep !== ''): ?><div class="text-xs text-slate-500 mt-1"><?= $__fmt($__dep) ?></div><?php endif; ?>
+                        </div>
+                        <div class="flex-1 flex items-center gap-1 text-slate-400 px-2">
+                            <span class="h-px bg-slate-300 flex-1"></span>
+                            <span class="material-symbols-outlined text-base">flight</span>
+                            <span class="h-px bg-slate-300 flex-1"></span>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-lg font-bold text-slate-800 leading-none"><?= htmlspecialchars($__to ?: '—') ?></div>
+                            <?php if ($__arr !== ''): ?><div class="text-xs text-slate-500 mt-1"><?= $__fmt($__arr) ?></div><?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="sm:text-right text-sm text-slate-600 sm:border-l sm:border-slate-200 sm:pl-4">
+                        <div class="font-medium text-slate-800">
+                            <?= htmlspecialchars(trim($__al . ($__alc ? ' (' . $__alc . ')' : ''))) ?: 'Airline N/A' ?>
+                        </div>
+                        <div class="text-xs text-slate-500">
+                            <?php if ($__fn !== ''): ?>Flight <?= htmlspecialchars($__fn) ?><?php endif; ?>
+                            <?php if ($__cab !== ''): ?><?= $__fn !== '' ? ' · ' : '' ?><span class="capitalize"><?= htmlspecialchars(str_replace('_', ' ', $__cab)) ?></span><?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <?php if ($is_rail_booking): ?>
         <?php include __DIR__ . '/rail-booking-details.php'; ?>
         <?php elseif (!empty($travellers)): ?>
@@ -1320,27 +1398,38 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
 
                     <div class="space-y-5">
                         <?php
-                        $paxIndex = 0;
+                        // Render ONLY real passengers. The travellers JSON also carries a
+                        // 'primary_guest' entry (the contact/booker — shown in its own card
+                        // above) and may carry other non-passenger meta keys; iterating them
+                        // here previously labelled primary_guest as an "Infant" and scrambled
+                        // the numbering. Keep passenger keys only (adult_/child_/infant_) and
+                        // number each TYPE from its own key suffix so "Adult 1 / Infant 1"
+                        // match the booking, not a running cross-type counter.
+                        $__typeCounts = ['adult' => 0, 'child' => 0, 'infant' => 0];
                         foreach ($travellers as $paxKey => $pax):
                             if (!is_array($pax)) continue;
-                            $paxIndex++;
+                            if ($paxKey === 'primary_guest') continue;
                             if (strpos($paxKey, 'adult') !== false) {
-                                $badgeCls = 'bg-green-100 text-green-700';
-                                $paxLabel = 'Adult';
+                                $paxType = 'adult'; $badgeCls = 'bg-green-100 text-green-700'; $paxLabel = 'Adult';
                             } elseif (strpos($paxKey, 'child') !== false) {
-                                $badgeCls = 'bg-orange-100 text-orange-700';
-                                $paxLabel = 'Child';
+                                $paxType = 'child'; $badgeCls = 'bg-orange-100 text-orange-700'; $paxLabel = 'Child';
+                            } elseif (strpos($paxKey, 'infant') !== false) {
+                                $paxType = 'infant'; $badgeCls = 'bg-blue-100 text-blue-700'; $paxLabel = 'Infant';
                             } else {
-                                $badgeCls = 'bg-blue-100 text-blue-700';
-                                $paxLabel = 'Infant';
+                                // Unknown key that still looks like a passenger entry (has a
+                                // name) — show it as an Adult rather than mislabel or drop it.
+                                if (empty($pax['first_name']) && empty($pax['last_name'])) continue;
+                                $paxType = 'adult'; $badgeCls = 'bg-slate-100 text-slate-700'; $paxLabel = 'Passenger';
                             }
+                            $__typeCounts[$paxType]++;
+                            $paxNum = $__typeCounts[$paxType];
                             $jsPaxKey = htmlspecialchars($paxKey, ENT_QUOTES);
                         ?>
                         <div class="border border-slate-200 rounded-xl overflow-hidden">
                             <!-- Passenger header -->
                             <div class="flex items-center gap-3 bg-slate-50 border-b border-slate-200 px-4 py-2.5">
-                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold"><?= $paxIndex ?></span>
-                                <span class="text-sm font-semibold text-slate-700"><?= $paxLabel ?> <?= $paxIndex ?></span>
+                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold"><?= $paxNum ?></span>
+                                <span class="text-sm font-semibold text-slate-700"><?= $paxLabel ?> <?= $paxNum ?></span>
                                 <span class="ml-auto inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?= $badgeCls ?>"><?= $paxLabel ?></span>
                             </div>
 
@@ -1680,15 +1769,21 @@ function flightTravellersEditor(initial) {
     return {
         pax: JSON.parse(JSON.stringify(initial)),
         get serialised() {
-            // Rebuild computed dob / passport_expiry from day/month/year selects
+            // Rebuild computed dob / passport_expiry from day/month/year selects.
+            // Pass the 'primary_guest' contact entry through UNTOUCHED — it is not a
+            // passenger (it has no DOB/passport inputs), so it must be preserved exactly
+            // as stored rather than recomputed or dropped. Only real passenger entries
+            // get the date recompute.
             const out = {};
             for (const key in this.pax) {
                 const p = { ...this.pax[key] };
-                if (p.dob_day && p.dob_month && p.dob_year) {
-                    p.dob = p.dob_year + '-' + p.dob_month + '-' + p.dob_day;
-                }
-                if (p.passport_expiry_day && p.passport_expiry_month && p.passport_expiry_year) {
-                    p.passport_expiry = p.passport_expiry_year + '-' + p.passport_expiry_month + '-' + p.passport_expiry_day;
+                if (key !== 'primary_guest') {
+                    if (p.dob_day && p.dob_month && p.dob_year) {
+                        p.dob = p.dob_year + '-' + p.dob_month + '-' + p.dob_day;
+                    }
+                    if (p.passport_expiry_day && p.passport_expiry_month && p.passport_expiry_year) {
+                        p.passport_expiry = p.passport_expiry_year + '-' + p.passport_expiry_month + '-' + p.passport_expiry_day;
+                    }
                 }
                 out[key] = p;
             }
