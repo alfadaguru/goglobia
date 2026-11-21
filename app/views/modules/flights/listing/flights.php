@@ -3179,6 +3179,38 @@ try {
                 `;
             },
 
+            // At-a-glance connection warnings for the COLLAPSED card (Phase 4), so a
+            // traveller sees a risky connection without expanding. Shows only the
+            // high-signal RISK flags (short/tight connection, overnight, airport change,
+            // self-transfer, transit-visa) — deduped across outbound + return by type.
+            // The purely informational notes (operated-by, aircraft, red-eye, long
+            // layover) stay in the details panel to keep the card uncluttered. Returns
+            // '' for a clean direct/comfortable itinerary.
+            renderCardFlagStrip(obFlags, rtFlags) {
+                const CARD = {
+                    short_connection:  { sev: 'crit', icon: 'error',      label: 'Short connection' },
+                    tight_connection:  { sev: 'warn', icon: 'schedule',   label: 'Tight connection' },
+                    airport_change:    { sev: 'warn', icon: 'transfer_within_a_station', label: 'Airport change' },
+                    overnight_layover: { sev: 'warn', icon: 'dark_mode',  label: 'Overnight layover' },
+                    self_transfer:     { sev: 'crit', icon: 'swap_horiz', label: 'Self-transfer' },
+                    transit_visa:      { sev: 'crit', icon: 'passport',   label: 'Transit visa may be needed' },
+                };
+                const order = ['self_transfer', 'transit_visa', 'short_connection', 'airport_change', 'overnight_layover', 'tight_connection'];
+                const all = [].concat(obFlags && obFlags.flags || [], rtFlags && rtFlags.flags || []);
+                const present = {};
+                all.forEach(fl => { if (CARD[fl.type]) { present[fl.type] = true; } });
+                const types = order.filter(t => present[t]);
+                if (!types.length) { return ''; }
+                const chip = t => {
+                    const c = CARD[t];
+                    const cls = c.sev === 'crit'
+                        ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800/50'
+                        : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800/50';
+                    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold ${cls}"><span class="material-symbols-outlined" style="font-size:13px;">${c.icon}</span>${c.label}</span>`;
+                };
+                return `<div class="flex flex-wrap items-center gap-1.5 mt-2.5">${types.map(chip).join('')}</div>`;
+            },
+
             renderCardMetaFooter(f) {
                 const cabin = this.formatBaggageLabel(f.cabin_baggage);
                 const checked = this.formatBaggageLabel(f.baggage);
@@ -3347,6 +3379,7 @@ try {
                     )
                     : '';
                 const metaFooter = this.renderCardMetaFooter(f);
+                const flagStrip = this.renderCardFlagStrip(obFlags, rtFlags);
 
                 return `
                 <div x-data="{ expanded: false, activeTab: 'details' }" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all overflow-hidden">
@@ -3368,6 +3401,8 @@ try {
                                 ${outboundTimeline}
                                 ${isRoundTrip && f.returnFlight ? `<div class="pt-3 border-t border-gray-100 dark:border-gray-700">${returnTimeline}</div>` : ''}
                             </div>
+
+                            ${flagStrip}
 
                             ${this.renderPayOptions(f)}
 
@@ -3409,6 +3444,7 @@ try {
                                 <div class="flex-1 flex flex-col justify-center gap-4 min-w-0 py-1">
                                     ${outboundTimeline}
                                     ${isRoundTrip && f.returnFlight ? `<div class="border-t border-dashed border-gray-200 dark:border-gray-700 pt-4">${returnTimeline}</div>` : ''}
+                                    ${flagStrip}
                                 </div>
 
                                 <!-- Price & Book -->
