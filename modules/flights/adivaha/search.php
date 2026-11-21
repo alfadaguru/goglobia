@@ -413,9 +413,76 @@ $router->post('flights/adivaha/search', function () use ($db) {
             }
         }
 
-        $legGroups = [];
-        foreach ($metaLegs as $legIdx => $leg) {
+        // ---- Expand to REAL per-flight segments ------------------------------
+        // Adivaha's meta.legs is only a per-DIRECTION summary (often [] entirely),
+        // while meta.segments[] carries every actual flight of the journey — the
+        // connecting hops a traveller needs to see (e.g. LOS→CAI then CAI→JFK).
+        // Verified live shape (meta.segments[] element):
+        //   leg(0=outbound,1=return), from, to, depart_at, arrive_at, depart_date,
+        //   arrive_date, depart_time, arrive_time, airline_code, airline_name,
+        //   flight_number, cabin_class, operated_by, duration_min, layover_min, ...
+        // Build ONE $flight per real segment, GROUPED into its leg, so the details
+        // panel shows all connecting sectors + layovers. We map each segment onto the
+        // same field names the leg loop below already reads (code/airline/origin/
+        // destination/duration_minutes/...), so the existing carrier-resolution,
+        // name-override and baggage logic keeps working unchanged.
+        //
+        // Falls back to the old per-leg-summary behaviour when meta.segments is
+        // absent (older offers / other code paths) — never a regression on the
+        // direct-flight path.
+        $metaSegments = (isset($meta['segments']) && is_array($meta['segments']) && count($meta['segments']) > 0)
+            ? $meta['segments'] : [];
+
+        if ($metaSegments) {
+            $units = [];       // flat list of per-segment "leg-shaped" arrays to render
+            $unitLegIdx = [];  // parallel: which leg group each unit belongs to
+            foreach ($metaSegments as $sg) {
+                if (!is_array($sg)) continue;
+                $units[] = [
+                    'origin'           => (string) ($sg['from'] ?? ''),
+                    'destination'      => (string) ($sg['to'] ?? ''),
+                    'depart_at'        => $sg['depart_at'] ?? null,
+                    'arrive_at'        => $sg['arrive_at'] ?? null,
+                    'depart_date'      => $sg['depart_date'] ?? '',
+                    'arrive_date'      => $sg['arrive_date'] ?? '',
+                    'depart_time'      => $sg['depart_time'] ?? '',
+                    'arrive_time'      => $sg['arrive_time'] ?? '',
+                    // A single flown segment is always nonstop in itself.
+                    'stops'            => 0,
+                    'duration'         => '',
+                    'duration_minutes' => (int) ($sg['duration_min'] ?? 0),
+                    'code'             => (string) ($sg['airline_code'] ?? ''),
+                    'airline'          => (string) ($sg['airline_name'] ?? ''),
+                    'flight_number'    => (string) ($sg['flight_number'] ?? ''),
+                    // Carry the per-segment operating carrier so the resolver below
+                    // prefers the TRUE operator over a ticketing shell.
+                    '_operated_by'     => (string) ($sg['operated_by'] ?? ''),
+                    // Per-segment baggage/cabin when present (else meta-level used).
+                    '_checkin_baggage' => (string) ($sg['checkin_baggage'] ?? ''),
+                    '_cabin_baggage'   => (string) ($sg['cabin_baggage'] ?? ''),
+                    '_cabin_class'     => (string) ($sg['cabin_class'] ?? ''),
+                ];
+                $unitLegIdx[] = (int) ($sg['leg'] ?? 0);
+            }
+            if ($units) {
+                $metaLegs = $units;          // the loop below now iterates real segments
+                $segLegMap = $unitLegIdx;    // segment i → leg group index
+            } else {
+                $segLegMap = null;
+            }
+        } else {
+            $segLegMap = null;
+        }
+
+        // $legGroupsByLeg[legIdx] = [flight, flight, ...] so multiple connecting
+        // segments collect into the same leg (outbound / return).
+        $legGroupsByLeg = [];
+        foreach ($metaLegs as $unitIdx => $leg) {
             if (!is_array($leg)) continue;
+            // Which leg group this unit belongs to: when expanded from segments use
+            // the segment's own `leg` field; otherwise one group per summary leg.
+            $groupIdx = ($segLegMap !== null && isset($segLegMap[$unitIdx])) ? $segLegMap[$unitIdx] : $unitIdx;
+            $legIdx = $groupIdx; // preserve the var name the body below uses for logs/leg_index
 
             $depAt = $leg['depart_at'] ?? null;
             $arrAt = $leg['arrive_at'] ?? null;
@@ -475,9 +542,13 @@ $router->post('flights/adivaha/search', function () use ($db) {
             // Prefer the TRUE operating carrier (operated_by). Verified against 842 live
             // offers: operated_by is always present and is the real operator. Swap when it
             // differs from a shell display code; never invent (operated_by is Adivaha's).
-            if ($operatingCarrierCode !== '' && $operatingCarrierCode !== $legCode && $shellCarrier) {
-                $legCode    = $operatingCarrierCode;
-                $legAirline = $operatingCarrierCode; // bare code; name resolved just below
+            // When expanded from segments, use THIS segment's own operated_by (each hop
+            // can be a different carrier); else fall back to the offer-wide one.
+            $segOperatedBy = (string) ($leg['_operated_by'] ?? '');
+            $effectiveOperated = $segOperatedBy !== '' ? $segOperatedBy : $operatingCarrierCode;
+            if ($effectiveOperated !== '' && $effectiveOperated !== $legCode && $shellCarrier) {
+                $legCode    = $effectiveOperated;
+                $legAirline = $effectiveOperated; // bare code; name resolved just below
             }
 
             // Authoritative name override on the FINAL operating code (fixes the stale
@@ -494,9 +565,10 @@ $router->post('flights/adivaha/search', function () use ($db) {
                 'img'               => $legCode,
                 'flight_no'         => (string) ($leg['flight_number'] ?? $meta['flight_number'] ?? ''),
                 'airline'           => $legAirline,
-                'class'             => (string) ($meta['cabin'] ?? $rawClass),
-                'baggage'           => $checkedBagDisplay !== '' ? $checkedBagDisplay : 'As per airline policy',
-                'cabin_baggage'     => $cabinBagDisplay !== '' ? $cabinBagDisplay : 'As per airline policy',
+                // Per-segment cabin/baggage when expanded, else the offer-wide values.
+                'class'             => (string) (($leg['_cabin_class'] ?? '') !== '' ? $leg['_cabin_class'] : ($meta['cabin'] ?? $rawClass)),
+                'baggage'           => ($leg['_checkin_baggage'] ?? '') !== '' ? (string) $leg['_checkin_baggage'] : ($checkedBagDisplay !== '' ? $checkedBagDisplay : 'As per airline policy'),
+                'cabin_baggage'     => ($leg['_cabin_baggage'] ?? '') !== '' ? (string) $leg['_cabin_baggage'] : ($cabinBagDisplay !== '' ? $cabinBagDisplay : 'As per airline policy'),
                 'departure_airport' => (string) ($leg['origin'] ?? ''),
                 'departure_time'    => $depTimeDisplay,
                 'arrival_airport'   => (string) ($leg['destination'] ?? ''),
@@ -547,8 +619,17 @@ $router->post('flights/adivaha/search', function () use ($db) {
                 'fare_label'      => (string) ($meta['fare_label'] ?? ''),
                 'seats_remaining' => (int) ($meta['seats_remaining'] ?? $meta['seats_left'] ?? 0),
             ];
-            $legGroups[] = [$flight];
+            // Collect into the leg's group (outbound segments together, return
+            // segments together), preserving segment order.
+            if (!isset($legGroupsByLeg[$groupIdx])) { $legGroupsByLeg[$groupIdx] = []; }
+            $legGroupsByLeg[$groupIdx][] = $flight;
         }
+
+        // Flatten the per-leg groups into the ordered 2D array the frontend expects:
+        // legs[0] = outbound segments[], legs[1] = return segments[]. ksort keeps
+        // leg 0 before leg 1 even if segments arrived interleaved.
+        ksort($legGroupsByLeg);
+        $legGroups = array_values($legGroupsByLeg);
         if (empty($legGroups)) return null;
 
         return [
