@@ -71,6 +71,11 @@ $is_flight_booking = strtolower((string) ($booking['module_type'] ?? '')) === 'f
 $is_manual_flight  = $is_flight_booking && strtolower((string) ($booking['module'] ?? '')) === 'manual';
 $is_live_flight    = $is_flight_booking && !$is_manual_flight;
 $is_no_show        = $booking_status_lc === 'no_show';
+// STAYS CHANGE gating (new). Own-inventory = no API supplier (module stays/hotels/'' );
+// live = an API supplier (adivaha/hotelbeds/ratehawk/…). A "change stay" applies to both.
+$is_stays_booking  = in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true);
+$is_own_stay       = $is_stays_booking && in_array(strtolower((string) ($booking['module'] ?? '')), ['stays', 'hotels', 'manual', ''], true);
+$is_live_stay      = $is_stays_booking && !$is_own_stay;
 // A cross-reference to the counterpart of a cancel+rebook change, if any.
 $__bd_meta = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
 $change_ref = (is_array($__bd_meta) && isset($__bd_meta['meta']['change']) && is_array($__bd_meta['meta']['change']))
@@ -352,6 +357,119 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     </ol>
                     <div class="flex justify-end pt-2 border-t border-slate-200">
                         <button type="button" class="btn secondary" @click="closeChangeFlight()">Close</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- ===================== CHANGE STAY MODAL ===================== -->
+    <div x-show="stayOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="display:none;">
+        <div class="absolute inset-0 bg-slate-900/60" @click="closeChangeStay()"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined">hotel</span>
+                    <span x-text="isOwnStay ? 'Change stay' : 'Change stay (cancel &amp; rebook)'"></span>
+                </h3>
+                <button type="button" @click="closeChangeStay()" class="text-slate-500 hover:text-slate-800">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- OWN-INVENTORY / MANUAL: editable stay + money reconcile -->
+            <template x-if="isOwnStay">
+                <div class="p-6 space-y-4">
+                    <p class="text-sm text-slate-600">Edit the stay below. For an own-inventory booking the availability hold moves to the new dates automatically. Any rate difference or change fee is recorded, and the voucher is regenerated.</p>
+
+                    <!-- Property -->
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        <label class="form-control sm:col-span-2"><span class="form-label">Hotel name</span><input class="input" x-model="stay.hotel_name"></label>
+                        <label class="form-control"><span class="form-label">City</span><input class="input" x-model="stay.hotel_city"></label>
+                        <label class="form-control"><span class="form-label">Country</span><input class="input" x-model="stay.hotel_country"></label>
+                    </div>
+
+                    <!-- Dates -->
+                    <div class="grid sm:grid-cols-3 gap-3 border-t border-slate-200 pt-4">
+                        <label class="form-control"><span class="form-label">Check-in</span><input type="date" class="input" x-model="stay.checkin" @change="recalcNights()"></label>
+                        <label class="form-control"><span class="form-label">Check-out</span><input type="date" class="input" x-model="stay.checkout" @change="recalcNights()"></label>
+                        <label class="form-control"><span class="form-label">Nights</span><input type="number" class="input bg-slate-50" x-model.number="stay.nights" readonly></label>
+                    </div>
+
+                    <!-- Rooms -->
+                    <div class="space-y-2 border-t border-slate-200 pt-4">
+                        <template x-for="(room,i) in stay.rooms" :key="i">
+                            <div class="grid sm:grid-cols-3 gap-2 border border-slate-200 rounded-lg p-3">
+                                <label class="form-control"><span class="form-label">Room type</span><input class="input" x-model="room.room_name"></label>
+                                <label class="form-control"><span class="form-label">Rooms</span><input type="number" min="1" class="input" x-model.number="room.quantity"></label>
+                                <label class="form-control"><span class="form-label">Board</span><input class="input" x-model="room.board_name" placeholder="Room only / BB / HB"></label>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Guests (flat map, primary_guest preserved out of band) -->
+                    <div class="space-y-2 border-t border-slate-200 pt-4" x-show="stayGuests.length">
+                        <div class="text-sm font-semibold text-slate-700">Guests</div>
+                        <template x-for="(g,i) in stayGuests" :key="i">
+                            <div class="grid sm:grid-cols-4 gap-2 border border-slate-200 rounded-lg p-3 items-end">
+                                <label class="form-control"><span class="form-label" x-text="g._label"></span><input class="input" x-model="g.title" placeholder="Title"></label>
+                                <label class="form-control"><span class="form-label">First name</span><input class="input" x-model="g.first_name"></label>
+                                <label class="form-control"><span class="form-label">Last name</span><input class="input" x-model="g.last_name"></label>
+                                <label class="form-control"><span class="form-label">Nationality</span><input class="input" x-model="g.nationality" placeholder="ISO2"></label>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Money -->
+                    <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                        <label class="form-control"><span class="form-label">Rate difference (new − old; negative = refund)</span><input type="number" step="0.01" class="input" x-model.number="stayRateDiff" placeholder="0.00"></label>
+                        <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="stayFee" placeholder="0.00"></label>
+                    </div>
+
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" class="btn secondary" @click="closeChangeStay()">Cancel</button>
+                        <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="stayBusy" @click="submitStayChange()">
+                            <span x-show="stayBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                            <span>Save stay change</span>
+                        </button>
+                    </div>
+                </div>
+            </template>
+
+            <!-- LIVE supplier: guided cancel → refund → rebook (no supplier amend API) -->
+            <template x-if="!isOwnStay">
+                <div class="p-6 space-y-5">
+                    <p class="text-sm text-slate-600">This hotel supplier has no amend API, so a change is handled as <strong>cancel + rebook</strong>, linked as one change. Follow the steps in order.</p>
+                    <ol class="space-y-4">
+                        <li class="flex gap-3" :class="stayStep>1 ? 'opacity-60' : ''">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">1</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Cancel the existing booking at the supplier</p>
+                                <button type="button" class="btn secondary sm mt-2" :disabled="stayBusy || stayStep>1" @click="liveStayStep1Cancel()">Cancel booking</button>
+                            </div>
+                        </li>
+                        <li class="flex gap-3" :class="stayStep>2 ? 'opacity-60' : (stayStep<2 ? 'opacity-40' : '')">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">2</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Refund the customer (minus change fee)</p>
+                                <div class="grid sm:grid-cols-2 gap-2 my-2">
+                                    <label class="form-control"><span class="form-label">Amount paid to refund</span><input type="number" step="0.01" class="input" x-model.number="stayRateDiff" placeholder="0.00"></label>
+                                    <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="stayFee" placeholder="0.00"></label>
+                                </div>
+                                <button type="button" class="btn secondary sm" :disabled="stayBusy || stayStep!==2" @click="liveStayStep2Refund()">Process refund</button>
+                            </div>
+                        </li>
+                        <li class="flex gap-3" :class="stayStep<3 ? 'opacity-40' : ''">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">3</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Rebook the new stay</p>
+                                <p class="text-xs text-slate-500 mb-2">Opens the Booking Manager prefilled, linked back to this booking.</p>
+                                <button type="button" class="btn primary sm" :disabled="stayStep!==3" @click="liveStayStep3Rebook()">Rebook now</button>
+                            </div>
+                        </li>
+                    </ol>
+                    <div class="flex justify-end pt-2 border-t border-slate-200">
+                        <button type="button" class="btn secondary" @click="closeChangeStay()">Close</button>
                     </div>
                 </div>
             </template>
@@ -1232,6 +1350,10 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         </div>
         <?php endif; ?>
 
+        <?php if ($is_stays_booking): ?>
+        <?php include __DIR__ . '/stays-booking-details.php'; ?>
+        <?php endif; ?>
+
         <?php if ($is_rail_booking): ?>
         <?php include __DIR__ . '/rail-booking-details.php'; ?>
         <?php elseif (!empty($travellers)): ?>
@@ -1614,6 +1736,27 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     $firstHotelEntry = $hotelTravelersBlock !== [] ? reset($hotelTravelersBlock) : null;
                     $isFlatTravelerList = is_array($firstHotelEntry)
                         && (isset($firstHotelEntry['first_name']) || isset($firstHotelEntry['last_name']));
+
+                    // MANUAL / own-inventory guest map: the Booking Manager stores guests
+                    // as a FLAT map keyed adult_0/child_0/infant_0 (+ a primary_guest
+                    // CONTACT entry), NOT under travellers['travelers']. For non-flight
+                    // services (stays/tours/cars/…) this branch previously rendered NONE
+                    // of them — guests were invisible on the page. Collect the real
+                    // passengers here (skip primary_guest / non-passenger meta keys) so
+                    // they show. Numbered per type, same rule as the flights fix.
+                    $flatGuests = [];
+                    if ($aiVisaApplicants === [] && $hotelTravelersBlock === [] && is_array($travellers)) {
+                        foreach ($travellers as $gKey => $gVal) {
+                            if (!is_array($gVal)) { continue; }
+                            if ($gKey === 'primary_guest') { continue; }
+                            if (empty($gVal['first_name']) && empty($gVal['last_name'])) { continue; }
+                            if (strpos((string) $gKey, 'adult') !== false)      { $gType = 'Adult'; }
+                            elseif (strpos((string) $gKey, 'child') !== false)  { $gType = 'Child'; }
+                            elseif (strpos((string) $gKey, 'infant') !== false) { $gType = 'Infant'; }
+                            else                                                { $gType = 'Guest'; }
+                            $flatGuests[] = ['type' => $gType] + $gVal;
+                        }
+                    }
                 ?>
 
                 <?php if ($aiVisaApplicants !== []): ?>
@@ -1738,6 +1881,49 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     </div>
                 </div>
                 <?php endif; ?>
+                <?php endif; ?>
+
+                <?php if (!empty($flatGuests)): ?>
+                <!-- MANUAL / own-inventory guests (flat adult_N/child_N map) — previously invisible -->
+                <div>
+                    <h4 class="text-sm font-semibold text-slate-700 mb-3"><?= T::all_travellers ?></h4>
+                    <div class="space-y-3">
+                        <?php
+                        $__gCounts = ['Adult' => 0, 'Child' => 0, 'Infant' => 0, 'Guest' => 0];
+                        foreach ($flatGuests as $g):
+                            $gt = $g['type'] ?? 'Guest';
+                            $__gCounts[$gt] = ($__gCounts[$gt] ?? 0) + 1;
+                            $gn = $__gCounts[$gt];
+                            $gBadge = $gt === 'Adult' ? 'bg-green-100 text-green-700'
+                                : ($gt === 'Child' ? 'bg-orange-100 text-orange-700'
+                                : ($gt === 'Infant' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'));
+                        ?>
+                        <div class="flex items-center gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                            <span class="inline-flex items-center justify-center w-8 h-8 rounded-full <?= $gBadge ?> text-xs font-bold flex-shrink-0"><?= $gn ?></span>
+                            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 flex-1">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1"><?= $gt ?> <?= $gn ?></label>
+                                    <div class="text-sm font-medium text-slate-800"><?= htmlspecialchars($g['title'] ?? '') ?></div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1"><?= T::first_name ?></label>
+                                    <div class="text-sm font-medium text-slate-800"><?= htmlspecialchars($g['first_name'] ?? 'N/A') ?></div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1"><?= T::last_name ?></label>
+                                    <div class="text-sm font-medium text-slate-800"><?= htmlspecialchars($g['last_name'] ?? 'N/A') ?></div>
+                                </div>
+                                <?php if (!empty($g['nationality']) || !empty($g['passport_number'])): ?>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Passport / Nat.</label>
+                                    <div class="text-sm text-slate-700"><?= htmlspecialchars(trim((string) ($g['passport_number'] ?? '') . ' ' . (string) ($g['nationality'] ?? ''))) ?: '—' ?></div>
+                                </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
                 <?php endif; ?>
             </div>
         </div>
@@ -1897,6 +2083,49 @@ function bookingEdit() {
         changeTicketReading: false,
         changeTicketMsg: '',
         changeTicketOk: false,
+        // ---- STAYS CHANGE state ----
+        stayOpen: false,
+        isOwnStay: <?= !empty($is_own_stay) ? 'true' : 'false' ?>,
+        stayBusy: false,
+        stayStep: 1,
+        stayRateDiff: 0,
+        stayFee: 0,
+        stay: <?= json_encode([
+            'hotel_name'    => (string) ($booking_data['hotel_name'] ?? ''),
+            'hotel_city'    => (string) ($booking_data['hotel_city'] ?? ''),
+            'hotel_country' => (string) ($booking_data['hotel_country'] ?? ''),
+            'checkin'       => (string) ($booking_data['checkin'] ?? ''),
+            'checkout'      => (string) ($booking_data['checkout'] ?? ''),
+            'nights'        => (int) ($booking_data['nights'] ?? 0),
+            'rooms'         => array_map(function ($r) {
+                return [
+                    'room_name'  => (string) ($r['room_name'] ?? 'Room'),
+                    'quantity'   => (int) ($r['quantity'] ?? ($r['rooms'] ?? 1)),
+                    'board_name' => (string) ($r['option']['board_name'] ?? ($booking_data['board_type'] ?? '')),
+                ];
+            }, is_array($booking_data['selected_rooms'] ?? null) ? array_values($booking_data['selected_rooms']) : []),
+        ], JSON_UNESCAPED_UNICODE) ?>,
+        stayGuests: <?= (function () use ($travellers) {
+            $out = [];
+            if (is_array($travellers)) {
+                $c = ['adult' => 0, 'child' => 0, 'infant' => 0];
+                foreach ($travellers as $k => $v) {
+                    if (!is_array($v) || $k === 'primary_guest') { continue; }
+                    if (empty($v['first_name']) && empty($v['last_name'])) { continue; }
+                    $t = strpos((string) $k, 'child') !== false ? 'child' : (strpos((string) $k, 'infant') !== false ? 'infant' : 'adult');
+                    $c[$t]++;
+                    $out[] = [
+                        '_key'        => (string) $k,
+                        '_label'      => ucfirst($t) . ' ' . $c[$t],
+                        'title'       => (string) ($v['title'] ?? ''),
+                        'first_name'  => (string) ($v['first_name'] ?? ''),
+                        'last_name'   => (string) ($v['last_name'] ?? ''),
+                        'nationality' => (string) ($v['nationality'] ?? ''),
+                    ];
+                }
+            }
+            return json_encode($out, JSON_UNESCAPED_UNICODE) ?: '[]';
+        })() ?>,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
@@ -2041,8 +2270,96 @@ function bookingEdit() {
         },
         liveChangeStep3Rebook() {
             // Hand off to the Booking Manager create flow, prefilled + linked to this booking.
-            const url = '<?= root . admin ?>/booking-manager/flights?change_from=<?= $invoiceIdEsc ?>';
+            const url = '<?= root . admin ?>/booking-manager/flights?change_from=<?= $invoiceIdEsc ?>&service=flights';
             window.location.href = url;
+        },
+        // ---- STAYS CHANGE methods ----
+        openChangeStay() {
+            this.stayStep = (this.changeState && this.changeState.step_state) ? this.changeState.step_state : 1;
+            this.stayOpen = true;
+        },
+        closeChangeStay() { this.stayOpen = false; },
+        recalcNights() {
+            const a = Date.parse(this.stay.checkin), b = Date.parse(this.stay.checkout);
+            this.stay.nights = (a && b && b > a) ? Math.round((b - a) / 86400000) : 0;
+        },
+        // OWN-INVENTORY / MANUAL: rewrite stay booking_data + reconcile money.
+        submitStayChange() {
+            if (!this.stay.checkin || !this.stay.checkout) { alert('Check-in and check-out are required.'); return; }
+            if (!confirm('Save the stay change and apply the money adjustment?')) { return; }
+            this.stayBusy = true;
+            const rooms = (this.stay.rooms || []).map(r => ({ room_name: r.room_name, quantity: Number(r.quantity) || 1, board_name: r.board_name || '' }));
+            // rebuild the flat travellers map from stayGuests (preserve keys), primary_guest kept server-side.
+            const travellers = {};
+            (this.stayGuests || []).forEach(g => {
+                if (g._key) { travellers[g._key] = { title: g.title, first_name: g.first_name, last_name: g.last_name, nationality: g.nationality }; }
+            });
+            const params = new URLSearchParams();
+            params.set('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('hotel_name', this.stay.hotel_name || '');
+            params.set('hotel_city', this.stay.hotel_city || '');
+            params.set('hotel_country', this.stay.hotel_country || '');
+            params.set('checkin', this.stay.checkin || '');
+            params.set('checkout', this.stay.checkout || '');
+            params.set('rooms', JSON.stringify(rooms));
+            if (Object.keys(travellers).length) { params.set('travellers', JSON.stringify(travellers)); }
+            params.set('rate_difference', String(Number(this.stayRateDiff) || 0));
+            params.set('change_fee', String(Number(this.stayFee) || 0));
+            fetch('<?= root . admin ?>/bookings/change-stay/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.stayBusy = false;
+                if (data.success === true) {
+                    if (confirm((data.message || 'Stay updated.') + '\n\nClick OK to refresh.')) window.location.reload();
+                } else { alert('Error: ' + (data.message || 'Could not change the stay.')); }
+            })
+            .catch(err => { this.stayBusy = false; alert('Error: ' + err.message); });
+        },
+        // LIVE guided cancel → refund → rebook (reuses the supplier cancel + change_refund + BM rebook).
+        liveStayStep1Cancel() {
+            if (!confirm('Step 1 of 3 — CANCEL this booking at the supplier. This cannot be undone. Continue?')) { return; }
+            this.stayBusy = true;
+            const moduleType = '<?= $moduleTypeEsc ?>';
+            const module = '<?= $moduleEsc ?>';
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('cancel_all', '1');
+            fetch('<?= root ?>modules/' + moduleType + '/' + module + '/cancel', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.stayBusy = false;
+                if (data.status === true || data.success === true) { this.stayStep = 2; }
+                else { alert('Cancel failed: ' + (data.message || 'supplier error')); }
+            })
+            .catch(err => { this.stayBusy = false; alert('Error: ' + err.message); });
+        },
+        liveStayStep2Refund() {
+            const amt = Number(this.stayRateDiff) || 0, fee = Number(this.stayFee) || 0;
+            if (!confirm('Step 2 of 3 — refund ' + (amt - fee) + ' to the customer (keeping a ' + fee + ' change fee)?')) { return; }
+            this.stayBusy = true;
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('refund_amount', String(amt));
+            params.set('change_fee', String(fee));
+            params.set('action', 'change_refund');
+            fetch('<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.stayBusy = false;
+                if (data.success === true) { this.stayStep = 3; }
+                else { alert('Refund: ' + (data.message || 'failed')); }
+            })
+            .catch(err => { this.stayBusy = false; alert('Error: ' + err.message); });
+        },
+        liveStayStep3Rebook() {
+            window.location.href = '<?= root . admin ?>/booking-manager/stays?change_from=<?= $invoiceIdEsc ?>&service=stays';
         },
         startRefundPolling() {
             this.refundPollInterval = setInterval(() => {

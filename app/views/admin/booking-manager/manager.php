@@ -985,8 +985,16 @@ function bookingMgr() {
 
     init(){
         this.clientToken = this.newToken(); this.manual.segments=[this.blankSeg()]; this.bookedDate = this.nowLocal();
-        try { this.changeFrom = new URLSearchParams(window.location.search).get('change_from') || ''; } catch(e){ this.changeFrom=''; }
-        if(this.changeFrom){ this.service='flights'; this.formMsg='Rebooking as a flight change — this new booking will be linked to '+this.changeFrom+'.'; this.formMsgOk=true; }
+        try {
+            const qs = new URLSearchParams(window.location.search);
+            this.changeFrom = qs.get('change_from') || '';
+            // Rebook deep-link: open the SAME service as the original booking. The URL
+            // path already selects the service screen (/booking-manager/<svc>), so honour
+            // the current service rather than forcing flights. Default to the current tab.
+            const svcHint = qs.get('service') || this.service || 'flights';
+            if (this.changeFrom && svcHint) { this.service = svcHint; }
+        } catch(e){ this.changeFrom=''; }
+        if(this.changeFrom){ this.formMsg='Rebooking as a change — this new booking will be linked to '+this.changeFrom+'.'; this.formMsgOk=true; }
     },
     newToken(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); },
     // Show an inline validation error near the Create button + scroll it into view,

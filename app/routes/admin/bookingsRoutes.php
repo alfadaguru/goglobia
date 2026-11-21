@@ -463,6 +463,169 @@ $router->post(admin.'/bookings/change-flight/(.*)', function ($invoice_id) use (
 
 });
 
+// ================================ POST /admin/bookings/change-stay/{invoice_id}
+// STAYS change (hotel booking). Purpose-built for a hotel: edit property / dates /
+// room+board / guests, reconcile the rate difference + change fee, and (for a REAL
+// own-inventory booking only) move the availability hold to the new dates. LIVE
+// supplier stays use the guided cancel+rebook flow (existing cancel + change_refund +
+// BM rebook), not this editable path. The voucher re-reads booking_data so it updates.
+$router->post(admin.'/bookings/change-stay/(.*)', function ($invoice_id) use ($SECURE,$db) {
+
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
+    if (!$booking) { echo json_encode(['success' => false, 'message' => 'Booking not found']); exit; }
+
+    $moduleType = strtolower((string) ($booking['module_type'] ?? ''));
+    if (!in_array($moduleType, ['stays', 'hotels'], true)) {
+        echo json_encode(['success' => false, 'message' => 'This change path is for hotel bookings only.']);
+        exit;
+    }
+    if (in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+        echo json_encode(['success' => false, 'message' => 'A cancelled/voided booking cannot be changed.']);
+        exit;
+    }
+
+    // Load stays inventory helpers on demand (for the own-inventory hold move).
+    if (!function_exists('staysStayNights') || !function_exists('stays_hold_supersede_ref')) {
+        foreach (['/lib/stays_inventory.php'] as $libRel) {
+            $lib = dirname(__DIR__, 2) . $libRel;
+            if (is_file($lib)) { require_once $lib; }
+        }
+        // staysStayNights lives in the stays routes helper set; fall back to a local calc.
+    }
+    $calcNights = function (string $ci, string $co): int {
+        if (function_exists('staysStayNights')) { return (int) staysStayNights($ci, $co); }
+        $a = strtotime($ci); $b = strtotime($co);
+        return ($a && $b && $b > $a) ? (int) round(($b - $a) / 86400) : 0;
+    };
+
+    // Existing stay data (keep meta + any keys we do not touch).
+    $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+    if (!is_array($bd)) { $bd = []; }
+    $prev = $bd; // snapshot for history
+
+    // Edited stay fields (all optional — only overwrite when provided).
+    $set = function (string $key, $val) use (&$bd) { if ($val !== null && $val !== '') { $bd[$key] = $val; } };
+    $set('hotel_name',    isset($_POST['hotel_name'])    ? trim((string) $_POST['hotel_name'])    : null);
+    $set('hotel_address', isset($_POST['hotel_address']) ? trim((string) $_POST['hotel_address']) : null);
+    $set('hotel_city',    isset($_POST['hotel_city'])    ? trim((string) $_POST['hotel_city'])    : null);
+    $set('hotel_country', isset($_POST['hotel_country']) ? trim((string) $_POST['hotel_country']) : null);
+    if (isset($_POST['hotel_stars']) && $_POST['hotel_stars'] !== '') { $bd['hotel_stars'] = (int) $_POST['hotel_stars']; }
+    $ci = isset($_POST['checkin'])  ? trim((string) $_POST['checkin'])  : (string) ($bd['checkin'] ?? '');
+    $co = isset($_POST['checkout']) ? trim((string) $_POST['checkout']) : (string) ($bd['checkout'] ?? '');
+    $bd['checkin']  = $ci;
+    $bd['checkout'] = $co;
+    $bd['nights']   = $calcNights($ci, $co);
+    if (isset($_POST['board_type'])) { $bd['board_type'] = trim((string) $_POST['board_type']); }
+
+    // Rooms — accept an edited selected_rooms JSON (room_name/quantity/board), PRESERVING
+    // any inventory ids (room_id/option_id/hotel_id) already on the row so an own-inventory
+    // hold can still be moved. We merge name/quantity/board onto the existing room entries.
+    if (isset($_POST['rooms']) && $_POST['rooms'] !== '') {
+        $roomsIn = json_decode((string) $_POST['rooms'], true);
+        if (is_array($roomsIn)) {
+            $existing = is_array($bd['selected_rooms'] ?? null) ? array_values($bd['selected_rooms']) : [];
+            $merged = [];
+            foreach (array_values($roomsIn) as $i => $r) {
+                if (!is_array($r)) { continue; }
+                $base = is_array($existing[$i] ?? null) ? $existing[$i] : [];
+                $base['room_name'] = trim((string) ($r['room_name'] ?? ($base['room_name'] ?? 'Room')));
+                $base['quantity']  = max(1, (int) ($r['quantity'] ?? ($base['quantity'] ?? 1)));
+                if (isset($r['board_name'])) {
+                    if (!is_array($base['option'] ?? null)) { $base['option'] = []; }
+                    $base['option']['board_name'] = trim((string) $r['board_name']);
+                }
+                $merged[] = $base;
+            }
+            if ($merged !== []) { $bd['selected_rooms'] = $merged; }
+        }
+    }
+
+    // Guests — accept an edited flat guest map (adult_0/child_0/… + primary_guest kept).
+    if (isset($_POST['travellers']) && $_POST['travellers'] !== '') {
+        $tin = json_decode((string) $_POST['travellers'], true);
+        if (is_array($tin)) { $db->update('bookings', ['travellers' => json_encode($tin)], ['invoice_id' => $invoice_id]); }
+    }
+
+    // CHANGE HISTORY (same meta shape flights use).
+    if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+    $hist = [
+        'at'   => date('Y-m-d H:i:s'),
+        'by'   => $_SESSION['user_id'] ?? null,
+        'from' => ['hotel_name' => $prev['hotel_name'] ?? '', 'checkin' => $prev['checkin'] ?? '', 'checkout' => $prev['checkout'] ?? '', 'nights' => $prev['nights'] ?? 0],
+        'to'   => ['hotel_name' => $bd['hotel_name'] ?? '', 'checkin' => $bd['checkin'] ?? '', 'checkout' => $bd['checkout'] ?? '', 'nights' => $bd['nights'] ?? 0],
+    ];
+    if (!isset($bd['meta']['change_history']) || !is_array($bd['meta']['change_history'])) { $bd['meta']['change_history'] = []; }
+    $bd['meta']['change_history'][] = $hist;
+    $bd['meta']['last_changed'] = $hist;
+
+    $ok = $db->update('bookings', ['booking_data' => json_encode($bd)], ['invoice_id' => $invoice_id]);
+    if ($ok === false) { echo json_encode(['success' => false, 'message' => 'Failed to save the stay change.']); exit; }
+
+    // OWN-INVENTORY hold move — ONLY when the booking carries real inventory ids
+    // (hotel_id + selected_rooms[].room_id + option.option_id). A typed manual stay has
+    // free-text room names with no ids → nothing to move (it never held inventory), so
+    // this is correctly skipped. When ids exist AND dates/rooms changed, release the old
+    // held/consumed rows then re-reserve for the new range via the shared reserve path.
+    $datesChanged = ($prev['checkin'] ?? '') !== ($bd['checkin'] ?? '') || ($prev['checkout'] ?? '') !== ($bd['checkout'] ?? '');
+    $hasInventoryIds = (int) ($bd['hotel_id'] ?? 0) > 0
+        && is_array($bd['selected_rooms'] ?? null)
+        && (int) ($bd['selected_rooms'][0]['room_id'] ?? 0) > 0;
+    $holdMoved = false;
+    if ($datesChanged && $hasInventoryIds && function_exists('stays_hold_supersede_ref') && function_exists('stays_hold_consume_or_reserve')) {
+        try {
+            stays_hold_supersede_ref($db, (string) $invoice_id);        // free old range
+            $res = stays_hold_consume_or_reserve($db, (string) $invoice_id); // re-reserve new range from booking_data
+            $holdMoved = ($res['reserved'] ?? 0) > 0 || ($res['consumed'] ?? 0) > 0;
+        } catch (\Throwable $e) { error_log('change-stay hold move ' . $invoice_id . ': ' . $e->getMessage()); }
+    }
+
+    // Money reconcile — rate difference (+) owes / (−) refund, plus change fee. Same
+    // module-agnostic primitive flights use; no new money code.
+    $rateDiff  = (float) ($_POST['rate_difference'] ?? 0);
+    $changeFee = max(0.0, (float) ($_POST['change_fee'] ?? 0));
+    $delta = ($rateDiff > 0) ? ($rateDiff + $changeFee) : (($rateDiff < 0) ? ($rateDiff + $changeFee) : $changeFee);
+    $money = ['direction' => 'none', 'message' => 'No money movement.'];
+    if (function_exists('bm_apply_booking_adjustment') && abs($delta) > 0.001) {
+        $money = bm_apply_booking_adjustment($db, (string) $invoice_id, round($delta, 2), $changeFee,
+            'Hotel stay change', ['actor' => $_SESSION['user_id'] ?? null]);
+    }
+
+    // Regenerate the voucher + notify (voucher re-reads booking_data automatically).
+    // IMPORTANT: GENERATE_BOOKING_PDF (voucher doc) and the notify path can echo HTML
+    // to the output buffer — capture and discard it so this endpoint returns CLEAN JSON
+    // (an un-buffered echo here corrupts the browser's response.json()).
+    ob_start();
+    try {
+        $voucher = GENERATE_BOOKING_PDF($invoice_id);
+        NOTIFY::resend($booking['module'], $booking, [
+            'invoice_id'  => $invoice_id,
+            'amount'      => $booking['price_markup'],
+            'currency'    => $booking['currency'] ?? '',
+            'module_type' => 'Stays',
+            'event_note'  => 'changed',
+        ], $voucher);
+    } catch (\Throwable $e) { error_log('change-stay notify ' . $invoice_id . ': ' . $e->getMessage()); }
+    ob_end_clean();
+
+    echo json_encode([
+        'success'     => true,
+        'message'     => 'Stay updated.'
+            . ($holdMoved ? ' Availability hold moved to the new dates.' : '')
+            . (($money['direction'] ?? 'none') !== 'none' ? ' ' . ($money['message'] ?? '') : ''),
+        'money'       => $money,
+        'payment_due' => $money['payment_due'] ?? 0,
+        'refunded'    => $money['refunded'] ?? 0,
+        'hold_moved'  => $holdMoved,
+    ]);
+    exit;
+
+});
+
 // ================================ POST /admin/bookings/action/{invoice_id}
 $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE,$db) {
 
