@@ -2473,9 +2473,16 @@ try {
             goToFlexDate(dmy) {
                 if (!dmy || dmy === this.searchParams.departure_date) return;
                 const sp = this.searchParams;
-                const base = `<?= root ?>flights/${sp.origin}/${sp.destination}/${sp.type}/${sp.class}/`;
+                // The URL parser stores a round trip as type 'return' (see parse below),
+                // but the flights route only accepts oneway|roundtrip|multicity — so we
+                // must map it back to 'roundtrip' for the URL, and a round trip is any
+                // non-oneway/non-multicity search WITH a return date. Emitting the raw
+                // 'return' produced a 404 (regex mismatch) and dropped the return date.
+                const isRound = sp.type !== 'oneway' && sp.type !== 'multicity' && !!sp.return_date;
+                const urlType = isRound ? 'roundtrip' : 'oneway';
+                const base = `<?= root ?>flights/${sp.origin}/${sp.destination}/${urlType}/${sp.class}/`;
                 const pax = `${sp.adults || 1}/${sp.childrens || 0}/${sp.infants || 0}`;
-                const url = (sp.type === 'roundtrip' && sp.return_date)
+                const url = isRound
                     ? `${base}${dmy}/${sp.return_date}/${pax}`
                     : `${base}${dmy}/${pax}`;
                 window.location.href = url;
