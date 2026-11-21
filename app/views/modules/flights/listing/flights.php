@@ -1010,6 +1010,20 @@ try {
             airlineNamesFetchInProgress: false,
             pendingAirlineCodes: new Set(),
 
+            // ── Itinerary-intelligence config (Phase 2) ──────────────────────────
+            // Transit COUNTRIES we caution travellers about (never a definitive
+            // ruling — keyed on the connecting country). Researched priority list:
+            // US / Canada / UK / Schengen (+ Nigeria is on the Schengen airport-
+            // transit-visa list, relevant for NG travellers via Europe).
+            transitVisaCountries: [
+                'United States', 'Canada', 'United Kingdom',
+                'France', 'Germany', 'Netherlands', 'Belgium', 'Spain', 'Italy',
+                'Switzerland', 'Austria', 'Portugal', 'Greece', 'Sweden', 'Denmark',
+                'Norway', 'Finland', 'Poland', 'Czech Republic', 'Hungary', 'Ireland'
+            ],
+            // "Tight below" minutes per connection class (IATA/OAG + consumer buffer).
+            mctBands: { DD: 45, DI: 75, ID: 105, II: 90 },
+
             // ============================================================================
             // MARKUP SETTINGS - PASSED FROM PHP
             // ============================================================================
@@ -1629,6 +1643,16 @@ try {
                         airlineNameByCode: airlineNameByCode,
                         multiAirline: multiAirline,
 
+                        // Ticket protection for the self-transfer flag. A single priced
+                        // supplier offer that carries all its own segments is one ticket
+                        // = protected (through-bags, airline reprotects). Providers that
+                        // expose a marriage group / split-ticket signal override this via
+                        // f.protected; we default to true so we never cry "self-transfer"
+                        // on a genuinely through-ticketed itinerary. (Airport-change still
+                        // forces the self-transfer caution in the flag engine.)
+                        isProtected: (typeof f.protected === 'boolean') ? f.protected
+                                   : (typeof f.is_self_transfer === 'boolean' ? !f.is_self_transfer : true),
+
                         arrival_code: lastOutbound.arrival_code,
                         arrival_time: lastOutbound.arrival_time,
                         arrival_airport: lastOutbound.arrival_airport,
@@ -1637,6 +1661,229 @@ try {
                         price: finalPrice
                     };
                 }).filter(Boolean);
+            },
+
+            // ── Itinerary-intelligence engine (Phase 2) ──────────────────────
+            // Pure, provider-agnostic. Given one leg's normalized segments +
+            // config, returns passenger-facing flags (multi-carrier, operated-by,
+            // airport/terminal change, tight/short/long/overnight/night layover,
+            // self-transfer, transit-visa, baggage re-check, red-eye). Phases 3-5
+            // render what this returns. Unit-tested (50 cases) against real +
+            // synthetic data before embedding.
+            deriveItineraryFlags(segments, opts) {
+              opts = opts || {};
+              const MCT = opts.mct || { DD: 45, DI: 75, ID: 105, II: 90 };          // researched defaults
+              const SHORT = { dom: 30, intl: 60 };                                  // Google "short" floor
+              const LONG  = { dom: 120, intl: 240 };                               // Google "long" floor
+              const transitCountries = (opts.transitVisaCountries || []).map(c => c.toLowerCase());
+              const segs = Array.isArray(segments) ? segments.filter(Boolean) : [];
+              const out = { multiAirline: false, airlineCodes: [], segments: [], layovers: [], flags: [] };
+              if (!segs.length) { return out; }
+
+              const up = v => (v == null ? '' : String(v)).trim().toUpperCase();
+              const code = s => up(s.img || s.airline_code || s.airline);
+              const opCode = s => up(s.operating_code || '');          // only when provider distinguishes
+
+              // ---- carriers ----
+              const codes = [];
+              segs.forEach(s => { const c = code(s); if (c && !codes.includes(c)) codes.push(c); });
+              out.airlineCodes = codes;
+              out.multiAirline = codes.length > 1;
+
+              // ---- parse an instant from a segment endpoint ----
+              // Prefer the ISO datetime (carries the real local wall time). Returns a Date-like
+              // {ms, y, mo, d, hh, mi} in the airport's LOCAL wall-clock (we read the ISO's own
+              // fields, NOT converting to the viewer's tz — overnight/red-eye are about local time).
+              function parseLocal(iso) {
+                if (!iso) return null;
+                // ISO "2026-11-24T21:20:00" (no offset) → treat the written time as local wall time.
+                const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+                if (!m) return null;
+                const y = +m[1], mo = +m[2], d = +m[3], hh = +m[4], mi = +m[5];
+                // Use UTC math purely as a stable clock for differences (same offset both ends).
+                const ms = Date.UTC(y, mo - 1, d, hh, mi);
+                return { ms, y, mo, d, hh, mi };
+              }
+              function minutesBetween(aIso, bIso) {
+                const a = parseLocal(aIso), b = parseLocal(bIso);
+                if (!a || !b) return null;
+                return Math.round((b.ms - a.ms) / 60000);
+              }
+
+              // ---- per-segment facts + operated-by ----
+              segs.forEach(s => {
+                const mk = code(s), op = opCode(s);
+                out.segments.push({
+                  departure_code: up(s.departure_code), arrival_code: up(s.arrival_code),
+                  marketing_code: mk, operating_code: op,
+                  operatedBy: (op && op !== mk) ? (s.operating_name || op) : '',   // '' = no codeshare note
+                  aircraft: (s.aircraft || '').toString().trim(),
+                  redEye: isRedEye(s),
+                });
+              });
+
+              // ---- red-eye (single segment): local dep late night, arrives next local morning ----
+              function isRedEye(s) {
+                const dep = parseLocal(s.departure_iso), arr = parseLocal(s.arrival_iso);
+                if (!dep || !arr) return false;
+                const crossesMidnight = (arr.y !== dep.y || arr.mo !== dep.mo || arr.d !== dep.d);
+                const depLate = dep.hh >= 21 || dep.hh <= 1;          // 21:00–01:00
+                const arrEarly = arr.hh <= 8;                          // before ~08:00 local
+                return crossesMidnight && depLate && arrEarly;
+              }
+
+              // ---- connection class DD/DI/ID/II from countries ----
+              function connClass(prev, next) {
+                const c1 = (prev.to_country || '').trim().toLowerCase();
+                const c2 = (next.from_country || '').trim().toLowerCase();
+                if (!c1 || !c2) return null;                           // unknown → no MCT classification
+                const prevDom = c1 === (prev.from_country || '').trim().toLowerCase();
+                const nextDom = c2 === (next.to_country || '').trim().toLowerCase();
+                // Simplified, standard: the LEG into the connection + the LEG out.
+                const inIntl = !prevDom, outIntl = !nextDom;
+                if (!inIntl && !outIntl) return 'DD';
+                if (!inIntl && outIntl) return 'DI';
+                if (inIntl && !outIntl) return 'ID';
+                return 'II';
+              }
+
+              // ---- layovers between consecutive segments ----
+              for (let i = 0; i < segs.length - 1; i++) {
+                const prev = segs[i], next = segs[i + 1];
+                const atCode = up(prev.arrival_code);
+                const nextDep = up(next.departure_code);
+                const mins = minutesBetween(prev.arrival_iso, next.departure_iso);
+                const airportChange = atCode && nextDep && atCode !== nextDep;
+                const cls = connClass(prev, next);
+                const tz = (prev.to_tz || '').trim();
+
+                // overnight vs night-connection (both need the real local wall time).
+                //  - overnight       = crosses the local date AND long enough to need a hotel (≥5h)
+                //  - nightConnection = crosses the local date (or sits deep in the small hours) but
+                //                      is SHORTER than the hotel threshold — a red-eye-style stop
+                //                      the passenger should still know about, without us falsely
+                //                      calling it an "overnight".
+                const arr = parseLocal(prev.arrival_iso), dep = parseLocal(next.departure_iso);
+                let overnight = false, nightConnection = false;
+                if (arr && dep && mins != null) {
+                  const crossesDate = (dep.y !== arr.y || dep.mo !== arr.mo || dep.d !== arr.d);
+                  const touchesNight = (arr.hh >= 22 || arr.hh < 6) || (dep.hh >= 0 && dep.hh < 6);
+                  if (crossesDate && mins >= 300) { overnight = true; }
+                  else if ((crossesDate || touchesNight) && mins >= 60) { nightConnection = true; }
+                }
+
+                // terminal change (same airport, both terminals present, differ)
+                const tFrom = (prev.terminal_to || '').trim();          // arrival terminal at the hub
+                const tTo = (next.terminal_from || '').trim();          // departure terminal at the hub
+                const terminalChange = !airportChange && tFrom && tTo && tFrom.toUpperCase() !== tTo.toUpperCase();
+
+                // tight / short / long classification
+                let timing = null;
+                if (mins != null && cls) {
+                  const isIntl = (cls !== 'DD');
+                  const shortFloor = isIntl ? SHORT.intl : SHORT.dom;
+                  const tightFloor = MCT[cls] || (isIntl ? 90 : 45);
+                  const longFloor = isIntl ? LONG.intl : LONG.dom;
+                  if (mins < shortFloor) timing = 'short';
+                  else if (mins < tightFloor) timing = 'tight';
+                  else if (mins > longFloor) timing = 'long';
+                  else timing = 'ok';
+                } else if (mins != null) {
+                  // No country data: still flag very short/long on generic thresholds.
+                  if (mins < 45) timing = 'short';
+                  else if (mins > 240) timing = 'long';
+                  else timing = 'ok';
+                }
+
+                out.layovers.push({
+                  airport: atCode, city: (prev.to_city || '').trim(),
+                  minutes: mins, durationText: mins != null ? fmtDur(mins) : '',
+                  connClass: cls, timing, airportChange, nextDepartureAirport: nextDep,
+                  terminalChange, terminalFrom: tFrom, terminalTo: tTo,
+                  overnight, nightConnection, tz,
+                  departsLocal: dep ? (String(dep.hh).padStart(2,'0') + ':' + String(dep.mi).padStart(2,'0')) : '',
+                });
+              }
+
+              function fmtDur(min) {
+                if (min == null || min < 0) return '';
+                const h = Math.floor(min / 60), m = min % 60;
+                return ((h > 0 ? h + 'h ' : '') + (m > 0 ? m + 'm' : (h > 0 ? '' : '0m'))).trim();
+              }
+
+              // ========================= build the flag list =========================
+              const push = (type, severity, text, extra) => out.flags.push(Object.assign({ type, severity, text }, extra || {}));
+
+              if (out.multiAirline) {
+                push('multi_airline', 'info', 'Multiple airlines (' + codes.length + ')', { codes });
+              }
+              out.segments.forEach((s, i) => {
+                if (s.operatedBy) push('operated_by', 'info', 'Operated by ' + s.operatedBy, { segmentIndex: i });
+                if (s.redEye) push('red_eye', 'info', 'Red-eye flight', { segmentIndex: i });
+              });
+
+              out.layovers.forEach((L, i) => {
+                const where = L.city || L.airport;
+                if (L.airportChange) {
+                  push('airport_change', 'warning',
+                    'Airport change — you arrive at ' + L.airport + ' but depart from ' + L.nextDepartureAirport + '. Allow time to travel between airports.',
+                    { layoverIndex: i });
+                }
+                if (L.terminalChange) {
+                  push('terminal_change', 'warning',
+                    'Terminal change at ' + L.airport + ' (' + L.terminalFrom + ' → ' + L.terminalTo + ').', { layoverIndex: i });
+                }
+                if (L.timing === 'short') {
+                  push('short_connection', 'warning',
+                    'Short connection — ' + L.durationText + ' in ' + where + '. A delay on your first flight could make you miss this one.',
+                    { layoverIndex: i });
+                } else if (L.timing === 'tight') {
+                  push('tight_connection', 'warning',
+                    'Tight connection — ' + L.durationText + ' in ' + where + '. Little buffer if your first flight is late.',
+                    { layoverIndex: i });
+                }
+                if (L.overnight) {
+                  push('overnight_layover', 'warning',
+                    'Overnight layover — ' + L.durationText + ' in ' + where + ', crossing into the next day.', { layoverIndex: i });
+                } else if (L.nightConnection) {
+                  push('night_connection', 'info',
+                    'Late-night connection — ' + L.durationText + ' in ' + where + (L.departsLocal ? ', departing around ' + L.departsLocal + ' local time.' : '.'),
+                    { layoverIndex: i });
+                } else if (L.timing === 'long') {
+                  push('long_layover', 'info', 'Long layover — ' + L.durationText + ' in ' + where + '.', { layoverIndex: i });
+                }
+              });
+
+              // self-transfer (ticket structure) — only when the provider tells us, OR an airport change forces it
+              const anyAirportChange = out.layovers.some(L => L.airportChange);
+              if (opts.protected === false || (anyAirportChange && opts.protected !== true)) {
+                push('self_transfer', 'critical',
+                  'Self-transfer — these flights are on separate tickets. You collect and re-check your bags, clear immigration and check in again yourself. If you misconnect, the airline won’t rebook you for free.');
+              }
+
+              // baggage re-check — self-transfer OR airport change OR an international connection
+              const intlConnection = out.layovers.some(L => L.connClass && L.connClass !== 'DD');
+              const selfT = out.flags.some(f => f.type === 'self_transfer');
+              if (segs.length > 1 && (selfT || anyAirportChange || intlConnection)) {
+                push('baggage_recheck', 'info', 'You may need to collect and re-check your bags at the connection.');
+              }
+
+              // transit visa — intermediate connecting countries on the priority list
+              const seenTransit = {};
+              for (let i = 0; i < out.layovers.length; i++) {
+                const country = (segs[i].to_country || '').trim();
+                if (!country) continue;
+                const key = country.toLowerCase();
+                if (seenTransit[key]) continue;
+                if (transitCountries.includes(key)) {
+                  seenTransit[key] = true;
+                  push('transit_visa', 'critical',
+                    'You connect through ' + country + ' (' + segs[i].arrival_code + '). Depending on your nationality and the visas you hold, you may need a transit visa to connect here — even without leaving the airport. Check ' + country + '’s official requirements or the IATA Travel Centre before booking.',
+                    { country, airport: segs[i].arrival_code });
+                }
+              }
+
+              return out;
             },
 
             // OPTIMIZED: Batch fetch airline names - ONE API CALL for all airlines
