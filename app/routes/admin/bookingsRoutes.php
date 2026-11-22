@@ -844,6 +844,104 @@ $router->post(admin.'/bookings/change-cruise/(.*)', function ($invoice_id) use (
 
 });
 
+// ================================ POST /admin/bookings/change-tour/{invoice_id}
+// TOURS change (tour/activity). Purpose-built: edit tour name / destination / start
+// date / duration / tour type / pickup / party size, and reconcile the fare difference
+// + change fee. Manual/own rewrites the flat keys; a live tour (adivaha/toursbms) uses
+// the guided cancel+rebook from the UI (no supplier amend API). This route is the
+// record-edit path (manual + own); it is safe for a live tour's record too.
+$router->post(admin.'/bookings/change-tour/(.*)', function ($invoice_id) use ($SECURE,$db) {
+
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
+    if (!$booking) { echo json_encode(['success' => false, 'message' => 'Booking not found']); exit; }
+
+    if (strtolower((string) ($booking['module_type'] ?? '')) !== 'tours') {
+        echo json_encode(['success' => false, 'message' => 'This change path is for tour bookings only.']);
+        exit;
+    }
+    if (in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+        echo json_encode(['success' => false, 'message' => 'A cancelled/voided booking cannot be changed.']);
+        exit;
+    }
+
+    $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+    if (!is_array($bd)) { $bd = []; }
+    $prev = [
+        'tour_name'   => (string) ($bd['tour_name'] ?? ''),
+        'destination' => (string) ($bd['destination'] ?? ''),
+        'start_date'  => (string) ($bd['start_date'] ?? ''),
+        'tour_type'   => (string) ($bd['tour_type'] ?? ''),
+    ];
+
+    // Apply edited tour fields (only overwrite when provided).
+    foreach (['tour_name', 'destination', 'start_date', 'duration', 'tour_type', 'pickup_location'] as $k) {
+        if (isset($_POST[$k])) { $bd[$k] = trim((string) $_POST[$k]); }
+    }
+    // Keep activity_date (live key) aligned to start_date when the start date changes.
+    if (isset($_POST['start_date'])) { $bd['activity_date'] = trim((string) $_POST['start_date']); }
+    if (isset($_POST['adults']) && $_POST['adults'] !== '')     { $bd['adults']   = max(1, (int) $_POST['adults']); }
+    if (isset($_POST['children']) && $_POST['children'] !== '') { $bd['children'] = max(0, (int) $_POST['children']); }
+
+    // CHANGE HISTORY (same meta shape stays/cars/cruise use).
+    if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+    $hist = [
+        'at'   => date('Y-m-d H:i:s'),
+        'by'   => $_SESSION['user_id'] ?? null,
+        'from' => $prev,
+        'to'   => [
+            'tour_name'   => (string) ($bd['tour_name'] ?? ''),
+            'destination' => (string) ($bd['destination'] ?? ''),
+            'start_date'  => (string) ($bd['start_date'] ?? ''),
+            'tour_type'   => (string) ($bd['tour_type'] ?? ''),
+        ],
+    ];
+    if (!isset($bd['meta']['change_history']) || !is_array($bd['meta']['change_history'])) { $bd['meta']['change_history'] = []; }
+    $bd['meta']['change_history'][] = $hist;
+    $bd['meta']['last_changed'] = $hist;
+
+    $ok = $db->update('bookings', ['booking_data' => json_encode($bd)], ['invoice_id' => $invoice_id]);
+    if ($ok === false) { echo json_encode(['success' => false, 'message' => 'Failed to save the tour change.']); exit; }
+
+    // Money reconcile.
+    $rateDiff  = (float) ($_POST['rate_difference'] ?? 0);
+    $changeFee = max(0.0, (float) ($_POST['change_fee'] ?? 0));
+    $delta = ($rateDiff > 0) ? ($rateDiff + $changeFee) : (($rateDiff < 0) ? ($rateDiff + $changeFee) : $changeFee);
+    $money = ['direction' => 'none', 'message' => 'No money movement.'];
+    if (function_exists('bm_apply_booking_adjustment') && abs($delta) > 0.001) {
+        $money = bm_apply_booking_adjustment($db, (string) $invoice_id, round($delta, 2), $changeFee,
+            'Tour change', ['actor' => $_SESSION['user_id'] ?? null]);
+    }
+
+    // Voucher + notify, buffered so the JSON response stays clean.
+    ob_start();
+    try {
+        $voucher = GENERATE_BOOKING_PDF($invoice_id);
+        NOTIFY::resend($booking['module'], $booking, [
+            'invoice_id'  => $invoice_id,
+            'amount'      => $booking['price_markup'],
+            'currency'    => $booking['currency'] ?? '',
+            'module_type' => 'Tours',
+            'event_note'  => 'changed',
+        ], $voucher);
+    } catch (\Throwable $e) { error_log('change-tour notify ' . $invoice_id . ': ' . $e->getMessage()); }
+    ob_end_clean();
+
+    echo json_encode([
+        'success'     => true,
+        'message'     => 'Tour updated.' . (($money['direction'] ?? 'none') !== 'none' ? ' ' . ($money['message'] ?? '') : ''),
+        'money'       => $money,
+        'payment_due' => $money['payment_due'] ?? 0,
+        'refunded'    => $money['refunded'] ?? 0,
+    ]);
+    exit;
+
+});
+
 // ================================ POST /admin/bookings/action/{invoice_id}
 $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE,$db) {
 

@@ -88,6 +88,12 @@ $is_cruise_booking = strtolower((string) ($booking['module_type'] ?? '')) === 'c
 // Own-inventory confirm-on-pay bookings have no PNR by design, so the PNR-based
 // disable on Cancel/Refund is wrong for them. This flag re-enables those buttons.
 $is_own_inventory_no_pnr = $is_cruise_booking;
+// TOURS CHANGE gating (new). Only adivaha + toursbms have a supplier cancel action →
+// those use guided cancel+rebook; everything else (manual/own/search-only) is an
+// editable record change.
+$is_tours_booking  = strtolower((string) ($booking['module_type'] ?? '')) === 'tours';
+$is_live_tour      = $is_tours_booking && in_array(strtolower((string) ($booking['module'] ?? '')), ['adivaha', 'toursbms'], true);
+$is_own_tour       = $is_tours_booking && !$is_live_tour;
 // A cross-reference to the counterpart of a cancel+rebook change, if any.
 $__bd_meta = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
 $change_ref = (is_array($__bd_meta) && isset($__bd_meta['meta']['change']) && is_array($__bd_meta['meta']['change']))
@@ -639,6 +645,97 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     </button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ===================== CHANGE TOUR MODAL ===================== -->
+    <div x-show="tourOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="display:none;">
+        <div class="absolute inset-0 bg-slate-900/60" @click="closeChangeTour()"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined">tour</span>
+                    <span x-text="isLiveTour ? 'Change tour (cancel &amp; rebook)' : 'Change tour'"></span>
+                </h3>
+                <button type="button" @click="closeChangeTour()" class="text-slate-500 hover:text-slate-800">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- MANUAL / own-inventory: editable tour + money reconcile -->
+            <template x-if="!isLiveTour">
+                <div class="p-6 space-y-4">
+                    <p class="text-sm text-slate-600">Edit the tour below. Any fare difference or change fee is recorded, and the voucher is regenerated.</p>
+
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        <label class="form-control sm:col-span-2"><span class="form-label">Tour name</span><input class="input" x-model="tour.tour_name"></label>
+                        <label class="form-control"><span class="form-label">Destination</span><input class="input" x-model="tour.destination"></label>
+                        <label class="form-control"><span class="form-label">Tour type</span><input class="input" x-model="tour.tour_type" placeholder="Private / Group / Day trip"></label>
+                    </div>
+
+                    <div class="grid sm:grid-cols-3 gap-3 border-t border-slate-200 pt-4">
+                        <label class="form-control"><span class="form-label">Start date</span><input type="date" class="input" x-model="tour.start_date"></label>
+                        <label class="form-control"><span class="form-label">Duration</span><input class="input" x-model="tour.duration" placeholder="e.g. 3 hours / 2 days"></label>
+                        <label class="form-control"><span class="form-label">Pickup location</span><input class="input" x-model="tour.pickup_location"></label>
+                    </div>
+
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="tour.adults"></label>
+                        <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="tour.children"></label>
+                    </div>
+
+                    <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                        <label class="form-control"><span class="form-label">Rate difference (new − old; negative = refund)</span><input type="number" step="0.01" class="input" x-model.number="tourRateDiff" placeholder="0.00"></label>
+                        <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="tourFee" placeholder="0.00"></label>
+                    </div>
+
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" class="btn secondary" @click="closeChangeTour()">Cancel</button>
+                        <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="tourBusy" @click="submitTourChange()">
+                            <span x-show="tourBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                            <span>Save tour change</span>
+                        </button>
+                    </div>
+                </div>
+            </template>
+
+            <!-- LIVE supplier (adivaha/toursbms): guided cancel → refund → rebook -->
+            <template x-if="isLiveTour">
+                <div class="p-6 space-y-5">
+                    <p class="text-sm text-slate-600">This tour supplier has no amend API, so a change is handled as <strong>cancel + rebook</strong>, linked as one change. Follow the steps in order.</p>
+                    <ol class="space-y-4">
+                        <li class="flex gap-3" :class="tourStep>1 ? 'opacity-60' : ''">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">1</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Cancel the existing booking at the supplier</p>
+                                <button type="button" class="btn secondary sm mt-2" :disabled="tourBusy || tourStep>1" @click="liveTourStep1Cancel()">Cancel booking</button>
+                            </div>
+                        </li>
+                        <li class="flex gap-3" :class="tourStep>2 ? 'opacity-60' : (tourStep<2 ? 'opacity-40' : '')">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">2</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Refund the customer (minus change fee)</p>
+                                <div class="grid sm:grid-cols-2 gap-2 my-2">
+                                    <label class="form-control"><span class="form-label">Amount paid to refund</span><input type="number" step="0.01" class="input" x-model.number="tourRateDiff" placeholder="0.00"></label>
+                                    <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="tourFee" placeholder="0.00"></label>
+                                </div>
+                                <button type="button" class="btn secondary sm" :disabled="tourBusy || tourStep!==2" @click="liveTourStep2Refund()">Process refund</button>
+                            </div>
+                        </li>
+                        <li class="flex gap-3" :class="tourStep<3 ? 'opacity-40' : ''">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">3</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Rebook the new tour</p>
+                                <p class="text-xs text-slate-500 mb-2">Opens the Booking Manager prefilled, linked back to this booking.</p>
+                                <button type="button" class="btn primary sm" :disabled="tourStep!==3" @click="liveTourStep3Rebook()">Rebook now</button>
+                            </div>
+                        </li>
+                    </ol>
+                    <div class="flex justify-end pt-2 border-t border-slate-200">
+                        <button type="button" class="btn secondary" @click="closeChangeTour()">Close</button>
+                    </div>
+                </div>
+            </template>
         </div>
     </div>
 
@@ -1528,6 +1625,10 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         <?php include __DIR__ . '/cruises-booking-details.php'; ?>
         <?php endif; ?>
 
+        <?php if ($is_tours_booking): ?>
+        <?php include __DIR__ . '/tours-booking-details.php'; ?>
+        <?php endif; ?>
+
         <?php if ($is_rail_booking): ?>
         <?php include __DIR__ . '/rail-booking-details.php'; ?>
         <?php elseif (!empty($travellers)): ?>
@@ -2349,6 +2450,23 @@ function bookingEdit() {
             'adults'         => (int) ($booking_data['adults'] ?? 1),
             'children'       => (int) ($booking_data['children'] ?? 0),
         ], JSON_UNESCAPED_UNICODE) ?>,
+        // ---- TOURS CHANGE state ----
+        tourOpen: false,
+        isLiveTour: <?= !empty($is_live_tour) ? 'true' : 'false' ?>,
+        tourBusy: false,
+        tourStep: 1,
+        tourRateDiff: 0,
+        tourFee: 0,
+        tour: <?= json_encode([
+            'tour_name'       => (string) ($booking_data['tour_name'] ?? ''),
+            'destination'     => (string) ($booking_data['destination'] ?? ''),
+            'start_date'      => (string) ($booking_data['start_date'] ?? ($booking_data['activity_date'] ?? '')),
+            'duration'        => (string) ($booking_data['duration'] ?? ''),
+            'tour_type'       => (string) ($booking_data['tour_type'] ?? ''),
+            'pickup_location' => (string) ($booking_data['pickup_location'] ?? ''),
+            'adults'          => (int) ($booking_data['adults'] ?? 1),
+            'children'        => (int) ($booking_data['children'] ?? 0),
+        ], JSON_UNESCAPED_UNICODE) ?>,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
@@ -2677,6 +2795,74 @@ function bookingEdit() {
                 } else { alert('Error: ' + (data.message || 'Could not change the cruise.')); }
             })
             .catch(err => { this.cruiseBusy = false; alert('Error: ' + err.message); });
+        },
+        // ---- TOURS CHANGE methods ----
+        openChangeTour() { this.tourStep = 1; this.tourOpen = true; },
+        closeChangeTour() { this.tourOpen = false; },
+        submitTourChange() {
+            if (!confirm('Save the tour change and apply the money adjustment?')) { return; }
+            this.tourBusy = true;
+            const params = new URLSearchParams();
+            params.set('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            ['tour_name','destination','start_date','duration','tour_type','pickup_location'].forEach(k => params.set(k, this.tour[k] || ''));
+            params.set('adults', String(Number(this.tour.adults) || 1));
+            params.set('children', String(Number(this.tour.children) || 0));
+            params.set('rate_difference', String(Number(this.tourRateDiff) || 0));
+            params.set('change_fee', String(Number(this.tourFee) || 0));
+            fetch('<?= root . admin ?>/bookings/change-tour/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.tourBusy = false;
+                if (data.success === true) {
+                    if (confirm((data.message || 'Tour updated.') + '\n\nClick OK to refresh.')) window.location.reload();
+                } else { alert('Error: ' + (data.message || 'Could not change the tour.')); }
+            })
+            .catch(err => { this.tourBusy = false; alert('Error: ' + err.message); });
+        },
+        liveTourStep1Cancel() {
+            if (!confirm('Step 1 of 3 — CANCEL this booking at the supplier. This cannot be undone. Continue?')) { return; }
+            this.tourBusy = true;
+            const moduleType = '<?= $moduleTypeEsc ?>';
+            const module = '<?= $moduleEsc ?>';
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('cancel_all', '1');
+            fetch('<?= root ?>modules/' + moduleType + '/' + module + '/cancel', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.tourBusy = false;
+                if (data.status === true || data.success === true) { this.tourStep = 2; }
+                else { alert('Cancel failed: ' + (data.message || 'supplier error')); }
+            })
+            .catch(err => { this.tourBusy = false; alert('Error: ' + err.message); });
+        },
+        liveTourStep2Refund() {
+            const amt = Number(this.tourRateDiff) || 0, fee = Number(this.tourFee) || 0;
+            if (!confirm('Step 2 of 3 — refund ' + (amt - fee) + ' to the customer (keeping a ' + fee + ' change fee)?')) { return; }
+            this.tourBusy = true;
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('refund_amount', String(amt));
+            params.set('change_fee', String(fee));
+            params.set('action', 'change_refund');
+            fetch('<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.tourBusy = false;
+                if (data.success === true) { this.tourStep = 3; }
+                else { alert('Refund: ' + (data.message || 'failed')); }
+            })
+            .catch(err => { this.tourBusy = false; alert('Error: ' + err.message); });
+        },
+        liveTourStep3Rebook() {
+            window.location.href = '<?= root . admin ?>/booking-manager/tours?change_from=<?= $invoiceIdEsc ?>&service=tours';
         },
         startRefundPolling() {
             this.refundPollInterval = setInterval(() => {
