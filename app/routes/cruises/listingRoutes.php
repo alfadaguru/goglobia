@@ -54,9 +54,33 @@ $router->get('/cruises', function () use ($SECURE, $db) {
     if ($departurePort !== '') {
         $where['departure_port[~]'] = '%' . $departurePort . '%';
     }
-    // cruise_length = exact nights when numeric (ignore "any"/empty).
-    if ($cruiseLength !== '' && strtolower($cruiseLength) !== 'any' && ctype_digit($cruiseLength)) {
-        $where['nights'] = (int) $cruiseLength;
+    // Departure date: the form sends d-m-Y and asks for cruises on/after that date
+    // (an "earliest departure" filter). The `departure_date` column is a DATE
+    // (Y-m-d). This clause was previously MISSING — the param was read + remembered
+    // but never applied, so the date picker did nothing. Parse defensively and skip
+    // on an unparseable value rather than returning zero results.
+    if ($departureDate !== '') {
+        $depTs = strtotime(str_replace('/', '-', $departureDate));
+        // d-m-Y (the form default) is ambiguous to strtotime, so parse it explicitly.
+        $depDt = \DateTime::createFromFormat('d-m-Y', $departureDate);
+        if ($depDt !== false) {
+            $where['departure_date[>=]'] = $depDt->format('Y-m-d');
+        } elseif ($depTs !== false) {
+            $where['departure_date[>=]'] = date('Y-m-d', $depTs);
+        }
+    }
+    // Cruise length: the search form sends RANGES (3-5, 6-8, 9-13, 14+) or "any",
+    // never a plain integer — so the old ctype_digit() guard never matched and the
+    // length filter was completely dead. Map each range to a nights condition.
+    $cl = strtolower($cruiseLength);
+    if ($cl !== '' && $cl !== 'any') {
+        if (ctype_digit($cruiseLength)) {
+            $where['nights'] = (int) $cruiseLength;                 // exact (future-proof)
+        } elseif (preg_match('/^(\d+)\s*-\s*(\d+)$/', $cruiseLength, $m)) {
+            $where['nights[<>]'] = [(int) $m[1], (int) $m[2]];       // Medoo BETWEEN
+        } elseif (preg_match('/^(\d+)\s*\+$/', $cruiseLength, $m)) {
+            $where['nights[>=]'] = (int) $m[1];                      // "14+"
+        }
     }
     if ($cruiseLine !== '' && strtolower($cruiseLine) !== 'any') {
         $where['cruise_line[~]'] = '%' . $cruiseLine . '%';
