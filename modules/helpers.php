@@ -1579,6 +1579,58 @@ if (!function_exists('supplier_internal_secret')) {
     }
 }
 
+// ============================================================================
+// OPAQUE SUPPLIER-URL TOKEN — gateway-side decoder (supplier-hiding routing).
+// ----------------------------------------------------------------------------
+// The main app mints a supplier URL token with app/lib/functions.php's
+// supplier_url_token(); the /modules gateway must DECODE it to pick the real
+// supplier handler without ever exposing the name. The gateway deliberately does
+// NOT load functions.php (which has side effects), so — as with MARKUP() and
+// supplier_internal_secret() — we mirror just the key derivation + decoder here.
+// The KEY MUST MATCH functions.php::_supplier_token_key() EXACTLY so tokens
+// cross-decode: sha256( REMEMBER_ME_SECRET(.env) | 'supplier-url' ), with a
+// JWT_SECRET / DB-creds fallback, NEVER seeded from `root`.
+// ============================================================================
+if (!function_exists('_supplier_token_key')) {
+    function _supplier_token_key(): string
+    {
+        static $cached = null;
+        if ($cached !== null) { return $cached; }
+        $secret = (string) (getenv('REMEMBER_ME_SECRET') ?: '');
+        if ($secret === '') {
+            $env = @parse_ini_file(dirname(__DIR__) . '/.env');
+            if (is_array($env) && !empty($env['REMEMBER_ME_SECRET'])) { $secret = (string) $env['REMEMBER_ME_SECRET']; }
+            elseif (is_array($env) && !empty($env['JWT_SECRET']))      { $secret = (string) $env['JWT_SECRET']; }
+            else { $secret = 'v10|' . (string) ($env['DB_DATABASE'] ?? '') . '|' . (string) ($env['DB_PASSWORD'] ?? ''); }
+        }
+        $cached = hash('sha256', $secret . '|supplier-url', true);
+        return $cached;
+    }
+}
+
+if (!function_exists('supplier_from_url_token')) {
+    /** Reverse the main app's supplier_url_token(). Returns '' for an invalid/tampered token. */
+    function supplier_from_url_token(string $token): string
+    {
+        $token = trim($token);
+        if ($token === '') return '';
+        $k = _supplier_token_key();
+        if ($token[0] === 'h') { // hmac-fallback form (no OpenSSL)
+            $raw = base64_decode(strtr(substr($token, 1), '-_', '+/'), true);
+            if ($raw === false || strpos($raw, '|') === false) return '';
+            $sup = substr($raw, 0, strrpos($raw, '|'));
+            $mac = substr($raw, strrpos($raw, '|') + 1);
+            return hash_equals(substr(hash_hmac('sha256', $sup, $k, true), 0, 10), $mac) ? $sup : '';
+        }
+        $raw = base64_decode(strtr($token, '-_', '+/'), true);
+        if ($raw === false || strlen($raw) < 32) return '';
+        $iv = substr($raw, 0, 16); $mac = substr($raw, -10); $ct = substr($raw, 16, -10);
+        if (!hash_equals(substr(hash_hmac('sha256', $iv . $ct, $k, true), 0, 10), $mac)) return '';
+        $sup = openssl_decrypt($ct, 'AES-256-CBC', $k, OPENSSL_RAW_DATA, $iv);
+        return is_string($sup) ? strtolower(trim($sup)) : '';
+    }
+}
+
 if (!function_exists('supplier_internal_token')) {
     function supplier_internal_token(string $invoiceId): string
     {
