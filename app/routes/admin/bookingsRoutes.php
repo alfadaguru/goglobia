@@ -438,6 +438,10 @@ $router->post(admin.'/bookings/change-flight/(.*)', function ($invoice_id) use (
     }
 
     // Customer notice + regenerated ticket (GENERATE_BOOKING_PDF re-reads booking_data).
+    // Buffer/discard any PDF/notify output so this endpoint returns clean JSON — the
+    // other change-* routes do this; the 'ticket' variant did not pollute in testing,
+    // but a template/provider path could echo, so keep it defensive + consistent.
+    ob_start();
     try {
         $ticketPath = GENERATE_BOOKING_PDF($invoice_id, 'ticket');
         NOTIFY::resend($booking['module'], $booking, [
@@ -448,6 +452,7 @@ $router->post(admin.'/bookings/change-flight/(.*)', function ($invoice_id) use (
             'event_note'  => 'changed',
         ], $ticketPath);
     } catch (\Throwable $e) { error_log('change-flight notify ' . $invoice_id . ': ' . $e->getMessage()); }
+    ob_end_clean();
 
     echo json_encode([
         'success'     => true,
@@ -1710,7 +1715,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                 if (function_exists('refund_gateway_payment')) {
                     try {
                         $rr = refund_gateway_payment($db, $booking, null, 'Cruise booking cancelled by admin');
-                        if (is_array($rr) && (string) ($rr['status'] ?? '') === 'success') {
+                        if (is_array($rr) && (string) ($rr['status'] ?? '') === 'refunded') {
                             $refunded = (float) ($booking['price_markup'] ?? 0);
                             $db->update('bookings', ['payment_status' => 'refunded'], ['invoice_id' => $invoice_id]);
                         }
@@ -1760,7 +1765,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                 if (function_exists('refund_gateway_payment')) {
                     try {
                         $rr = refund_gateway_payment($db, $booking, null, 'Visa application cancelled by admin');
-                        if (is_array($rr) && (string) ($rr['status'] ?? '') === 'success') {
+                        if (is_array($rr) && (string) ($rr['status'] ?? '') === 'refunded') {
                             $refunded = (float) ($booking['price_markup'] ?? 0);
                             $db->update('bookings', ['payment_status' => 'refunded'], ['invoice_id' => $invoice_id]);
                         }
@@ -1860,7 +1865,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
             if (strtolower((string) ($booking['payment_status'] ?? '')) === 'paid' && function_exists('refund_gateway_payment')) {
                 try {
                     $rr = refund_gateway_payment($db, $booking, null, 'Cruise booking refunded by admin');
-                    if (is_array($rr) && (string) ($rr['status'] ?? '') === 'success') {
+                    if (is_array($rr) && (string) ($rr['status'] ?? '') === 'refunded') {
                         $refunded = (float) ($booking['price_markup'] ?? 0);
                     }
                 } catch (\Throwable $e) { error_log('cruise admin refund ' . $invoice_id . ': ' . $e->getMessage()); }
@@ -1901,7 +1906,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
             if (strtolower((string) ($booking['payment_status'] ?? '')) === 'paid' && function_exists('refund_gateway_payment')) {
                 try {
                     $rr = refund_gateway_payment($db, $booking, null, 'Visa application refunded by admin');
-                    if (is_array($rr) && (string) ($rr['status'] ?? '') === 'success') {
+                    if (is_array($rr) && (string) ($rr['status'] ?? '') === 'refunded') {
                         $refunded = (float) ($booking['price_markup'] ?? 0);
                     }
                 } catch (\Throwable $e) { error_log('visa admin refund ' . $invoice_id . ': ' . $e->getMessage()); }

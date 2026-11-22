@@ -945,7 +945,16 @@ if (!function_exists('bm_apply_booking_adjustment')) {
             if (!$noGateway && function_exists('refund_gateway_payment')) {
                 try {
                     $r = refund_gateway_payment($db, $booking, $amt, $reason !== '' ? $reason : 'Flight change refund');
-                    $okRefund = is_array($r) && (string) ($r['status'] ?? '') === 'success';
+                    // refund_gateway_payment returns status 'refunded' on success (NOT
+                    // 'success') — see its docblock + Paystack/Stripe/wallet success paths
+                    // (payment-gateway.php:3117/3165/3206) and the other correct callers
+                    // (bus action, refund-retry cron). Checking 'success' here was a bug:
+                    // a REAL gateway refund (money already moved) was treated as failed and
+                    // reported as a "manual payout", inviting a double refund. NOTE: this is
+                    // a PARTIAL change-refund (fare-drop minus fee), so we do NOT flip
+                    // payment_status to 'refunded' — the booking is still a valid paid
+                    // booking at the new lower price; only the delta was returned.
+                    $okRefund = is_array($r) && (string) ($r['status'] ?? '') === 'refunded';
                     if ($okRefund) {
                         $refunded = $amt;
                         $message  = 'Refunded ' . $amt . ' ' . $currency . ' to the original payment method.';

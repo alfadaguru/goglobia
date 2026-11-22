@@ -3317,15 +3317,25 @@ function bookingEdit() {
             const moduleType = '<?= $moduleTypeEsc ?>';
             const module = '<?= $moduleEsc ?>';
 
+            // CANCEL/REFUND routing. Most services post to the supplier/own-inventory
+            // modules gateway route (/modules/<type>/<module>/{cancel,refund}) which
+            // exists and works (flights/stays/cars/tours/bus/ferries). BUT cruise and
+            // visa are own-RECORD services with NO modules/<type>/ directory — their
+            // modules route 404s. For those, Cancel/Refund must go to the admin action
+            // handler (action=cancel_booking / refund_request), which has a working
+            // own-inventory branch. $cancelViaAction gates this per booking.
+            const cancelViaAction = <?= (!empty($is_cruise_booking) || !empty($is_visa_booking)) ? 'true' : 'false' ?>;
+            const actionBase = '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>';
+
             // Map action names to action routes
             const actionMap = {
-                'Mark Paid': '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>',
-                'Mark Confirmed': '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>',
-                'Mark No-show': '<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>',
+                'Mark Paid': actionBase,
+                'Mark Confirmed': actionBase,
+                'Mark No-show': actionBase,
                 'Issue Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/issue',
                 'Void Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/void',
-                'Cancel Booking': '<?= root ?>modules/' + moduleType + '/' + module + '/cancel',
-                'Refund Request': '<?= root ?>modules/' + moduleType + '/' + module + '/refund'
+                'Cancel Booking': cancelViaAction ? actionBase : ('<?= root ?>modules/' + moduleType + '/' + module + '/cancel'),
+                'Refund Request': cancelViaAction ? actionBase : ('<?= root ?>modules/' + moduleType + '/' + module + '/refund')
             };
 
             const actionCodeMap = {
@@ -3334,8 +3344,8 @@ function bookingEdit() {
                 'Mark No-show': 'mark_no_show',
                 'Issue Booking': '',
                 'Void Booking': '',
-                'Cancel Booking': '',
-                'Refund Request': ''
+                'Cancel Booking': cancelViaAction ? 'cancel_booking' : '',
+                'Refund Request': cancelViaAction ? 'refund_request' : ''
             };
 
             const url = actionMap[action];
