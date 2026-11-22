@@ -234,7 +234,7 @@ function umrahBooking() {
     apiBase: '<?= $apiBase ?>',
     csrf: '<?= htmlspecialchars($csrf, ENT_QUOTES) ?>',
     departures: [], tiersByDep: {}, plans: [], media: {},
-    selectedId: 0, selectedTierId: 0, showDates: false,
+    selectedId: 0, selectedTierId: 0, showDates: false, preferredTierCode: '',
     hero: '', gallery: [], activeImage: '',
     maxPax: <?= (int) ($GLOBALS['__umrah_customer_max_pax'] ?? 5) ?>,
     counts: { adults: 1, children: 0, infants: 0 },
@@ -282,6 +282,10 @@ function umrahBooking() {
       this.counts = { adults: a, children: c, infants: inf };
       while (this.pax > this.maxPax && this.counts.infants > 0)  { this.counts.infants--; }
       while (this.pax > this.maxPax && this.counts.children > 0) { this.counts.children--; }
+      // Carry the comfort tier the customer chose on the results page (?tier=<code>).
+      // Tiers match by tier_code; pickFirstTier() prefers it when the departure has a
+      // bookable tier of that code, else falls back to the first bookable tier.
+      this.preferredTierCode = (qs.get('tier') || '').trim();
       this.applyMedia();
       this.pickFirstTier();
       this.recalc();
@@ -312,7 +316,14 @@ function umrahBooking() {
     money(n) { return '₦' + Number(n||0).toLocaleString('en-NG'); },
     pickFirstTier() {
       const list = this.currentTiers;
-      const firstBookable = list.find(t => t.availability !== 'sold_out') || list[0];
+      // Honour the tier the customer picked on results (?tier=<code>) when this
+      // departure offers it and it is bookable; otherwise first bookable, else first.
+      let chosen = null;
+      if (this.preferredTierCode) {
+        chosen = list.find(t => t.tier_code === this.preferredTierCode && t.availability !== 'sold_out')
+              || list.find(t => t.tier_code === this.preferredTierCode);
+      }
+      const firstBookable = chosen || list.find(t => t.availability !== 'sold_out') || list[0];
       this.selectedTierId = firstBookable ? firstBookable.departure_tier_id : 0;
     },
     selectDeparture(id) { this.selectedId = id; this.applyMedia(); this.pickFirstTier(); this.recalc(); },
