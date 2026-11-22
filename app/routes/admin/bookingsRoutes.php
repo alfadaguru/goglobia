@@ -747,6 +747,103 @@ $router->post(admin.'/bookings/change-rental/(.*)', function ($invoice_id) use (
 
 });
 
+// ================================ POST /admin/bookings/change-cruise/{invoice_id}
+// CRUISE change (sailing). Cruise is own-inventory (module='goglobia', no supplier,
+// not in the Booking Manager), so a change is a pure RECORD edit: rewrite the sailing
+// in booking_data (cruise/ship/line, departure port + date, nights, cabin, pax) and
+// reconcile the fare difference + change fee. No supplier call, no rebook deep-link.
+$router->post(admin.'/bookings/change-cruise/(.*)', function ($invoice_id) use ($SECURE,$db) {
+
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
+    if (!$booking) { echo json_encode(['success' => false, 'message' => 'Booking not found']); exit; }
+
+    if (strtolower((string) ($booking['module_type'] ?? '')) !== 'cruises') {
+        echo json_encode(['success' => false, 'message' => 'This change path is for cruise bookings only.']);
+        exit;
+    }
+    if (in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+        echo json_encode(['success' => false, 'message' => 'A cancelled/voided booking cannot be changed.']);
+        exit;
+    }
+
+    $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+    if (!is_array($bd)) { $bd = []; }
+    $prev = [
+        'cruise_name'    => (string) ($bd['cruise_name'] ?? ''),
+        'departure_port' => (string) ($bd['departure_port'] ?? ''),
+        'departure_date' => (string) ($bd['departure_date'] ?? ''),
+        'room_type'      => (string) ($bd['room_type'] ?? ''),
+    ];
+
+    // Apply edited cruise fields (only overwrite when provided).
+    $setStr = function (string $k) use (&$bd) {
+        if (isset($_POST[$k])) { $bd[$k] = trim((string) $_POST[$k]); }
+    };
+    foreach (['cruise_name', 'cruise_line', 'ship_name', 'departure_port', 'departure_date', 'room_type'] as $k) { $setStr($k); }
+    if (isset($_POST['nights']) && $_POST['nights'] !== '')     { $bd['nights']   = max(0, (int) $_POST['nights']); }
+    if (isset($_POST['adults']) && $_POST['adults'] !== '')     { $bd['adults']   = max(1, (int) $_POST['adults']); }
+    if (isset($_POST['children']) && $_POST['children'] !== '') { $bd['children'] = max(0, (int) $_POST['children']); }
+
+    // CHANGE HISTORY (same meta shape stays/cars/flights use).
+    if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+    $hist = [
+        'at'   => date('Y-m-d H:i:s'),
+        'by'   => $_SESSION['user_id'] ?? null,
+        'from' => $prev,
+        'to'   => [
+            'cruise_name'    => (string) ($bd['cruise_name'] ?? ''),
+            'departure_port' => (string) ($bd['departure_port'] ?? ''),
+            'departure_date' => (string) ($bd['departure_date'] ?? ''),
+            'room_type'      => (string) ($bd['room_type'] ?? ''),
+        ],
+    ];
+    if (!isset($bd['meta']['change_history']) || !is_array($bd['meta']['change_history'])) { $bd['meta']['change_history'] = []; }
+    $bd['meta']['change_history'][] = $hist;
+    $bd['meta']['last_changed'] = $hist;
+
+    $ok = $db->update('bookings', ['booking_data' => json_encode($bd)], ['invoice_id' => $invoice_id]);
+    if ($ok === false) { echo json_encode(['success' => false, 'message' => 'Failed to save the cruise change.']); exit; }
+
+    // Money reconcile.
+    $rateDiff  = (float) ($_POST['rate_difference'] ?? 0);
+    $changeFee = max(0.0, (float) ($_POST['change_fee'] ?? 0));
+    $delta = ($rateDiff > 0) ? ($rateDiff + $changeFee) : (($rateDiff < 0) ? ($rateDiff + $changeFee) : $changeFee);
+    $money = ['direction' => 'none', 'message' => 'No money movement.'];
+    if (function_exists('bm_apply_booking_adjustment') && abs($delta) > 0.001) {
+        $money = bm_apply_booking_adjustment($db, (string) $invoice_id, round($delta, 2), $changeFee,
+            'Cruise change', ['actor' => $_SESSION['user_id'] ?? null]);
+    }
+
+    // Voucher + notify, buffered so the JSON response stays clean.
+    ob_start();
+    try {
+        $voucher = GENERATE_BOOKING_PDF($invoice_id);
+        NOTIFY::resend($booking['module'], $booking, [
+            'invoice_id'  => $invoice_id,
+            'amount'      => $booking['price_markup'],
+            'currency'    => $booking['currency'] ?? '',
+            'module_type' => 'Cruises',
+            'event_note'  => 'changed',
+        ], $voucher);
+    } catch (\Throwable $e) { error_log('change-cruise notify ' . $invoice_id . ': ' . $e->getMessage()); }
+    ob_end_clean();
+
+    echo json_encode([
+        'success'     => true,
+        'message'     => 'Cruise updated.' . (($money['direction'] ?? 'none') !== 'none' ? ' ' . ($money['message'] ?? '') : ''),
+        'money'       => $money,
+        'payment_due' => $money['payment_due'] ?? 0,
+        'refunded'    => $money['refunded'] ?? 0,
+    ]);
+    exit;
+
+});
+
 // ================================ POST /admin/bookings/action/{invoice_id}
 $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE,$db) {
 
@@ -1204,6 +1301,58 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
             exit;
         }
 
+        // CRUISE (own-inventory, module='goglobia', confirm-on-pay, no PNR): like umrah,
+        // there is NO modules/cruises/goglobia/actions/cancel.php to include — the generic
+        // include fallback below would fail with "Cancel file not found", which is why a
+        // paid cruise had no working admin cancel. Handle it here: mark cancelled, and if
+        // this admin also holds bookings.refund AND the booking is paid, reverse the money
+        // (gateway refund of the amount paid). A plain cancel (no refund right) still
+        // cancels and says so — the money-safe split umrah uses.
+        if (strtolower((string) ($booking['module_type'] ?? '')) === 'cruises') {
+            $refunded = 0.0;
+            $isPaid = strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+            $canRefund = function_exists('admin_can') ? admin_can($db, 'bookings', 'refund') : true;
+            $db->update('bookings', [
+                'booking_status'      => 'cancelled',
+                'cancellation_status' => 1,
+                'updated_at'          => date('Y-m-d H:i:s'),
+            ], ['invoice_id' => $invoice_id]);
+            if ($isPaid && $canRefund) {
+                if (!function_exists('refund_gateway_payment')) {
+                    $pg = dirname(__DIR__, 2) . '/lib/payment-gateway.php';
+                    if (is_file($pg)) { require_once $pg; }
+                }
+                if (function_exists('refund_gateway_payment')) {
+                    try {
+                        $rr = refund_gateway_payment($db, $booking, null, 'Cruise booking cancelled by admin');
+                        if (is_array($rr) && (string) ($rr['status'] ?? '') === 'success') {
+                            $refunded = (float) ($booking['price_markup'] ?? 0);
+                            $db->update('bookings', ['payment_status' => 'refunded'], ['invoice_id' => $invoice_id]);
+                        }
+                    } catch (\Throwable $e) { error_log('cruise admin cancel refund ' . $invoice_id . ': ' . $e->getMessage()); }
+                }
+            }
+            ob_start();
+            try {
+                NOTIFY::cancellation($booking['module'], $booking, [
+                    'invoice_id' => $invoice_id,
+                    'amount'     => $booking['price_markup'],
+                    'currency'   => $booking['currency_markup'] ?? $booking['currency'] ?? '',
+                    'module_type'=> 'Cruises',
+                ]);
+            } catch (\Throwable $e) { error_log('cruise cancel notify ' . $invoice_id . ': ' . $e->getMessage()); }
+            ob_end_clean();
+            echo json_encode([
+                'status'   => true,
+                'success'  => true,
+                'message'  => $refunded > 0
+                    ? ('Cruise cancelled and ' . $refunded . ' refunded to the customer.')
+                    : ($isPaid && !$canRefund ? 'Cruise cancelled (no refund — you do not hold refund rights).' : 'Cruise cancelled.'),
+                'refunded' => $refunded,
+            ]);
+            exit;
+        }
+
         $moduleType = $booking['module_type'] ?? 'hotels';
         $module = $booking['module'] ?? 'hotels';
         $basePath = dirname(__DIR__, 3);
@@ -1260,6 +1409,48 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                 'success' => !empty($r['ok']),
                 'message' => $r['message'] ?? ($r['ok'] ? 'Refunded' : 'Refund failed'),
                 'refunded'=> $r['refunded'] ?? 0,
+            ]);
+            exit;
+        }
+
+        // CRUISE (own-inventory): no modules/cruises/goglobia/actions/refund.php to
+        // include. Reverse the paid amount via the gateway, mark refunded + cancelled.
+        // This handler already requires bookings.refund (above).
+        if (strtolower((string) ($booking['module_type'] ?? '')) === 'cruises') {
+            $refunded = 0.0;
+            if (!function_exists('refund_gateway_payment')) {
+                $pg = dirname(__DIR__, 2) . '/lib/payment-gateway.php';
+                if (is_file($pg)) { require_once $pg; }
+            }
+            if (strtolower((string) ($booking['payment_status'] ?? '')) === 'paid' && function_exists('refund_gateway_payment')) {
+                try {
+                    $rr = refund_gateway_payment($db, $booking, null, 'Cruise booking refunded by admin');
+                    if (is_array($rr) && (string) ($rr['status'] ?? '') === 'success') {
+                        $refunded = (float) ($booking['price_markup'] ?? 0);
+                    }
+                } catch (\Throwable $e) { error_log('cruise admin refund ' . $invoice_id . ': ' . $e->getMessage()); }
+            }
+            $db->update('bookings', [
+                'payment_status'      => $refunded > 0 ? 'refunded' : ($booking['payment_status'] ?? 'unpaid'),
+                'booking_status'      => 'cancelled',
+                'cancellation_status' => 1,
+                'updated_at'          => date('Y-m-d H:i:s'),
+            ], ['invoice_id' => $invoice_id]);
+            ob_start();
+            try {
+                NOTIFY::cancellation($booking['module'], $booking, [
+                    'invoice_id' => $invoice_id,
+                    'amount'     => $booking['price_markup'],
+                    'currency'   => $booking['currency_markup'] ?? $booking['currency'] ?? '',
+                    'module_type'=> 'Cruises',
+                ]);
+            } catch (\Throwable $e) { error_log('cruise refund notify ' . $invoice_id . ': ' . $e->getMessage()); }
+            ob_end_clean();
+            echo json_encode([
+                'status'   => true,
+                'success'  => true,
+                'message'  => $refunded > 0 ? ('Cruise refunded (' . $refunded . ') and cancelled.') : 'Cruise cancelled — no gateway payment to reverse.',
+                'refunded' => $refunded,
             ]);
             exit;
         }

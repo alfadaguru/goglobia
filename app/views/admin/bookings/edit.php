@@ -82,6 +82,12 @@ $is_live_stay      = $is_stays_booking && !$is_own_stay;
 $is_cars_booking   = strtolower((string) ($booking['module_type'] ?? '')) === 'cars';
 $is_live_car       = $is_cars_booking && in_array(strtolower((string) ($booking['module'] ?? '')), ['cartrawler', 'mozio'], true);
 $is_own_car        = $is_cars_booking && !$is_live_car;
+// CRUISE (own-inventory, confirm-on-pay, no PNR). Its admin cancel/refund are own-
+// inventory ops (no supplier module), handled directly in the action handler.
+$is_cruise_booking = strtolower((string) ($booking['module_type'] ?? '')) === 'cruises';
+// Own-inventory confirm-on-pay bookings have no PNR by design, so the PNR-based
+// disable on Cancel/Refund is wrong for them. This flag re-enables those buttons.
+$is_own_inventory_no_pnr = $is_cruise_booking;
 // A cross-reference to the counterpart of a cancel+rebook change, if any.
 $__bd_meta = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
 $change_ref = (is_array($__bd_meta) && isset($__bd_meta['meta']['change']) && is_array($__bd_meta['meta']['change']))
@@ -582,6 +588,60 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         </div>
     </div>
 
+    <!-- ===================== CHANGE CRUISE MODAL ===================== -->
+    <div x-show="cruiseOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="display:none;">
+        <div class="absolute inset-0 bg-slate-900/60" @click="closeChangeCruise()"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined">directions_boat</span>
+                    <span>Change cruise</span>
+                </h3>
+                <button type="button" @click="closeChangeCruise()" class="text-slate-500 hover:text-slate-800">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-slate-600">Edit the sailing below. Any fare difference or change fee is recorded, and the voucher is regenerated.</p>
+
+                <!-- Sailing -->
+                <div class="grid sm:grid-cols-3 gap-3">
+                    <label class="form-control"><span class="form-label">Cruise name</span><input class="input" x-model="cruise.cruise_name"></label>
+                    <label class="form-control"><span class="form-label">Cruise line</span><input class="input" x-model="cruise.cruise_line"></label>
+                    <label class="form-control"><span class="form-label">Ship</span><input class="input" x-model="cruise.ship_name"></label>
+                </div>
+
+                <!-- Departure + duration -->
+                <div class="grid sm:grid-cols-3 gap-3 border-t border-slate-200 pt-4">
+                    <label class="form-control"><span class="form-label">Departure port</span><input class="input" x-model="cruise.departure_port"></label>
+                    <label class="form-control"><span class="form-label">Departure date</span><input type="date" class="input" x-model="cruise.departure_date"></label>
+                    <label class="form-control"><span class="form-label">Nights</span><input type="number" min="0" class="input" x-model.number="cruise.nights"></label>
+                </div>
+
+                <!-- Cabin + pax -->
+                <div class="grid sm:grid-cols-3 gap-3">
+                    <label class="form-control"><span class="form-label">Cabin / room type</span><input class="input" x-model="cruise.room_type" placeholder="Interior / Balcony / Suite"></label>
+                    <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="cruise.adults"></label>
+                    <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="cruise.children"></label>
+                </div>
+
+                <!-- Money -->
+                <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                    <label class="form-control"><span class="form-label">Rate difference (new − old; negative = refund)</span><input type="number" step="0.01" class="input" x-model.number="cruiseRateDiff" placeholder="0.00"></label>
+                    <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="cruiseFee" placeholder="0.00"></label>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" class="btn secondary" @click="closeChangeCruise()">Cancel</button>
+                    <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="cruiseBusy" @click="submitCruiseChange()">
+                        <span x-show="cruiseBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                        <span>Save cruise change</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- HEADER -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div class="flex items-center gap-5">
@@ -855,7 +915,7 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     ?>
                     <?php if (!$is_voided_or_cancelled): ?>
                     <?php if (!$railCancelBlocked): ?>
-                    <button type="button" @click="handleAction('Cancel Booking', { cancel_all: '1' })" :disabled="actionLoading['Cancel Booking'] || !hasPnr" :class="{'opacity-50 cursor-not-allowed': !hasPnr}" class="group relative inline-flex items-center justify-center gap-3 px-5 py-3.5 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium rounded-lg transition-all duration-200 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-700 disabled:cursor-not-allowed">
+                    <button type="button" @click="handleAction('Cancel Booking', { cancel_all: '1' })" :disabled="actionLoading['Cancel Booking'] || (!hasPnr && !allowNoPnr)" :class="{'opacity-50 cursor-not-allowed': (!hasPnr && !allowNoPnr)}" class="group relative inline-flex items-center justify-center gap-3 px-5 py-3.5 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium rounded-lg transition-all duration-200 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-700 disabled:cursor-not-allowed">
                         <svg x-show="actionLoading['Cancel Booking']" class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -957,7 +1017,7 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     ?>
                     <?php if (($booking['payment_status'] ?? '') !== 'refunded'): ?>
                     <?php if (!$railRefundBlocked): ?>
-                    <button type="button" @click="handleAction('Refund Request')" :disabled="actionLoading['Refund Request'] || !hasPnr" :class="{'opacity-50 cursor-not-allowed': !hasPnr}" class="group relative inline-flex items-center justify-center gap-3 px-5 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-medium rounded-lg transition-all duration-200 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-700 disabled:cursor-not-allowed">
+                    <button type="button" @click="handleAction('Refund Request')" :disabled="actionLoading['Refund Request'] || (!hasPnr && !allowNoPnr)" :class="{'opacity-50 cursor-not-allowed': (!hasPnr && !allowNoPnr)}" class="group relative inline-flex items-center justify-center gap-3 px-5 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-medium rounded-lg transition-all duration-200 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-700 disabled:cursor-not-allowed">
                         <svg x-show="actionLoading['Refund Request']" class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -1462,6 +1522,10 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
 
         <?php if ($is_cars_booking): ?>
         <?php include __DIR__ . '/cars-booking-details.php'; ?>
+        <?php endif; ?>
+
+        <?php if ($is_cruise_booking): ?>
+        <?php include __DIR__ . '/cruises-booking-details.php'; ?>
         <?php endif; ?>
 
         <?php if ($is_rail_booking): ?>
@@ -2157,6 +2221,7 @@ function bookingEdit() {
         loading: false,
         actionLoading: {},
         hasPnr: <?= $has_lifecycle_ref ? 'true' : 'false' ?>,
+        allowNoPnr: <?= !empty($is_own_inventory_no_pnr) ? 'true' : 'false' ?>,
         isIssued: <?= $is_issued ? 'true' : 'false' ?>,
         isRailRefundPending: <?= $isRailRefundPending ? 'true' : 'false' ?>,
         isHotelbedsBooking: <?= !empty($is_hotelbeds_booking) ? 'true' : 'false' ?>,
@@ -2268,6 +2333,22 @@ function bookingEdit() {
                 'driver_age'       => (int) ($cd['driver_age'] ?? $sp['driver_age'] ?? 0),
             ], JSON_UNESCAPED_UNICODE) ?: '{}';
         })() ?>,
+        // ---- CRUISE CHANGE state ----
+        cruiseOpen: false,
+        cruiseBusy: false,
+        cruiseRateDiff: 0,
+        cruiseFee: 0,
+        cruise: <?= json_encode([
+            'cruise_name'    => (string) ($booking_data['cruise_name'] ?? ''),
+            'cruise_line'    => (string) ($booking_data['cruise_line'] ?? ''),
+            'ship_name'      => (string) ($booking_data['ship_name'] ?? ''),
+            'departure_port' => (string) ($booking_data['departure_port'] ?? ''),
+            'departure_date' => (string) ($booking_data['departure_date'] ?? ''),
+            'nights'         => (int) ($booking_data['nights'] ?? 0),
+            'room_type'      => (string) ($booking_data['room_type'] ?? ''),
+            'adults'         => (int) ($booking_data['adults'] ?? 1),
+            'children'       => (int) ($booking_data['children'] ?? 0),
+        ], JSON_UNESCAPED_UNICODE) ?>,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
@@ -2569,6 +2650,33 @@ function bookingEdit() {
         },
         liveCarStep3Rebook() {
             window.location.href = '<?= root . admin ?>/booking-manager/cars?change_from=<?= $invoiceIdEsc ?>&service=cars';
+        },
+        // ---- CRUISE CHANGE methods (record edit — own-inventory, no supplier) ----
+        openChangeCruise() { this.cruiseOpen = true; },
+        closeChangeCruise() { this.cruiseOpen = false; },
+        submitCruiseChange() {
+            if (!confirm('Save the cruise change and apply the money adjustment?')) { return; }
+            this.cruiseBusy = true;
+            const params = new URLSearchParams();
+            params.set('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            ['cruise_name','cruise_line','ship_name','departure_port','departure_date','room_type'].forEach(k => params.set(k, this.cruise[k] || ''));
+            params.set('nights', String(Number(this.cruise.nights) || 0));
+            params.set('adults', String(Number(this.cruise.adults) || 1));
+            params.set('children', String(Number(this.cruise.children) || 0));
+            params.set('rate_difference', String(Number(this.cruiseRateDiff) || 0));
+            params.set('change_fee', String(Number(this.cruiseFee) || 0));
+            fetch('<?= root . admin ?>/bookings/change-cruise/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.cruiseBusy = false;
+                if (data.success === true) {
+                    if (confirm((data.message || 'Cruise updated.') + '\n\nClick OK to refresh.')) window.location.reload();
+                } else { alert('Error: ' + (data.message || 'Could not change the cruise.')); }
+            })
+            .catch(err => { this.cruiseBusy = false; alert('Error: ' + err.message); });
         },
         startRefundPolling() {
             this.refundPollInterval = setInterval(() => {
