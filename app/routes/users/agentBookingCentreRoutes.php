@@ -656,6 +656,86 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
         exit;
     }
 
+    // ---- CHANGE / RESCHEDULE (fare difference +/- a change fee) -------------
+    // Agent-side post-booking amendment. Reuses the SAME money model as the admin
+    // Booking Manager change, but refunds route to the AGENCY WALLET (agent bookings
+    // are wallet-paid) via bm_apply_agent_booking_change. A fare INCREASE records an
+    // amount due the agent collects from the wallet via the normal Pay flow; a fare
+    // DECREASE (net of the retained change fee) is credited back to the wallet.
+    // Idempotent on the server-derived adjustment ref. Gated on bookings.edit.
+    if ($action === 'change') {
+        if (!agent_can($db, 'bookings', 'edit')) { echo json_encode(['status'=>false,'message'=>'No permission.']); exit; }
+        // A finalised booking can't be amended (mirror admin finality guard).
+        if (in_array(strtolower((string)($b['booking_status'] ?? '')), ['cancelled','voided','refunded'], true)) {
+            echo json_encode(['status'=>false,'message'=>'A '.strtolower((string)$b['booking_status']).' booking cannot be changed.']); exit;
+        }
+        if (!function_exists('bm_apply_agent_booking_change')) {
+            echo json_encode(['status'=>false,'message'=>'Change engine unavailable.']); exit;
+        }
+        // Server reads the signed fare difference (new − old) and the change fee.
+        $fareDiff  = (float) ($input['fare_difference'] ?? 0);
+        $changeFee = max(0.0, (float) ($input['change_fee'] ?? 0));
+        if (abs($fareDiff) < 0.001 && $changeFee <= 0.0) {
+            echo json_encode(['status'=>false,'message'=>'Enter a fare difference and/or a change fee.']); exit;
+        }
+        $reason = trim((string) ($input['reason'] ?? 'Agent booking change'));
+        $money = bm_apply_agent_booking_change($db, (string)$invoiceId, $owner, $fareDiff, $changeFee,
+            $reason !== '' ? $reason : 'Agent booking change', ['actor' => $actor]);
+
+        // Re-derive the client price/margin off the NEW agent cost so the agent's
+        // client invoice stays correct after the change (recomputes from scratch —
+        // not cumulative). Uses the booking's live price_markup (post-adjustment).
+        if (!empty($money['ok']) && function_exists('agent_apply_self_markup')) {
+            try {
+                $nb = $db->get('bookings', ['price_markup','currency_markup','module_type','agent_client_id'], ['invoice_id'=>(string)$invoiceId]);
+                if ($nb) {
+                    agent_apply_self_markup($db, $owner, (string)$invoiceId,
+                        round((float)($nb['price_markup'] ?? 0), 2),
+                        (string)($nb['currency_markup'] ?? 'NGN'),
+                        (string)($nb['module_type'] ?? ''),
+                        isset($nb['agent_client_id']) ? (int)$nb['agent_client_id'] : null);
+                }
+            } catch (\Throwable $e) { error_log('agent change self-markup '.$invoiceId.': '.$e->getMessage()); }
+        }
+
+        if (function_exists('agent_audit_log')) {
+            agent_audit_log($db, $owner, $actor, 'booking.change',
+                (string)$invoiceId.' '.($money['direction'] ?? 'none').' '.(string)($money['amount'] ?? 0));
+        }
+        echo json_encode([
+            'status'      => !empty($money['ok']),
+            'direction'   => $money['direction'] ?? 'none',
+            'amount'      => $money['amount'] ?? 0,
+            'payment_due' => $money['payment_due'] ?? 0,
+            'refunded'    => $money['refunded'] ?? 0,
+            'message'     => $money['message'] ?? 'Change applied.',
+        ]);
+        exit;
+    }
+
+    // ---- MARK NO-SHOW (status only — NO money movement) --------------------
+    // Mirrors the admin mark_no_show: stamps booking_status='no_show' + meta so the
+    // agent can later start a rebook (Change flow). Idempotent; gated on bookings.edit.
+    if ($action === 'mark_no_show') {
+        if (!agent_can($db, 'bookings', 'edit')) { echo json_encode(['status'=>false,'message'=>'No permission.']); exit; }
+        $cur = strtolower((string)($b['booking_status'] ?? ''));
+        if (in_array($cur, ['cancelled','voided','no_show'], true)) {
+            echo json_encode(['status'=>false,'message'=>'This booking is already '.$cur.'.']); exit;
+        }
+        try {
+            $bd = json_decode((string)($b['booking_data'] ?? '{}'), true); if (!is_array($bd)) { $bd = []; }
+            if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+            $bd['meta']['no_show'] = ['by' => $actor, 'at' => date('Y-m-d H:i:s'), 'via' => 'agent'];
+            $db->update('bookings', ['booking_status'=>'no_show', 'booking_data'=>json_encode($bd)], ['invoice_id'=>(string)$invoiceId]);
+        } catch (\Throwable $e) {
+            error_log('agent no_show '.$invoiceId.': '.$e->getMessage());
+            echo json_encode(['status'=>false,'message'=>'Could not mark no-show.']); exit;
+        }
+        if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, $actor, 'booking.no_show', (string)$invoiceId); }
+        echo json_encode(['status'=>true,'message'=>'Booking marked no-show. You can start a rebook from the change action.']);
+        exit;
+    }
+
     echo json_encode(['status'=>false,'message'=>'Unknown action.']);
     exit;
 });

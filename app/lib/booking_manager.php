@@ -1055,3 +1055,126 @@ if (!function_exists('_bm_adjustment_record_and_return')) {
         return $result;
     }
 }
+
+if (!function_exists('bm_apply_agent_booking_change')) {
+    /**
+     * WALLET-AWARE post-booking change/reschedule money adjustment for an AGENT
+     * booking. Mirrors the admin change money model (bm_apply_booking_adjustment)
+     * EXACTLY for the CHARGE direction, but routes any REFUND back to the AGENCY
+     * WALLET (agent bookings are wallet-paid: payment_gateway='Wallet'), not through
+     * refund_gateway_payment — which explicitly skips wallet/credits gateways and
+     * would otherwise record an uncredited "manual payout", stranding the agent's
+     * money (that mismatch is why we do NOT call the admin primitive for refunds).
+     *
+     * Reuses the admin primitives (bm_apply_booking_adjustment for charge;
+     * _bm_adjustment_audit_row + _bm_adjustment_record_and_return for the refund's
+     * attributable, idempotent record) — NO parallel ledger, NO duplicated math.
+     *
+     * Delta model (identical to the admin change handler):
+     *   $delta = fareDiff + changeFee          (charge: fare up, or flat-fee-only)
+     *   $delta = fareDiff + changeFee (<0)      (refund: fare down, fee retained out of refund)
+     * The change fee is always RETAINED by the platform (added on a charge, netted
+     * out of a refund), matching admin semantics.
+     *
+     * Idempotent: one stable $ref (adjustment_ref) gates BOTH the wallet_refund
+     * (idempotency_key) AND the booking_data.meta.adjustments log, so a repeat is a
+     * no-op that never double-moves money.
+     *
+     * @param string $owner  the AGENCY OWNER user_id (wallet owner / refund target)
+     * @return array ['ok','direction'=>'charge|refund|none','amount','payment_due',
+     *                'refunded','ref','message']
+     */
+    function bm_apply_agent_booking_change($db, string $invoiceId, string $owner, float $fareDiff, float $changeFee, string $reason, array $meta = []): array
+    {
+        $changeFee = max(0.0, round((float) $changeFee, 2));
+        $fareDiff  = round((float) $fareDiff, 2);
+        // Net the customer owes(+) / is owed(−): fee is added on a charge, retained
+        // out of a refund (fee offsets the refund) — same rule as admin.
+        $delta = round($fareDiff + $changeFee, 2);
+        if ($fareDiff === 0.0) { $delta = $changeFee; } // flat fee only
+
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+        if (!$booking) { return ['ok' => false, 'direction' => 'none', 'amount' => 0.0, 'message' => 'Booking not found']; }
+        $currency = strtoupper(trim((string) ($booking['currency_markup'] ?? 'NGN'))) ?: 'NGN';
+        $actor    = $meta['actor'] ?? ($_SESSION['user_id'] ?? null);
+
+        // Stable idempotency ref shared by the wallet refund AND the audit log.
+        $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+        if (!is_array($bd)) { $bd = []; }
+        $applied = $bd['meta']['adjustments'] ?? [];
+        if (!is_array($applied)) { $applied = []; }
+        $ref = trim((string) ($meta['adjustment_ref'] ?? ''));
+        if ($ref === '') { $ref = 'AGTCHG-' . $invoiceId . '-' . (count($applied) + 1); }
+        foreach ($applied as $a) {
+            if (isset($a['ref']) && (string) $a['ref'] === $ref) {
+                return ['ok' => true, 'direction' => $a['direction'] ?? 'none', 'amount' => (float) ($a['amount'] ?? 0),
+                        'payment_due' => (float) ($a['payment_due'] ?? 0), 'refunded' => (float) ($a['refunded'] ?? 0),
+                        'ref' => $ref, 'message' => 'Change already applied (idempotent no-op).'];
+            }
+        }
+
+        // ---- CHARGE: fare went up → reuse the admin primitive verbatim. It records
+        //      the amount as due (bumps price totals, flips paid→partially_paid) so
+        //      the agent collects it via the normal /pay-from-wallet flow. ----------
+        if ($delta > 0.001) {
+            return bm_apply_booking_adjustment($db, $invoiceId, $delta, $changeFee, $reason,
+                ['actor' => $actor, 'adjustment_ref' => $ref] + $meta);
+        }
+
+        // ---- REFUND: fare dropped (net of fee) → credit the AGENCY WALLET. --------
+        if ($delta < -0.001) {
+            $amt = round(abs($delta), 2);
+            $refunded = 0.0; $message = '';
+            $paidFromWallet = strcasecmp((string) ($booking['payment_gateway'] ?? ''), 'Wallet') === 0;
+
+            if ($paidFromWallet && $owner !== '' && function_exists('wallet_refund')) {
+                try {
+                    $r = wallet_refund($db, $owner, $amt, $currency, [
+                        'reason'          => 'refund',
+                        'invoice_id'      => $invoiceId,
+                        'ref_type'        => 'invoice',
+                        'ref_id'          => $invoiceId,
+                        'idempotency_key' => $ref,   // same ref → never double-refunds
+                        'note'            => 'Agent booking change refund (fare drop net of fee) ' . $invoiceId,
+                    ]);
+                    if (!empty($r['ok'])) {
+                        $refunded = $amt;
+                        $message  = 'Refunded ' . $amt . ' ' . $currency . ' to your agency wallet.';
+                    } else {
+                        $message = 'Change recorded; wallet refund of ' . $amt . ' ' . $currency . ' could not be applied (' . (string) ($r['message'] ?? 'error') . ') — contact support.';
+                    }
+                } catch (\Throwable $e) {
+                    error_log('bm_apply_agent_booking_change refund ' . $invoiceId . ': ' . $e->getMessage());
+                    $message = 'Change recorded; wallet refund could not be applied automatically.';
+                }
+            } else {
+                // Not wallet-paid (e.g. an admin-marked paid, legacy) → do NOT mint
+                // wallet credit that was never debited. Record audit-only.
+                $message = 'Change recorded (' . $amt . ' ' . $currency . ' owed) — not wallet-paid, so no automatic wallet refund.';
+            }
+
+            // Lower the booking's priced totals to the new (reduced) fare so the
+            // invoice/ledger reflect it. The fare drop is (amt + fee) off the fare;
+            // the fee is retained, so the net total reduction is $amt. (Mirrors the
+            // charge path's total bump, in reverse, without going below zero.)
+            try {
+                $newOriginal = max(0.0, round((float) ($booking['price_original'] ?? 0) - $amt, 2));
+                $newMarkup   = max(0.0, round((float) ($booking['price_markup'] ?? 0) - $amt, 2));
+                $db->update('bookings', ['price_original' => $newOriginal, 'price_markup' => (string) $newMarkup], ['invoice_id' => $invoiceId]);
+            } catch (\Throwable $e) { error_log('bm_apply_agent_booking_change total ' . $invoiceId . ': ' . $e->getMessage()); }
+
+            _bm_adjustment_audit_row($db, $booking, $amt, $currency, 'refund', $ref, $reason, $changeFee, $actor, $meta);
+            return _bm_adjustment_record_and_return($db, $invoiceId, $bd, $applied, [
+                'ok' => true, 'direction' => 'refund', 'amount' => $amt, 'payment_due' => 0.0,
+                'refunded' => $refunded, 'ref' => $ref, 'message' => $message,
+            ], $reason, $changeFee, $actor);
+        }
+
+        // ---- ZERO (should be unreachable: fee-only is a charge) — audit-only. -----
+        _bm_adjustment_audit_row($db, $booking, 0.0, $currency, 'purchase', $ref, $reason . ' [zero-sum change]', $changeFee, $actor, $meta);
+        return _bm_adjustment_record_and_return($db, $invoiceId, $bd, $applied, [
+            'ok' => true, 'direction' => 'none', 'amount' => 0.0, 'payment_due' => 0.0,
+            'refunded' => 0.0, 'ref' => $ref, 'message' => 'Change recorded (no net money movement).',
+        ], $reason, $changeFee, $actor);
+    }
+}
