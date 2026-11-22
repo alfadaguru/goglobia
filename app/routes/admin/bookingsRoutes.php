@@ -942,6 +942,102 @@ $router->post(admin.'/bookings/change-tour/(.*)', function ($invoice_id) use ($S
 
 });
 
+// ================================ POST /admin/bookings/change-bus/{invoice_id}
+// BUS change (trip). Bus is own-inventory local (no supplier, not in the Booking
+// Manager), so a change is a RECORD edit of the displayed trip: operator/service,
+// origin→destination, travel date, times, bus type/seat class + money reconcile. It
+// writes BOTH the nested `trip` object (manual read) and the top-level `date`, so the
+// panel/voucher stay consistent. It deliberately does NOT move seat inventory — a true
+// route/date-with-seats swap is cancel + rebook (bus's working cancel releases seats).
+$router->post(admin.'/bookings/change-bus/(.*)', function ($invoice_id) use ($SECURE,$db) {
+
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
+    if (!$booking) { echo json_encode(['success' => false, 'message' => 'Booking not found']); exit; }
+
+    if (strtolower((string) ($booking['module_type'] ?? '')) !== 'bus') {
+        echo json_encode(['success' => false, 'message' => 'This change path is for bus bookings only.']);
+        exit;
+    }
+    if (in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+        echo json_encode(['success' => false, 'message' => 'A cancelled/voided booking cannot be changed.']);
+        exit;
+    }
+
+    $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+    if (!is_array($bd)) { $bd = []; }
+    if (!isset($bd['trip']) || !is_array($bd['trip'])) { $bd['trip'] = []; }
+    $prev = [
+        'origin'      => (string) ($bd['trip']['origin'] ?? ''),
+        'destination' => (string) ($bd['trip']['destination'] ?? ''),
+        'date'        => (string) ($bd['date'] ?? ''),
+    ];
+
+    // Apply edited trip fields onto the nested trip object (only when provided).
+    foreach (['service_name', 'operator', 'origin', 'destination', 'departure_time', 'arrival_time', 'bus_type', 'seat_class'] as $k) {
+        if (isset($_POST[$k])) { $bd['trip'][$k] = trim((string) $_POST[$k]); }
+    }
+    // Travel date lives at the top level for bus; keep it there.
+    if (isset($_POST['date'])) { $bd['date'] = trim((string) $_POST['date']); }
+
+    // CHANGE HISTORY (same meta shape stays/cars/cruise/tours use).
+    if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+    $hist = [
+        'at'   => date('Y-m-d H:i:s'),
+        'by'   => $_SESSION['user_id'] ?? null,
+        'from' => $prev,
+        'to'   => [
+            'origin'      => (string) ($bd['trip']['origin'] ?? ''),
+            'destination' => (string) ($bd['trip']['destination'] ?? ''),
+            'date'        => (string) ($bd['date'] ?? ''),
+        ],
+    ];
+    if (!isset($bd['meta']['change_history']) || !is_array($bd['meta']['change_history'])) { $bd['meta']['change_history'] = []; }
+    $bd['meta']['change_history'][] = $hist;
+    $bd['meta']['last_changed'] = $hist;
+
+    $ok = $db->update('bookings', ['booking_data' => json_encode($bd)], ['invoice_id' => $invoice_id]);
+    if ($ok === false) { echo json_encode(['success' => false, 'message' => 'Failed to save the trip change.']); exit; }
+
+    // Money reconcile.
+    $rateDiff  = (float) ($_POST['rate_difference'] ?? 0);
+    $changeFee = max(0.0, (float) ($_POST['change_fee'] ?? 0));
+    $delta = ($rateDiff > 0) ? ($rateDiff + $changeFee) : (($rateDiff < 0) ? ($rateDiff + $changeFee) : $changeFee);
+    $money = ['direction' => 'none', 'message' => 'No money movement.'];
+    if (function_exists('bm_apply_booking_adjustment') && abs($delta) > 0.001) {
+        $money = bm_apply_booking_adjustment($db, (string) $invoice_id, round($delta, 2), $changeFee,
+            'Bus trip change', ['actor' => $_SESSION['user_id'] ?? null]);
+    }
+
+    // Voucher + notify, buffered so the JSON response stays clean.
+    ob_start();
+    try {
+        $voucher = GENERATE_BOOKING_PDF($invoice_id);
+        NOTIFY::resend($booking['module'], $booking, [
+            'invoice_id'  => $invoice_id,
+            'amount'      => $booking['price_markup'],
+            'currency'    => $booking['currency'] ?? '',
+            'module_type' => 'Bus',
+            'event_note'  => 'changed',
+        ], $voucher);
+    } catch (\Throwable $e) { error_log('change-bus notify ' . $invoice_id . ': ' . $e->getMessage()); }
+    ob_end_clean();
+
+    echo json_encode([
+        'success'     => true,
+        'message'     => 'Trip updated.' . (($money['direction'] ?? 'none') !== 'none' ? ' ' . ($money['message'] ?? '') : ''),
+        'money'       => $money,
+        'payment_due' => $money['payment_due'] ?? 0,
+        'refunded'    => $money['refunded'] ?? 0,
+    ]);
+    exit;
+
+});
+
 // ================================ POST /admin/bookings/action/{invoice_id}
 $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE,$db) {
 

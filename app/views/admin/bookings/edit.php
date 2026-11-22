@@ -85,9 +85,13 @@ $is_own_car        = $is_cars_booking && !$is_live_car;
 // CRUISE (own-inventory, confirm-on-pay, no PNR). Its admin cancel/refund are own-
 // inventory ops (no supplier module), handled directly in the action handler.
 $is_cruise_booking = strtolower((string) ($booking['module_type'] ?? '')) === 'cruises';
+// BUS (own-inventory local, confirm-on-pay, no PNR). Its cancel/refund already work
+// via the /modules/bus/bus/{cancel,refund} gateway route (releases seats) — they were
+// just hidden behind the PNR disable. Change is a record edit (no supplier, not in BM).
+$is_bus_booking    = strtolower((string) ($booking['module_type'] ?? '')) === 'bus';
 // Own-inventory confirm-on-pay bookings have no PNR by design, so the PNR-based
 // disable on Cancel/Refund is wrong for them. This flag re-enables those buttons.
-$is_own_inventory_no_pnr = $is_cruise_booking;
+$is_own_inventory_no_pnr = $is_cruise_booking || $is_bus_booking;
 // TOURS CHANGE gating (new). Only adivaha + toursbms have a supplier cancel action →
 // those use guided cancel+rebook; everything else (manual/own/search-only) is an
 // editable record change.
@@ -736,6 +740,60 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     </div>
                 </div>
             </template>
+        </div>
+    </div>
+
+    <!-- ===================== CHANGE BUS (TRIP) MODAL ===================== -->
+    <div x-show="busOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="display:none;">
+        <div class="absolute inset-0 bg-slate-900/60" @click="closeChangeBus()"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined">directions_bus</span>
+                    <span>Change trip</span>
+                </h3>
+                <button type="button" @click="closeChangeBus()" class="text-slate-500 hover:text-slate-800">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-slate-600">Edit the trip below. Any fare difference or change fee is recorded, and the voucher is regenerated. (A full route/date swap that changes seats is handled by Cancel + rebook.)</p>
+
+                <!-- Operator / service -->
+                <div class="grid sm:grid-cols-2 gap-3">
+                    <label class="form-control"><span class="form-label">Operator</span><input class="input" x-model="bus.operator"></label>
+                    <label class="form-control"><span class="form-label">Service name</span><input class="input" x-model="bus.service_name"></label>
+                </div>
+
+                <!-- Route + date -->
+                <div class="grid sm:grid-cols-3 gap-3 border-t border-slate-200 pt-4">
+                    <label class="form-control"><span class="form-label">Origin</span><input class="input" x-model="bus.origin"></label>
+                    <label class="form-control"><span class="form-label">Destination</span><input class="input" x-model="bus.destination"></label>
+                    <label class="form-control"><span class="form-label">Travel date</span><input type="date" class="input" x-model="bus.date"></label>
+                </div>
+
+                <!-- Times + type/class -->
+                <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <label class="form-control"><span class="form-label">Departure time</span><input type="time" class="input" x-model="bus.departure_time"></label>
+                    <label class="form-control"><span class="form-label">Arrival time</span><input type="time" class="input" x-model="bus.arrival_time"></label>
+                    <label class="form-control"><span class="form-label">Bus type</span><input class="input" x-model="bus.bus_type" placeholder="AC / Sleeper"></label>
+                    <label class="form-control"><span class="form-label">Seat class</span><input class="input" x-model="bus.seat_class" placeholder="Economy / Business"></label>
+                </div>
+
+                <!-- Money -->
+                <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                    <label class="form-control"><span class="form-label">Rate difference (new − old; negative = refund)</span><input type="number" step="0.01" class="input" x-model.number="busRateDiff" placeholder="0.00"></label>
+                    <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="busFee" placeholder="0.00"></label>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" class="btn secondary" @click="closeChangeBus()">Cancel</button>
+                    <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="busBusy" @click="submitBusChange()">
+                        <span x-show="busBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                        <span>Save trip change</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1629,6 +1687,10 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         <?php include __DIR__ . '/tours-booking-details.php'; ?>
         <?php endif; ?>
 
+        <?php if ($is_bus_booking): ?>
+        <?php include __DIR__ . '/bus-booking-details.php'; ?>
+        <?php endif; ?>
+
         <?php if ($is_rail_booking): ?>
         <?php include __DIR__ . '/rail-booking-details.php'; ?>
         <?php elseif (!empty($travellers)): ?>
@@ -2467,6 +2529,35 @@ function bookingEdit() {
             'adults'          => (int) ($booking_data['adults'] ?? 1),
             'children'        => (int) ($booking_data['children'] ?? 0),
         ], JSON_UNESCAPED_UNICODE) ?>,
+        // ---- BUS CHANGE state ----
+        busOpen: false,
+        busBusy: false,
+        busRateDiff: 0,
+        busFee: 0,
+        bus: <?= (function () use ($booking_data) {
+            $bd = is_array($booking_data) ? $booking_data : [];
+            $trip = is_array($bd['trip'] ?? null) ? $bd['trip'] : [];
+            $jrn = (is_array($bd['journeys'] ?? null) && isset($bd['journeys'][0]) && is_array($bd['journeys'][0])) ? $bd['journeys'][0] : [];
+            $p = function (array $keys) use ($trip, $jrn, $bd) {
+                foreach ($keys as $k) {
+                    foreach ([$trip, $jrn, $bd] as $src) {
+                        if (isset($src[$k]) && $src[$k] !== '') { return (string) $src[$k]; }
+                    }
+                }
+                return '';
+            };
+            return json_encode([
+                'service_name'   => $p(['service_name', 'bus_name', 'service']),
+                'operator'       => $p(['operator', 'operator_name']),
+                'origin'         => $p(['origin', 'from', 'from_city']),
+                'destination'    => $p(['destination', 'to', 'to_city']),
+                'date'           => $p(['date', 'travel_date', 'journey_date']),
+                'departure_time' => $p(['departure_time', 'dep_time']),
+                'arrival_time'   => $p(['arrival_time', 'arr_time']),
+                'bus_type'       => $p(['bus_type', 'coach_type']),
+                'seat_class'     => $p(['seat_class', 'class']),
+            ], JSON_UNESCAPED_UNICODE) ?: '{}';
+        })() ?>,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
@@ -2863,6 +2954,30 @@ function bookingEdit() {
         },
         liveTourStep3Rebook() {
             window.location.href = '<?= root . admin ?>/booking-manager/tours?change_from=<?= $invoiceIdEsc ?>&service=tours';
+        },
+        // ---- BUS CHANGE methods (record edit — own-inventory local, no supplier) ----
+        openChangeBus() { this.busOpen = true; },
+        closeChangeBus() { this.busOpen = false; },
+        submitBusChange() {
+            if (!confirm('Save the trip change and apply the money adjustment?')) { return; }
+            this.busBusy = true;
+            const params = new URLSearchParams();
+            params.set('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            ['service_name','operator','origin','destination','date','departure_time','arrival_time','bus_type','seat_class'].forEach(k => params.set(k, this.bus[k] || ''));
+            params.set('rate_difference', String(Number(this.busRateDiff) || 0));
+            params.set('change_fee', String(Number(this.busFee) || 0));
+            fetch('<?= root . admin ?>/bookings/change-bus/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.busBusy = false;
+                if (data.success === true) {
+                    if (confirm((data.message || 'Trip updated.') + '\n\nClick OK to refresh.')) window.location.reload();
+                } else { alert('Error: ' + (data.message || 'Could not change the trip.')); }
+            })
+            .catch(err => { this.busBusy = false; alert('Error: ' + err.message); });
         },
         startRefundPolling() {
             this.refundPollInterval = setInterval(() => {
