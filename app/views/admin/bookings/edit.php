@@ -93,9 +93,12 @@ $is_bus_booking    = strtolower((string) ($booking['module_type'] ?? '')) === 'b
 // /modules/ferries/kikoto/{cancel,refund} gateway route — they were just hidden behind
 // the PNR disable (ferries stores pnr='', the kikoto reference lives in booking_data).
 $is_ferries_booking = strtolower((string) ($booking['module_type'] ?? '')) === 'ferries';
+// VISA (own-record, no supplier/modules dir, confirm-on-pay, no PNR). Cancel/refund are
+// own-inventory ops handled directly in the action handler (there is no modules/visa).
+$is_visa_booking   = strtolower((string) ($booking['module_type'] ?? '')) === 'visa';
 // Own-inventory / no-PNR bookings have no PNR by design, so the PNR-based disable on
 // Cancel/Refund is wrong for them. This flag re-enables those buttons.
-$is_own_inventory_no_pnr = $is_cruise_booking || $is_bus_booking || $is_ferries_booking;
+$is_own_inventory_no_pnr = $is_cruise_booking || $is_bus_booking || $is_ferries_booking || $is_visa_booking;
 // TOURS CHANGE gating (new). Only adivaha + toursbms have a supplier cancel action →
 // those use guided cancel+rebook; everything else (manual/own/search-only) is an
 // editable record change.
@@ -842,6 +845,52 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="ferryBusy" @click="submitFerryChange()">
                         <span x-show="ferryBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
                         <span>Save sailing change</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== CHANGE VISA (APPLICATION) MODAL ===================== -->
+    <div x-show="visaOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="display:none;">
+        <div class="absolute inset-0 bg-slate-900/60" @click="closeChangeVisa()"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined">badge</span>
+                    <span>Change application</span>
+                </h3>
+                <button type="button" @click="closeChangeVisa()" class="text-slate-500 hover:text-slate-800">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-slate-600">Edit the application below. Any fare difference or change fee is recorded, and the voucher is regenerated. (Applicant details and documents are edited from the applicants section.)</p>
+
+                <!-- Visa type + route -->
+                <div class="grid sm:grid-cols-3 gap-3">
+                    <label class="form-control"><span class="form-label">Visa type</span><input class="input" x-model="visa.visa_type_name"></label>
+                    <label class="form-control"><span class="form-label">From country</span><input class="input" x-model="visa.from_country_name"></label>
+                    <label class="form-control"><span class="form-label">To country</span><input class="input" x-model="visa.to_country_name"></label>
+                </div>
+
+                <!-- Entry date + processing speed -->
+                <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                    <label class="form-control"><span class="form-label">Entry date</span><input type="date" class="input" x-model="visa.entry_date"></label>
+                    <label class="form-control"><span class="form-label">Processing speed</span><input class="input" x-model="visa.processing_speed_name" placeholder="Standard / Express"></label>
+                </div>
+
+                <!-- Money -->
+                <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                    <label class="form-control"><span class="form-label">Rate difference (new − old; negative = refund)</span><input type="number" step="0.01" class="input" x-model.number="visaRateDiff" placeholder="0.00"></label>
+                    <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="visaFee" placeholder="0.00"></label>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" class="btn secondary" @click="closeChangeVisa()">Cancel</button>
+                    <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="visaBusy" @click="submitVisaChange()">
+                        <span x-show="visaBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                        <span>Save application change</span>
                     </button>
                 </div>
             </div>
@@ -1746,6 +1795,10 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         <?php include __DIR__ . '/ferries-booking-details.php'; ?>
         <?php endif; ?>
 
+        <?php if ($is_visa_booking): ?>
+        <?php include __DIR__ . '/visa-booking-details.php'; ?>
+        <?php endif; ?>
+
         <?php if ($is_rail_booking): ?>
         <?php include __DIR__ . '/rail-booking-details.php'; ?>
         <?php elseif (!empty($travellers)): ?>
@@ -2630,6 +2683,18 @@ function bookingEdit() {
                 'pets'           => is_array($fd['pets'] ?? null) ? count($fd['pets']) : (int) ($fd['pets'] ?? 0),
             ], JSON_UNESCAPED_UNICODE) ?: '{}';
         })() ?>,
+        // ---- VISA CHANGE state ----
+        visaOpen: false,
+        visaBusy: false,
+        visaRateDiff: 0,
+        visaFee: 0,
+        visa: <?= json_encode([
+            'visa_type_name'        => (string) ($booking_data['visa_type_name'] ?? ($booking_data['visa_type'] ?? '')),
+            'from_country_name'     => (string) ($booking_data['from_country_name'] ?? ($booking_data['from_country'] ?? '')),
+            'to_country_name'       => (string) ($booking_data['to_country_name'] ?? ($booking_data['to_country'] ?? '')),
+            'entry_date'            => (string) ($booking_data['entry_date'] ?? ''),
+            'processing_speed_name' => (string) ($booking_data['processing_speed_name'] ?? ($booking_data['processing_speed'] ?? '')),
+        ], JSON_UNESCAPED_UNICODE) ?>,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
@@ -3076,6 +3141,30 @@ function bookingEdit() {
                 } else { alert('Error: ' + (data.message || 'Could not change the sailing.')); }
             })
             .catch(err => { this.ferryBusy = false; alert('Error: ' + err.message); });
+        },
+        // ---- VISA CHANGE methods (record edit — own-record, no supplier) ----
+        openChangeVisa() { this.visaOpen = true; },
+        closeChangeVisa() { this.visaOpen = false; },
+        submitVisaChange() {
+            if (!confirm('Save the application change and apply the money adjustment?')) { return; }
+            this.visaBusy = true;
+            const params = new URLSearchParams();
+            params.set('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            ['visa_type_name','from_country_name','to_country_name','entry_date','processing_speed_name'].forEach(k => params.set(k, this.visa[k] || ''));
+            params.set('rate_difference', String(Number(this.visaRateDiff) || 0));
+            params.set('change_fee', String(Number(this.visaFee) || 0));
+            fetch('<?= root . admin ?>/bookings/change-visa/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.visaBusy = false;
+                if (data.success === true) {
+                    if (confirm((data.message || 'Visa application updated.') + '\n\nClick OK to refresh.')) window.location.reload();
+                } else { alert('Error: ' + (data.message || 'Could not change the application.')); }
+            })
+            .catch(err => { this.visaBusy = false; alert('Error: ' + err.message); });
         },
         startRefundPolling() {
             this.refundPollInterval = setInterval(() => {
