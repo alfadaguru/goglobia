@@ -291,9 +291,9 @@ PERFORMANCE:
                                 </div>
                                 <!-- Total -->
                                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-0 mt-0.5 tabular-nums">${this.money(h.price, h.currency)} <?= T::total ?></p>
-                                <p class="text-[11px] text-green-600 dark:text-green-400 font-medium mt-0.5 flex items-center gap-1">
-                                    <span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>
-                                    Includes taxes &amp; fees
+                                <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1">
+                                    <span class="material-symbols-outlined" style="font-size:13px;">info</span>
+                                    <?= T::taxes ?> &amp; <?= T::fees ?> confirmed at checkout
                                 </p>
                                 ${this.renderStayPayOptions(h)}
                             ` : `
