@@ -687,7 +687,12 @@ if ($isUserLoggedIn) {
                         </div>
                     </div>
 
-                    <!-- Inquiry Notice -->
+                    <!-- Inquiry Notice: ONLY for genuine inquiry (unpriced) visas.
+                         Previously this rendered unconditionally, so a PRICED visa
+                         showed "No payment required now" directly above a real Total —
+                         a contradiction. Gate it on the same inquiry flag the price
+                         block uses, so a priced visa shows only the price breakdown. -->
+                    <?php if ($isInquiryOnly || $totalWithTax <= 0): ?>
                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                         <div class="flex items-start gap-2">
                             <span class="material-symbols-outlined text-blue-600 text-sm">info</span>
@@ -696,6 +701,7 @@ if ($isUserLoggedIn) {
                             </div>
                         </div>
                     </div>
+                    <?php endif; ?>
 
                     <!-- Price Breakdown / Pricing Summary -->
                     <?php if ($totalWithTax > 0): ?>
