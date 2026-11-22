@@ -468,6 +468,52 @@ if (!function_exists('supplier_url_token')) {
     }
 }
 
+if (!function_exists('mask_supplier_identity_in_offers')) {
+    /**
+     * Hide the real supplier identity from a decoded search-results array before it
+     * is sent to a customer's browser (supplier-hiding mandate). Walks the structure
+     * recursively and, for every `supplier` value found (at any depth — top-level,
+     * nested booking_data, per-segment), replaces the plaintext name with its OPAQUE,
+     * REVERSIBLE token (supplier_url_token). The booking path decodes the token back
+     * to the real name server-side, so nothing downstream breaks — the customer just
+     * never receives the plaintext. Display-only identity fields (`supplier_name`,
+     * `supplier_id`, `color`) are dropped entirely (not needed client-side; pure leak).
+     *
+     * Idempotent-ish: a value that is already a token (round-trips to '') is left as-is
+     * so double-masking can't corrupt it. Returns the array by value AND mutates in
+     * place (callers may use either form).
+     *
+     * @param array $offers decoded offers (any provider's normalized shape)
+     * @return array the masked offers
+     */
+    function mask_supplier_identity_in_offers(array &$offers): array
+    {
+        $walk = function (&$node) use (&$walk) {
+            if (!is_array($node)) { return; }
+            foreach ($node as $key => &$val) {
+                if ($key === 'supplier' && is_string($val) && $val !== '') {
+                    // Only tokenize a real plaintext name. If it already decodes to a
+                    // supplier (i.e. it's a token), leave it; if it's plaintext, mint
+                    // its token. We detect plaintext by: it is NOT a valid token.
+                    $looksTokenized = function_exists('supplier_from_url_token')
+                        && supplier_from_url_token($val) !== '';
+                    if (!$looksTokenized && function_exists('supplier_url_token')) {
+                        $val = supplier_url_token(strtolower(trim($val)));
+                    }
+                } elseif (in_array($key, ['supplier_name', 'supplier_id', 'color'], true)) {
+                    // Pure display/identity fields — never needed by the customer.
+                    unset($node[$key]);
+                    continue;
+                }
+                if (is_array($val)) { $walk($val); }
+            }
+            unset($val);
+        };
+        $walk($offers);
+        return $offers;
+    }
+}
+
 // SUPPLIER AUTH CHECK — gate for the self-registered supplier area.
 // Mirrors ADMIN_AUTH(): a logged-in user whose role is exactly 'supplier'. Any
 // other visitor (guest, customer, agent, admin) is bounced to login. Because
