@@ -22,21 +22,39 @@ $passengers = $bookingData['passengers'] ?? $travellersData ?? [];
 $baggage = $bookingData['baggage'] ?? [];
 $fareType = $bookingData['fare_type'] ?? 'standard';
 
-// Resolve airport full names from IATA codes
-// departure_code / arrival_code always hold IATA codes; departure_airport may already be a full name (Duffel)
-$_resolveAirportName = function(string $code, string $fallback) use ($db): string {
-    if (strlen($code) !== 3 || !ctype_upper($code)) return $fallback;
-    $apt = $db->get('flights_airports', ['city', 'airport'], ['code' => $code]);
-    if ($apt) return trim($apt['city'] . ' (' . $apt['airport'] . ')');
-    return $fallback;
+// Resolve airport full names from IATA codes so the invoice shows a real place
+// name (e.g. "Kano (Mallam Aminu International Airport)"), not a bare code "KAN".
+// departure_code / arrival_code hold IATA codes; departure_airport may already be
+// a full name (e.g. Duffel). The flights_airports table is seeded (~6900 rows), so
+// any valid IATA resolves. We normalise the code (trim/strip non-letters/upper)
+// before the lookup so a lowercase or padded code still resolves, and we prefer a
+// supplier-supplied full name over the bare code as the last-resort fallback.
+$_resolveAirportName = function(string $code, string $supplierName, string $rawCode) use ($db): string {
+    $code = strtoupper(preg_replace('/[^A-Za-z]/', '', $code) ?? '');
+    if (strlen($code) === 3) {
+        $apt = $db->get('flights_airports', ['city', 'airport'], ['code' => $code]);
+        if ($apt && (trim((string) $apt['city']) !== '' || trim((string) $apt['airport']) !== '')) {
+            $city = trim((string) $apt['city']);
+            $airport = trim((string) $apt['airport']);
+            if ($city !== '' && $airport !== '') return $city . ' (' . $airport . ')';
+            return $city !== '' ? $city : $airport;
+        }
+    }
+    // No DB hit: use a supplier-supplied full name if it's more than just the code,
+    // otherwise fall back to the raw code so the slot is never blank.
+    $supplierName = trim($supplierName);
+    if ($supplierName !== '' && strcasecmp($supplierName, $rawCode) !== 0) return $supplierName;
+    return trim($rawCode);
 };
 $departureAirportName = $_resolveAirportName(
-    strtoupper($flightData['departure_code'] ?? ''),
-    $flightData['departure_airport'] ?? ($flightData['departure_code'] ?? '')
+    (string) ($flightData['departure_code'] ?? ''),
+    (string) ($flightData['departure_airport'] ?? ''),
+    (string) ($flightData['departure_code'] ?? '')
 );
 $arrivalAirportName = $_resolveAirportName(
-    strtoupper($flightData['arrival_code'] ?? ''),
-    $flightData['arrival_airport'] ?? ($flightData['arrival_code'] ?? '')
+    (string) ($flightData['arrival_code'] ?? ''),
+    (string) ($flightData['arrival_airport'] ?? ''),
+    (string) ($flightData['arrival_code'] ?? '')
 );
 
 // Create a flat array of segments for easy mapping
@@ -211,7 +229,9 @@ if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
                                 <!-- Departure -->
                                 <div class="flex-1 min-w-0">
                                     <p class="text-xl font-bold text-gray-900 dark:text-white leading-none"><?= htmlspecialchars($flightData['departure_code'] ?? '') ?></p>
+                                    <?php if (trim($departureAirportName) !== '' && strcasecmp(trim($departureAirportName), trim((string) ($flightData['departure_code'] ?? ''))) !== 0): ?>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug line-clamp-2"><?= htmlspecialchars($departureAirportName) ?></p>
+                                    <?php endif; ?>
                                     <p class="text-xs font-medium text-gray-700 dark:text-gray-300 mt-1"><?= htmlspecialchars($flightData['departure_time'] ?? '') ?></p>
                                 </div>
 
@@ -231,7 +251,9 @@ if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
                                 <!-- Arrival -->
                                 <div class="flex-1 min-w-0 text-right">
                                     <p class="text-xl font-bold text-gray-900 dark:text-white leading-none"><?= htmlspecialchars($flightData['arrival_code'] ?? '') ?></p>
+                                    <?php if (trim($arrivalAirportName) !== '' && strcasecmp(trim($arrivalAirportName), trim((string) ($flightData['arrival_code'] ?? ''))) !== 0): ?>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug line-clamp-2"><?= htmlspecialchars($arrivalAirportName) ?></p>
+                                    <?php endif; ?>
                                     <p class="text-xs font-medium text-gray-700 dark:text-gray-300 mt-1"><?= htmlspecialchars($flightData['arrival_time'] ?? '') ?></p>
                                 </div>
                             </div>
