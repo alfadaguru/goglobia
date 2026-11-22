@@ -22,9 +22,12 @@ $router->post('/flights/checkout', function () use ($SECURE,$db) {
         
         echo json_encode([
             'success' => true,
-            'redirect' => root . 'flights/checkout'
+            // The old /flights/checkout page was removed; the live funnel books via
+            // /flights/booking/{hash}. Send clients that still POST here to the
+            // flights search entry rather than a dead page.
+            'redirect' => root . 'flights'
         ]);
-        
+
     } catch (Exception $e) {
         http_response_code(400);
         echo json_encode([
@@ -35,31 +38,18 @@ $router->post('/flights/checkout', function () use ($SECURE,$db) {
     exit;
 });
 
+// DEPRECATED PAGE ROUTES — the views these used to render
+// (modules/flights/checkout.php, modules/flights/booking/booking.php) were removed
+// when the funnel moved to the hash-based booking page (/flights/booking/{hash}).
+// They were still registered and fatally require()'d the missing views on any hit
+// (direct link, bookmark, crawler). Redirect to the flights search entry so a stray
+// hit is a clean bounce, not a 500. Kept registered for backward-compatible URLs.
 $router->get('/flights/checkout', function () use ($SECURE,$db) {
-
-// META DATA
-$title = "Flight Checkout - " . $GLOBALS['app']['home_title'];
-$description = $GLOBALS['app']['meta_description'];
-$header = true;
-$footer = true;
-
-require_once views."includes/header.php";
-require_once views."modules/flights/checkout.php";
-require_once views."includes/footer.php";
-
+    header('Location: ' . root . 'flights');
+    exit;
 });
 
-// ===================== FLIGHTS BOOKING PAGE (DEPRECATED) =======================
 $router->get('/flights/booking', function () use ($SECURE,$db) {
-
-// META DATA
-$title = $GLOBALS['app']['home_title'];
-$description = $GLOBALS['app']['meta_description'];
-$header = true;
-$footer = true;
-
-require_once views."includes/header.php";
-require_once views."modules/flights/booking/booking.php";
-require_once views."includes/footer.php";
-
+    header('Location: ' . root . 'flights');
+    exit;
 });
