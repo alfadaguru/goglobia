@@ -84,6 +84,16 @@ $fmt = fn($n) => number_format((float)$n, 2);
                                     <?php endif; ?>
                                     <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','resend')" class="text-xs text-slate-600 hover:underline mr-2">Resend</button>
                                 <?php endif; ?>
+                                <?php
+                                // CHANGE / NO-SHOW (bookings.edit). A paid, live booking can be amended
+                                // (fare diff +/- change fee) or flagged no-show. Hidden for terminal states.
+                                $__liveForChange = !in_array(strtolower((string)($b['booking_status']??'')), ['cancelled','voided','refunded'], true);
+                                if ($__liveForChange && agent_can($db,'bookings','edit')): ?>
+                                    <button type="button" onclick="agentBookingChange('<?= htmlspecialchars($inv, ENT_QUOTES) ?>')" class="text-xs text-indigo-600 hover:underline mr-2">Change</button>
+                                    <?php if (strtolower((string)($b['booking_status']??'')) !== 'no_show'): ?>
+                                        <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','mark_no_show')" class="text-xs text-amber-600 hover:underline mr-2">No-show</button>
+                                    <?php endif; ?>
+                                <?php endif; ?>
                                 <?php if (($b['booking_status']??'') !== 'cancelled' && agent_can($db,'bookings','refund')): ?>
                                     <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','refund')" class="text-xs text-red-600 hover:underline">Cancel &amp; refund</button>
                                 <?php elseif (($b['booking_status']??'') !== 'cancelled' && agent_can($db,'bookings','cancel')): ?>
@@ -100,19 +110,53 @@ $fmt = fn($n) => number_format((float)$n, 2);
     </div>
 </div>
 <script>
+var AGENT_CSRF = '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>';
+
 function agentBookingAction(inv, action){
     var confirmMsg = action === 'resend'
         ? 'Re-send the booking voucher to the client?'
         : (action === 'refund' ? 'Cancel this booking and refund to your wallet?'
         : (action === 'retry_issue' ? 'Retry issuing this ticket? If it fails again, your payment is refunded to your wallet automatically.'
-        : 'Cancel this booking?'));
+        : (action === 'mark_no_show' ? 'Mark this booking as a no-show? (No money is moved — you can start a rebook afterwards via Change.)'
+        : 'Cancel this booking?')));
     if (!confirm(confirmMsg)) return;
     var fd = new FormData();
     fd.append('action', action);
-    fd.append('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+    fd.append('csrf_token', AGENT_CSRF);
     fetch('<?= root ?>agent/booking/' + encodeURIComponent(inv) + '/action', { method:'POST', body: fd, headers: { 'X-Requested-With':'XMLHttpRequest' } })
         .then(function(r){ return r.json(); })
         .then(function(j){ alert(j.message || (j.status ? 'Done.' : 'Action failed.')); if (j.status) location.reload(); })
         .catch(function(){ alert('Could not complete the action.'); });
+}
+
+// CHANGE / RESCHEDULE: collect the fare difference (new − old) and an optional change
+// fee, then post to the same /action endpoint. The SERVER is the money authority —
+// a fare increase becomes an amount due (pay from wallet); a decrease (net of the
+// retained fee) is credited back to the wallet.
+function agentBookingChange(inv){
+    var diffStr = prompt('Fare difference (new price − old price).\n\nPositive = customer owes more; negative = refund due.\nLeave 0 for a fee-only change.');
+    if (diffStr === null) return;                      // cancelled
+    var fareDiff = parseFloat(diffStr);
+    if (isNaN(fareDiff)) { alert('Please enter a number for the fare difference.'); return; }
+    var feeStr = prompt('Change fee to charge (retained by you). Enter 0 for none.', '0');
+    if (feeStr === null) return;
+    var changeFee = parseFloat(feeStr); if (isNaN(changeFee) || changeFee < 0) changeFee = 0;
+    if (Math.abs(fareDiff) < 0.001 && changeFee <= 0) { alert('Enter a fare difference and/or a change fee.'); return; }
+    var reason = prompt('Reason / note for this change (optional):', 'Reschedule') || '';
+    var net = fareDiff + (fareDiff === 0 ? changeFee : changeFee);
+    var human = net > 0 ? ('Customer will owe ' + net.toFixed(2))
+              : (net < 0 ? ('Refund of ' + Math.abs(net).toFixed(2) + ' to your wallet')
+              : 'No net money movement');
+    if (!confirm('Apply this change?\n\n' + human + '.')) return;
+    var fd = new FormData();
+    fd.append('action', 'change');
+    fd.append('fare_difference', fareDiff);
+    fd.append('change_fee', changeFee);
+    fd.append('reason', reason);
+    fd.append('csrf_token', AGENT_CSRF);
+    fetch('<?= root ?>agent/booking/' + encodeURIComponent(inv) + '/action', { method:'POST', body: fd, headers: { 'X-Requested-With':'XMLHttpRequest' } })
+        .then(function(r){ return r.json(); })
+        .then(function(j){ alert(j.message || (j.status ? 'Change applied.' : 'Change failed.')); if (j.status) location.reload(); })
+        .catch(function(){ alert('Could not apply the change.'); });
 }
 </script>
