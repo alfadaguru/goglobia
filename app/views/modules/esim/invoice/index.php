@@ -22,7 +22,8 @@ $airaloDirectInstall = (string) ($airaloFirstSim['direct_apple_installation_url'
 $airaloProviderName = 'eSIM';
 $airaloInstructionsUrl = '';
 if ($airaloIccid !== '') {
-    $airaloInstructionsUrl = root . 'modules/esim/airalo/instructions?sim_iccid=' . rawurlencode($airaloIccid);
+    // Supplier-hiding: NEUTRAL path (no provider name in the customer-clickable URL).
+    $airaloInstructionsUrl = root . 'modules/esim/instructions?sim_iccid=' . rawurlencode($airaloIccid);
 }
 
 $invoiceId = $booking['invoice_id'];

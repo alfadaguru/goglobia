@@ -2,7 +2,12 @@
 
 global $router;
 
-$router->get('esim/airalo/instructions', function () use ($db) {
+// Supplier-hiding: the customer-facing link uses the NEUTRAL path
+// /modules/esim/instructions (no provider name in the URL). The legacy
+// provider-named path stays registered for backward compatibility; both run the
+// same handler, which resolves the provider server-side. A customer never sees
+// "airalo" in the URL, and the response carries no provider name either.
+$__esimInstructionsHandler = function () use ($db) {
     header('Content-Type: application/json; charset=utf-8');
 
     try {
@@ -65,7 +70,8 @@ $router->get('esim/airalo/instructions', function () use ($db) {
             http_response_code($res['status'] > 0 ? $res['status'] : 400);
             echo json_encode([
                 'success' => false,
-                'message' => $res['error'] ?? 'Failed to fetch Airalo instructions',
+                // Supplier-hiding: generic message, never the provider name.
+                'message' => $res['error'] ?? 'Failed to fetch installation instructions',
                 'data' => $res['data'],
             ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
             return;
@@ -73,12 +79,10 @@ $router->get('esim/airalo/instructions', function () use ($db) {
 
         echo json_encode([
             'success' => true,
-            'message' => 'Airalo installation instructions fetched successfully.',
+            // Supplier-hiding: generic message; NO meta.endpoint (it exposed the
+            // provider's API base URL to the customer).
+            'message' => 'Installation instructions fetched successfully.',
             'data' => $res['data'],
-            'meta' => [
-                'environment' => $env,
-                'endpoint' => _airalo_base_url($env) . '/v2/sims/' . rawurlencode($iccid) . '/instructions',
-            ],
         ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
     } catch (Throwable $e) {
         error_log('AIRALO_INSTRUCTIONS: ' . $e->getMessage());
@@ -88,4 +92,8 @@ $router->get('esim/airalo/instructions', function () use ($db) {
             'message' => 'Could not fetch installation instructions.',
         ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
     }
-});
+};
+
+// Neutral customer-facing path + legacy provider-named path (same handler).
+$router->get('esim/instructions', $__esimInstructionsHandler);
+$router->get('esim/airalo/instructions', $__esimInstructionsHandler);
