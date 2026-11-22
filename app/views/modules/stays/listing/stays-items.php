@@ -259,7 +259,7 @@ PERFORMANCE:
                                     <span><?= T::refundable ?></span>
                                 </span>
                             ` : ''}
-                            ${(String(h.supplier || h.original_data?.supplier || '').toLowerCase() === 'hotelbeds' && (h.original_data?.zone_name || h.original_data?.chain_name)) ? `
+                            ${(h.original_data?.zone_name || h.original_data?.chain_name) ? `
                                 ${h.original_data.zone_name ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${esc(h.original_data.zone_name)}</span>` : ''}
                                 ${h.original_data.chain_name ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${esc(h.original_data.chain_name)}</span>` : ''}
                             ` : ''}

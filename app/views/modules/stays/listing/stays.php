@@ -407,8 +407,8 @@ try {
             // PAGINATION STATE - Infinite scroll management
             // ========================================
             loadingAllForFilters: false, // Pulling remaining pages so a filter covers every result
-            currentPage: {},         // Current page number per supplier {hotels: 1, hotelbeds: 1}
-            hasMorePages: {},        // Whether supplier has more pages {hotels: true, hotelbeds: true}
+            currentPage: {},         // Current page number per supplier (keyed by supplier token)
+            hasMorePages: {},        // Whether a supplier has more pages (keyed by supplier token)
             loadingMore: false,      // Loading next page flag
             allSuppliersExhausted: false, // All suppliers out of results
             showNoMoreMessage: false, // Display 'No more stays' message
@@ -469,7 +469,7 @@ try {
             $allAmenitiesNames = array_column($allAmenitiesFromDB, 'name');
             ?>
             allAmenities: <?php echo json_encode($allAmenitiesNames); ?>,
-            // Map stays_settings amenity labels → supplier free-text keywords (Hotelbeds etc.)
+            // Map stays_settings amenity labels -> supplier free-text keywords
             amenityMatchKeywords: {
                 'Free WiFi': ['wifi', 'wi-fi', 'wi fi', 'wlan', 'wireless', 'internet'],
                 'Swimming Pool': ['swimming pool', 'swim pool', 'outdoor pool', 'indoor pool', 'pool'],
@@ -975,7 +975,7 @@ try {
                 // console.log(`✅ Load more complete. Total hotels: ${this.hotels.length}, Displayed: ${this.filteredHotels.length}`);
             },
             // Prefer JSON has_more / backend headers over guessing from result count.
-            // Hotelbeds often returns < 20 priced hotels on a page while more pages still exist
+            // Some suppliers return < 20 priced hotels on a page while more pages still exist
             // (e.g. 442 found but listing stuck at 119 after a short page).
             applySupplierPagination(supplier, page, res, resultCount, perPage = 20, meta = {}) {
                 const hasMoreHeader = res.headers.get('X-Has-More');
@@ -1092,7 +1092,7 @@ try {
 
                     const text = await res.text();
 
-                    // Progressive suppliers (e.g. Hotelbeds) grow X-Grand-Total as more
+                    // Progressive suppliers grow X-Grand-Total as more
                     // candidates are scanned on later pages — always take the max.
                     const grandTotalHeader = res.headers.get('X-Grand-Total');
                     const parsedGrandTotal = parseInt(grandTotalHeader || '0', 10);
@@ -1106,7 +1106,7 @@ try {
                     try {
                         const jsonResponse = JSON.parse(text);
 
-                        // RateHawk / Booking / Hotelbeds wrapped format
+                        // Wrapped supplier-response format
                         if (jsonResponse.status === 'success' && jsonResponse.results) {
                             const results = jsonResponse.results;
                             const totalResults = jsonResponse.total || 0;
@@ -1134,7 +1134,7 @@ try {
                             return normalized;
                         }
 
-                        // Direct array response (Hotelbeds / Hotels / Agoda / TBO)
+                        // Direct array response (various suppliers)
                         if (Array.isArray(jsonResponse)) {
                             this.applySupplierPagination(supplier, page, res, jsonResponse.length, perPage);
                             if (jsonResponse.length === 0) {
@@ -1190,7 +1190,7 @@ try {
                         const uniqueId = `${hotel.hotel_id || hotel.id || index}-${supplier}`;
 
                         // Handle different price field names from various suppliers
-                        // RateHawk uses: price, price_per_night
+                        // Some suppliers use: price, price_per_night
                         // Other suppliers use: display_price, display_price_per_night
                         const displayPrice = parseFloat(String(
                             hotel.price || hotel.display_price || hotel.actual_price || 0
@@ -1592,7 +1592,7 @@ try {
                     }
 
                     // Amenities filter (only apply if checked)
-                    // Hotelbeds/manual names often differ from stays_settings labels —
+                    // Supplier/manual names often differ from stays_settings labels -
                     // match exact (case-insensitive), contains, or synonym keywords.
                     if (this.filters.amenities.length > 0) {
                         const hotelAmenities = this.hotelAmenityNames(h);
@@ -1729,7 +1729,7 @@ try {
                         return true;
                     }
                 }
-                // Synonym keywords for seeded stays_settings labels vs Hotelbeds wording
+                // Synonym keywords for seeded stays_settings labels vs supplier wording
                 const keywords = this.amenityMatchKeywords?.[selectedAmenity]
                     || this.amenityMatchKeywords?.[Object.keys(this.amenityMatchKeywords || {}).find(
                         k => k.toLowerCase() === selected
