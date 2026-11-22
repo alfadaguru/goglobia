@@ -418,11 +418,42 @@ if (!function_exists('sanitizeCustomerResponse')) {
 }
 
 if (!function_exists('supplier_url_token')) {
-    /** Per-install key for the opaque supplier URL token (never transmitted). */
+    /**
+     * Per-install key for the opaque supplier URL token (never transmitted).
+     *
+     * CONTEXT-INDEPENDENT seed: read REMEMBER_ME_SECRET straight from .env via
+     * parse_ini_file (NOT getenv — the app never putenv()s it), falling back to a
+     * DB-derived value so the key is never empty. Crucially the seed does NOT depend
+     * on the `root` constant, because `root` differs between the main app (/) and the
+     * /modules gateway (/modules/). Keying off a value BOTH contexts read identically
+     * lets the gateway decode a token the main app minted (supplier-hiding search
+     * routing). Tokens are minted fresh per request (never persisted), so this seed
+     * change does not invalidate anything stored. Caches per request.
+     */
     function _supplier_token_key(): string
     {
-        $seed = (getenv('REMEMBER_ME_SECRET') ?: '') . '|' . (defined('root') ? root : __DIR__) . '|supplier-url';
-        return hash('sha256', $seed, true); // 32 raw bytes
+        static $cached = null;
+        if ($cached !== null) { return $cached; }
+        $secret = '';
+        // Prefer a real env var if one is genuinely exported; else read .env.
+        $secret = (string) (getenv('REMEMBER_ME_SECRET') ?: '');
+        if ($secret === '') {
+            foreach ([(defined('root') && is_file(__DIR__ . '/../../.env') ? __DIR__ . '/../../.env' : null), __DIR__ . '/../../.env', __DIR__ . '/../.env'] as $envPath) {
+                if ($envPath && is_file($envPath)) {
+                    $env = @parse_ini_file($envPath);
+                    if (is_array($env) && !empty($env['REMEMBER_ME_SECRET'])) { $secret = (string) $env['REMEMBER_ME_SECRET']; break; }
+                    if (is_array($env) && !empty($env['JWT_SECRET'])) { $secret = (string) $env['JWT_SECRET']; break; }
+                }
+            }
+        }
+        // Last-resort fallback: stable per-install value (DB creds hash) so the key is
+        // never empty and never derived from the request-dependent `root`.
+        if ($secret === '') {
+            $env = @parse_ini_file(__DIR__ . '/../../.env') ?: [];
+            $secret = 'v10|' . (string) ($env['DB_DATABASE'] ?? '') . '|' . (string) ($env['DB_PASSWORD'] ?? '');
+        }
+        $cached = hash('sha256', $secret . '|supplier-url', true); // 32 raw bytes
+        return $cached;
     }
 
     /**
