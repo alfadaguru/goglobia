@@ -672,6 +672,14 @@ $router->get('/esim/(\d+)/([a-z]{2})/([a-z]+)/packages/?', function ($moduleId, 
                 $dispMk    = is_array($cm) ? (float) ($cm['price'] ?? $markupAmount) : (float) $cm;
             }
 
+            // Coverage ISO list (built per operator as _coverage_isos). For a global/
+            // regional package this is the set of countries the eSIM actually works in —
+            // the customer needs this BEFORE buying. Deduped + normalised.
+            $coverageIsos = array_values(array_unique(array_filter(array_map(
+                fn($c) => strtoupper(trim((string) $c)),
+                (array) ($pkg['_coverage_isos'] ?? [])
+            ))));
+
             $expandedPackages[] = [
                 'id' => (string) ($pkg['id'] ?? uniqid('pkg_', true)),
                 'title' => (string) ($pkg['title'] ?? 'Package'),
@@ -685,6 +693,10 @@ $router->get('/esim/(\d+)/([a-z]{2})/([a-z]+)/packages/?', function ($moduleId, 
                 'package_type' => $pkgType,
                 'commission_type' => $commType,
                 'commission_value' => $value,
+                // Coverage for the card: ISO list + count (global/regional eSIMs span
+                // many countries; a local eSIM is just its one country).
+                'coverage_isos'  => $coverageIsos,
+                'coverage_count' => count($coverageIsos),
             ];
         }
 

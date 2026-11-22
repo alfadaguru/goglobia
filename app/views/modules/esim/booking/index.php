@@ -147,6 +147,21 @@ if (!empty($paymentGateways)) {
                                     No packages match your filters. Try adjusting them.
                                 </div>
 
+                                <!-- Pre-purchase requirements: an eSIM only works on an
+                                     eSIM-capable, carrier-unlocked device. Surfaced before the
+                                     customer buys so they can confirm compatibility. -->
+                                <div x-show="filteredPackages.length > 0"
+                                     class="flex items-start gap-2 mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                                    <span class="material-symbols-outlined" style="font-size:16px;">info</span>
+                                    <div>
+                                        <span class="font-semibold">Before you buy:</span> your phone must be
+                                        <span class="font-medium">eSIM-compatible</span> and
+                                        <span class="font-medium">carrier-unlocked</span>. Installation is by QR code and
+                                        is best done on Wi-Fi before you travel. This is a data eSIM — it does not include
+                                        a phone number for calls or SMS.
+                                    </div>
+                                </div>
+
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <template x-for="pkg in filteredPackages" :key="pkg.id">
                                         <button type="button"
@@ -181,6 +196,13 @@ if (!empty($paymentGateways)) {
                                                     <p class="font-medium text-slate-700 mt-0.5" x-text="pkg.duration">
                                                     </p>
                                                 </div>
+                                            </div>
+                                            <!-- Coverage: for a regional/global eSIM, how many countries it works in
+                                                 (local = just its country). Lets the customer confirm coverage pre-purchase. -->
+                                            <div class="flex items-center gap-1.5 mt-2 text-[11px] text-slate-500"
+                                                 x-show="(pkg.coverage_count || 0) > 1 || (pkg.package_type && pkg.package_type !== 'local')">
+                                                <span class="material-symbols-outlined" style="font-size:14px;">public</span>
+                                                <span x-text="(pkg.coverage_count || 0) > 1 ? ('Covers ' + pkg.coverage_count + ' countries') : 'Regional coverage'"></span>
                                             </div>
                                         </button>
                                     </template>
