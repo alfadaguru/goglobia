@@ -89,9 +89,13 @@ $is_cruise_booking = strtolower((string) ($booking['module_type'] ?? '')) === 'c
 // via the /modules/bus/bus/{cancel,refund} gateway route (releases seats) — they were
 // just hidden behind the PNR disable. Change is a record edit (no supplier, not in BM).
 $is_bus_booking    = strtolower((string) ($booking['module_type'] ?? '')) === 'bus';
-// Own-inventory confirm-on-pay bookings have no PNR by design, so the PNR-based
-// disable on Cancel/Refund is wrong for them. This flag re-enables those buttons.
-$is_own_inventory_no_pnr = $is_cruise_booking || $is_bus_booking;
+// FERRIES (kikoto live or manual). Like bus, cancel/refund already work via the
+// /modules/ferries/kikoto/{cancel,refund} gateway route — they were just hidden behind
+// the PNR disable (ferries stores pnr='', the kikoto reference lives in booking_data).
+$is_ferries_booking = strtolower((string) ($booking['module_type'] ?? '')) === 'ferries';
+// Own-inventory / no-PNR bookings have no PNR by design, so the PNR-based disable on
+// Cancel/Refund is wrong for them. This flag re-enables those buttons.
+$is_own_inventory_no_pnr = $is_cruise_booking || $is_bus_booking || $is_ferries_booking;
 // TOURS CHANGE gating (new). Only adivaha + toursbms have a supplier cancel action →
 // those use guided cancel+rebook; everything else (manual/own/search-only) is an
 // editable record change.
@@ -791,6 +795,53 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="busBusy" @click="submitBusChange()">
                         <span x-show="busBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
                         <span>Save trip change</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== CHANGE FERRY (SAILING) MODAL ===================== -->
+    <div x-show="ferryOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="display:none;">
+        <div class="absolute inset-0 bg-slate-900/60" @click="closeChangeFerry()"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined">directions_boat</span>
+                    <span>Change sailing</span>
+                </h3>
+                <button type="button" @click="closeChangeFerry()" class="text-slate-500 hover:text-slate-800">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-slate-600">Edit the sailing below. Any fare difference or change fee is recorded, and the voucher is regenerated. (A full sailing swap is handled by Cancel + rebook.)</p>
+
+                <!-- Route + date -->
+                <div class="grid sm:grid-cols-2 gap-3">
+                    <label class="form-control"><span class="form-label">From port</span><input class="input" x-model="ferry.from_name"></label>
+                    <label class="form-control"><span class="form-label">To port</span><input class="input" x-model="ferry.to_name"></label>
+                    <label class="form-control"><span class="form-label">Sailing date</span><input type="date" class="input" x-model="ferry.date"></label>
+                    <label class="form-control"><span class="form-label">Departure time</span><input type="time" class="input" x-model="ferry.departure_time"></label>
+                </div>
+
+                <!-- Vehicles / pets -->
+                <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                    <label class="form-control"><span class="form-label">Vehicles</span><input type="number" min="0" class="input" x-model.number="ferry.vehicles"></label>
+                    <label class="form-control"><span class="form-label">Pets</span><input type="number" min="0" class="input" x-model.number="ferry.pets"></label>
+                </div>
+
+                <!-- Money -->
+                <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                    <label class="form-control"><span class="form-label">Rate difference (new − old; negative = refund)</span><input type="number" step="0.01" class="input" x-model.number="ferryRateDiff" placeholder="0.00"></label>
+                    <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="ferryFee" placeholder="0.00"></label>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" class="btn secondary" @click="closeChangeFerry()">Cancel</button>
+                    <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="ferryBusy" @click="submitFerryChange()">
+                        <span x-show="ferryBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                        <span>Save sailing change</span>
                     </button>
                 </div>
             </div>
@@ -1691,6 +1742,10 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         <?php include __DIR__ . '/bus-booking-details.php'; ?>
         <?php endif; ?>
 
+        <?php if ($is_ferries_booking): ?>
+        <?php include __DIR__ . '/ferries-booking-details.php'; ?>
+        <?php endif; ?>
+
         <?php if ($is_rail_booking): ?>
         <?php include __DIR__ . '/rail-booking-details.php'; ?>
         <?php elseif (!empty($travellers)): ?>
@@ -2558,6 +2613,23 @@ function bookingEdit() {
                 'seat_class'     => $p(['seat_class', 'class']),
             ], JSON_UNESCAPED_UNICODE) ?: '{}';
         })() ?>,
+        // ---- FERRIES CHANGE state ----
+        ferryOpen: false,
+        ferryBusy: false,
+        ferryRateDiff: 0,
+        ferryFee: 0,
+        ferry: <?= (function () use ($booking_data) {
+            $fd = is_array($booking_data) ? $booking_data : [];
+            $draft = is_array($fd['draft'] ?? null) ? $fd['draft'] : [];
+            return json_encode([
+                'from_name'      => (string) ($draft['from_name'] ?? ($fd['from_name'] ?? '')),
+                'to_name'        => (string) ($draft['to_name'] ?? ($fd['to_name'] ?? '')),
+                'date'           => (string) ($draft['date'] ?? ($fd['date'] ?? '')),
+                'departure_time' => (string) ($draft['departure_time'] ?? ($fd['departure_time'] ?? '')),
+                'vehicles'       => is_array($fd['vehicles'] ?? null) ? count($fd['vehicles']) : (int) ($fd['vehicles'] ?? 0),
+                'pets'           => is_array($fd['pets'] ?? null) ? count($fd['pets']) : (int) ($fd['pets'] ?? 0),
+            ], JSON_UNESCAPED_UNICODE) ?: '{}';
+        })() ?>,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
@@ -2978,6 +3050,32 @@ function bookingEdit() {
                 } else { alert('Error: ' + (data.message || 'Could not change the trip.')); }
             })
             .catch(err => { this.busBusy = false; alert('Error: ' + err.message); });
+        },
+        // ---- FERRIES CHANGE methods (record edit — kikoto has no amend API) ----
+        openChangeFerry() { this.ferryOpen = true; },
+        closeChangeFerry() { this.ferryOpen = false; },
+        submitFerryChange() {
+            if (!confirm('Save the sailing change and apply the money adjustment?')) { return; }
+            this.ferryBusy = true;
+            const params = new URLSearchParams();
+            params.set('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            ['from_name','to_name','date','departure_time'].forEach(k => params.set(k, this.ferry[k] || ''));
+            params.set('vehicles', String(Number(this.ferry.vehicles) || 0));
+            params.set('pets', String(Number(this.ferry.pets) || 0));
+            params.set('rate_difference', String(Number(this.ferryRateDiff) || 0));
+            params.set('change_fee', String(Number(this.ferryFee) || 0));
+            fetch('<?= root . admin ?>/bookings/change-ferry/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.ferryBusy = false;
+                if (data.success === true) {
+                    if (confirm((data.message || 'Sailing updated.') + '\n\nClick OK to refresh.')) window.location.reload();
+                } else { alert('Error: ' + (data.message || 'Could not change the sailing.')); }
+            })
+            .catch(err => { this.ferryBusy = false; alert('Error: ' + err.message); });
         },
         startRefundPolling() {
             this.refundPollInterval = setInterval(() => {
