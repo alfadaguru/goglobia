@@ -1336,6 +1336,37 @@ try {
                 if (/breakfast|b&b|bed and breakfast|bb\b/.test(s)) return 'breakfast';
                 return 'room_only';
             },
+            _boardLabel(key) {
+                return ({ room_only: 'Room only', breakfast: 'Breakfast', half: 'Half board', full: 'Full board', all: 'All-inclusive' })[key] || '';
+            },
+            // Derive a card-level rate summary from a hotel's CHEAPEST room option
+            // (the "from" price the card shows). Returns the board label, whether that
+            // rate is refundable, and free-cancellation text when known — so the card
+            // can show a non-refundable warning / free-cancel note / board plan from
+            // real rate data rather than leaving the customer to discover it at checkout.
+            stayRateSummary(h) {
+                let cheapest = null, cheapestPrice = Infinity;
+                for (const grp of (h?.room_options || [])) {
+                    for (const o of (grp.options || [])) {
+                        const p = parseFloat(o.total_price || o.price || 0);
+                        if (p > 0 && p < cheapestPrice) { cheapestPrice = p; cheapest = o; }
+                    }
+                }
+                if (!cheapest) {
+                    // Fall back to the hotel-level refundable flag the card already used.
+                    const ref = h?.original_data?.refundable;
+                    return { board: '', refundable: ref === undefined ? null : !!Number(ref), freeCancel: '', known: false };
+                }
+                const refundable = cheapest.refundable === undefined ? null : !!Number(cheapest.refundable);
+                let freeCancel = '';
+                if (cheapest.cancellation_free) freeCancel = 'Free cancellation';
+                return {
+                    board: this._boardLabel(this._boardBucket(cheapest.board_name || cheapest.board)),
+                    refundable,
+                    freeCancel,
+                    known: true,
+                };
+            },
             stayMatrix() {
                 const pool = (this.hotels || []).filter(h => h && (h.stars > 0));
                 if (pool.length < 2) return { stars: [], boards: [], hasMatrix: false };

@@ -253,12 +253,26 @@ PERFORMANCE:
                                     +${h.original_data.amenities.length - 3}
                                 </span>
                             ` : ''}
-                            ${h.original_data && h.original_data.refundable ? `
-                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300">
-                                    <span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span>
-                                    <span><?= T::refundable ?></span>
-                                </span>
-                            ` : ''}
+                            ${(() => {
+                                const rs = this.stayRateSummary(h);
+                                let out = '';
+                                // Board / meal plan (from the cheapest rate shown as the "from" price)
+                                if (rs.board) {
+                                    out += `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                                        <span class="material-symbols-outlined" style="font-size: 14px;">restaurant</span>${esc(rs.board)}</span>`;
+                                }
+                                // Refundability: show a clear NON-REFUNDABLE warning (amber) when the
+                                // rate is non-refundable, a free-cancellation / refundable note when it is.
+                                if (rs.refundable === false) {
+                                    out += `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                                        <span class="material-symbols-outlined" style="font-size: 14px;">block</span><?= T::non_refundable ?? 'Non-refundable' ?></span>`;
+                                } else if (rs.refundable === true) {
+                                    const label = rs.freeCancel || '<?= T::refundable ?>';
+                                    out += `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                                        <span class="material-symbols-outlined" style="font-size: 14px;">${rs.freeCancel ? 'event_available' : 'check_circle'}</span>${esc(label)}</span>`;
+                                }
+                                return out;
+                            })()}
                             ${(h.original_data?.zone_name || h.original_data?.chain_name) ? `
                                 ${h.original_data.zone_name ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${esc(h.original_data.zone_name)}</span>` : ''}
                                 ${h.original_data.chain_name ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${esc(h.original_data.chain_name)}</span>` : ''}
