@@ -76,6 +76,12 @@ $is_no_show        = $booking_status_lc === 'no_show';
 $is_stays_booking  = in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true);
 $is_own_stay       = $is_stays_booking && in_array(strtolower((string) ($booking['module'] ?? '')), ['stays', 'hotels', 'manual', ''], true);
 $is_live_stay      = $is_stays_booking && !$is_own_stay;
+// CARS CHANGE gating (new). Only cartrawler + mozio have a supplier cancel action →
+// those use guided cancel+rebook; everything else (manual / own-inventory / search-only
+// suppliers that create no bookable record) is treated as an editable record change.
+$is_cars_booking   = strtolower((string) ($booking['module_type'] ?? '')) === 'cars';
+$is_live_car       = $is_cars_booking && in_array(strtolower((string) ($booking['module'] ?? '')), ['cartrawler', 'mozio'], true);
+$is_own_car        = $is_cars_booking && !$is_live_car;
 // A cross-reference to the counterpart of a cancel+rebook change, if any.
 $__bd_meta = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
 $change_ref = (is_array($__bd_meta) && isset($__bd_meta['meta']['change']) && is_array($__bd_meta['meta']['change']))
@@ -470,6 +476,106 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                     </ol>
                     <div class="flex justify-end pt-2 border-t border-slate-200">
                         <button type="button" class="btn secondary" @click="closeChangeStay()">Close</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- ===================== CHANGE RENTAL MODAL ===================== -->
+    <div x-show="rentalOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="display:none;">
+        <div class="absolute inset-0 bg-slate-900/60" @click="closeChangeRental()"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined">directions_car</span>
+                    <span x-text="isLiveCar ? 'Change rental (cancel &amp; rebook)' : 'Change rental'"></span>
+                </h3>
+                <button type="button" @click="closeChangeRental()" class="text-slate-500 hover:text-slate-800">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- MANUAL / own-inventory: editable rental + money reconcile -->
+            <template x-if="!isLiveCar">
+                <div class="p-6 space-y-4">
+                    <p class="text-sm text-slate-600">Edit the rental below. Any rate difference or change fee is recorded, and the voucher is regenerated.</p>
+
+                    <!-- Vehicle -->
+                    <div class="grid sm:grid-cols-3 gap-3">
+                        <label class="form-control"><span class="form-label">Vehicle</span><input class="input" x-model="rental.car_name" placeholder="Toyota Corolla"></label>
+                        <label class="form-control"><span class="form-label">Type</span><input class="input" x-model="rental.vehicle_type" placeholder="Economy / SUV"></label>
+                        <label class="form-control"><span class="form-label">Transmission</span><input class="input" x-model="rental.transmission" placeholder="Automatic / Manual"></label>
+                    </div>
+
+                    <!-- Pickup -->
+                    <div class="grid sm:grid-cols-3 gap-3 border-t border-slate-200 pt-4">
+                        <label class="form-control sm:col-span-1"><span class="form-label">Pick-up location</span><input class="input" x-model="rental.pickup_location"></label>
+                        <label class="form-control"><span class="form-label">Pick-up date</span><input type="date" class="input" x-model="rental.pickup_date"></label>
+                        <label class="form-control"><span class="form-label">Pick-up time</span><input type="time" class="input" x-model="rental.pickup_time"></label>
+                    </div>
+
+                    <!-- Dropoff -->
+                    <div class="grid sm:grid-cols-3 gap-3">
+                        <label class="form-control sm:col-span-1"><span class="form-label">Drop-off location</span><input class="input" x-model="rental.dropoff_location"></label>
+                        <label class="form-control"><span class="form-label">Drop-off date</span><input type="date" class="input" x-model="rental.dropoff_date"></label>
+                        <label class="form-control"><span class="form-label">Drop-off time</span><input type="time" class="input" x-model="rental.dropoff_time"></label>
+                    </div>
+
+                    <div class="grid sm:grid-cols-3 gap-3">
+                        <label class="form-control"><span class="form-label">Driver age</span><input type="number" min="18" max="99" class="input" x-model.number="rental.driver_age"></label>
+                    </div>
+
+                    <!-- Money -->
+                    <div class="grid sm:grid-cols-2 gap-3 border-t border-slate-200 pt-4">
+                        <label class="form-control"><span class="form-label">Rate difference (new − old; negative = refund)</span><input type="number" step="0.01" class="input" x-model.number="rentalRateDiff" placeholder="0.00"></label>
+                        <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="rentalFee" placeholder="0.00"></label>
+                    </div>
+
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" class="btn secondary" @click="closeChangeRental()">Cancel</button>
+                        <button type="button" class="btn primary inline-flex items-center gap-2" :disabled="rentalBusy" @click="submitRentalChange()">
+                            <span x-show="rentalBusy" class="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                            <span>Save rental change</span>
+                        </button>
+                    </div>
+                </div>
+            </template>
+
+            <!-- LIVE supplier (cartrawler/mozio): guided cancel → refund → rebook -->
+            <template x-if="isLiveCar">
+                <div class="p-6 space-y-5">
+                    <p class="text-sm text-slate-600">This car supplier has no amend API, so a change is handled as <strong>cancel + rebook</strong>, linked as one change. Follow the steps in order.</p>
+                    <ol class="space-y-4">
+                        <li class="flex gap-3" :class="rentalStep>1 ? 'opacity-60' : ''">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">1</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Cancel the existing reservation at the supplier</p>
+                                <button type="button" class="btn secondary sm mt-2" :disabled="rentalBusy || rentalStep>1" @click="liveCarStep1Cancel()">Cancel reservation</button>
+                            </div>
+                        </li>
+                        <li class="flex gap-3" :class="rentalStep>2 ? 'opacity-60' : (rentalStep<2 ? 'opacity-40' : '')">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">2</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Refund the customer (minus change fee)</p>
+                                <div class="grid sm:grid-cols-2 gap-2 my-2">
+                                    <label class="form-control"><span class="form-label">Amount paid to refund</span><input type="number" step="0.01" class="input" x-model.number="rentalRateDiff" placeholder="0.00"></label>
+                                    <label class="form-control"><span class="form-label">Change fee (retained)</span><input type="number" step="0.01" min="0" class="input" x-model.number="rentalFee" placeholder="0.00"></label>
+                                </div>
+                                <button type="button" class="btn secondary sm" :disabled="rentalBusy || rentalStep!==2" @click="liveCarStep2Refund()">Process refund</button>
+                            </div>
+                        </li>
+                        <li class="flex gap-3" :class="rentalStep<3 ? 'opacity-40' : ''">
+                            <span class="flex-none w-7 h-7 rounded-full bg-indigo-600 text-white text-sm flex items-center justify-center font-semibold">3</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-800">Rebook the new rental</p>
+                                <p class="text-xs text-slate-500 mb-2">Opens the Booking Manager prefilled, linked back to this booking.</p>
+                                <button type="button" class="btn primary sm" :disabled="rentalStep!==3" @click="liveCarStep3Rebook()">Rebook now</button>
+                            </div>
+                        </li>
+                    </ol>
+                    <div class="flex justify-end pt-2 border-t border-slate-200">
+                        <button type="button" class="btn secondary" @click="closeChangeRental()">Close</button>
                     </div>
                 </div>
             </template>
@@ -1354,6 +1460,10 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
         <?php include __DIR__ . '/stays-booking-details.php'; ?>
         <?php endif; ?>
 
+        <?php if ($is_cars_booking): ?>
+        <?php include __DIR__ . '/cars-booking-details.php'; ?>
+        <?php endif; ?>
+
         <?php if ($is_rail_booking): ?>
         <?php include __DIR__ . '/rail-booking-details.php'; ?>
         <?php elseif (!empty($travellers)): ?>
@@ -2126,6 +2236,38 @@ function bookingEdit() {
             }
             return json_encode($out, JSON_UNESCAPED_UNICODE) ?: '[]';
         })() ?>,
+        // ---- CARS CHANGE state ----
+        rentalOpen: false,
+        isLiveCar: <?= !empty($is_live_car) ? 'true' : 'false' ?>,
+        rentalBusy: false,
+        rentalStep: 1,
+        rentalRateDiff: 0,
+        rentalFee: 0,
+        rental: <?= (function () use ($booking_data) {
+            $cd = is_array($booking_data) ? $booking_data : [];
+            $sp = is_array($cd['search_params'] ?? null) ? $cd['search_params'] : [];
+            $car = is_array($cd['car_data'] ?? null) ? $cd['car_data'] : [];
+            $pick = function (array $keys) use ($cd, $sp, $car) {
+                foreach ($keys as $k) {
+                    foreach ([$cd, $sp, $car] as $src) {
+                        if (isset($src[$k]) && $src[$k] !== '') { return (string) $src[$k]; }
+                    }
+                }
+                return '';
+            };
+            return json_encode([
+                'car_name'         => $pick(['car_name', 'name']),
+                'vehicle_type'     => $pick(['vehicle_type']),
+                'transmission'     => $pick(['transmission']),
+                'pickup_location'  => $pick(['pickup_location']),
+                'dropoff_location' => $pick(['dropoff_location', 'pickup_location']),
+                'pickup_date'      => $pick(['pickup_date']),
+                'pickup_time'      => $pick(['pickup_time']),
+                'dropoff_date'     => $pick(['dropoff_date', 'return_date']),
+                'dropoff_time'     => $pick(['dropoff_time', 'return_time']),
+                'driver_age'       => (int) ($cd['driver_age'] ?? $sp['driver_age'] ?? 0),
+            ], JSON_UNESCAPED_UNICODE) ?: '{}';
+        })() ?>,
         init() {
             console.log('Booking Edit Page Initialized');
             console.log('Has PNR:', this.hasPnr);
@@ -2360,6 +2502,73 @@ function bookingEdit() {
         },
         liveStayStep3Rebook() {
             window.location.href = '<?= root . admin ?>/booking-manager/stays?change_from=<?= $invoiceIdEsc ?>&service=stays';
+        },
+        // ---- CARS CHANGE methods ----
+        openChangeRental() { this.rentalStep = 1; this.rentalOpen = true; },
+        closeChangeRental() { this.rentalOpen = false; },
+        submitRentalChange() {
+            if (!confirm('Save the rental change and apply the money adjustment?')) { return; }
+            this.rentalBusy = true;
+            const params = new URLSearchParams();
+            params.set('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            ['car_name','vehicle_type','transmission','pickup_location','dropoff_location','pickup_date','pickup_time','dropoff_date','dropoff_time'].forEach(k => params.set(k, this.rental[k] || ''));
+            params.set('driver_age', String(Number(this.rental.driver_age) || 0));
+            params.set('rate_difference', String(Number(this.rentalRateDiff) || 0));
+            params.set('change_fee', String(Number(this.rentalFee) || 0));
+            fetch('<?= root . admin ?>/bookings/change-rental/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.rentalBusy = false;
+                if (data.success === true) {
+                    if (confirm((data.message || 'Rental updated.') + '\n\nClick OK to refresh.')) window.location.reload();
+                } else { alert('Error: ' + (data.message || 'Could not change the rental.')); }
+            })
+            .catch(err => { this.rentalBusy = false; alert('Error: ' + err.message); });
+        },
+        liveCarStep1Cancel() {
+            if (!confirm('Step 1 of 3 — CANCEL this reservation at the supplier. This cannot be undone. Continue?')) { return; }
+            this.rentalBusy = true;
+            const moduleType = '<?= $moduleTypeEsc ?>';
+            const module = '<?= $moduleEsc ?>';
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('cancel_all', '1');
+            fetch('<?= root ?>modules/' + moduleType + '/' + module + '/cancel', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.rentalBusy = false;
+                if (data.status === true || data.success === true) { this.rentalStep = 2; }
+                else { alert('Cancel failed: ' + (data.message || 'supplier error')); }
+            })
+            .catch(err => { this.rentalBusy = false; alert('Error: ' + err.message); });
+        },
+        liveCarStep2Refund() {
+            const amt = Number(this.rentalRateDiff) || 0, fee = Number(this.rentalFee) || 0;
+            if (!confirm('Step 2 of 3 — refund ' + (amt - fee) + ' to the customer (keeping a ' + fee + ' change fee)?')) { return; }
+            this.rentalBusy = true;
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoiceIdEsc ?>');
+            params.set('refund_amount', String(amt));
+            params.set('change_fee', String(fee));
+            params.set('action', 'change_refund');
+            fetch('<?= root . admin ?>/bookings/action/<?= $invoiceIdEsc ?>', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.rentalBusy = false;
+                if (data.success === true) { this.rentalStep = 3; }
+                else { alert('Refund: ' + (data.message || 'failed')); }
+            })
+            .catch(err => { this.rentalBusy = false; alert('Error: ' + err.message); });
+        },
+        liveCarStep3Rebook() {
+            window.location.href = '<?= root . admin ?>/booking-manager/cars?change_from=<?= $invoiceIdEsc ?>&service=cars';
         },
         startRefundPolling() {
             this.refundPollInterval = setInterval(() => {

@@ -626,6 +626,127 @@ $router->post(admin.'/bookings/change-stay/(.*)', function ($invoice_id) use ($S
 
 });
 
+// ================================ POST /admin/bookings/change-rental/{invoice_id}
+// CARS change (car hire). Purpose-built for a rental: edit vehicle / pickup+dropoff
+// location / dates / times / driver age, and reconcile the rate difference + change
+// fee. Manual/own-inventory rewrites the flat car keys; a live (cartrawler/mozio)
+// booking also mirrors the editable fields into booking_data.search_params so the
+// voucher stays consistent. Cars have NO availability-hold system, so no hold move.
+// (A live supplier EXCHANGE isn't offered — cars suppliers have no amend API; a true
+// supplier swap is the guided cancel+rebook from the UI.)
+$router->post(admin.'/bookings/change-rental/(.*)', function ($invoice_id) use ($SECURE,$db) {
+
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
+    if (!$booking) { echo json_encode(['success' => false, 'message' => 'Booking not found']); exit; }
+
+    if (strtolower((string) ($booking['module_type'] ?? '')) !== 'cars') {
+        echo json_encode(['success' => false, 'message' => 'This change path is for car rental bookings only.']);
+        exit;
+    }
+    if (in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+        echo json_encode(['success' => false, 'message' => 'A cancelled/voided booking cannot be changed.']);
+        exit;
+    }
+
+    $bd = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
+    if (!is_array($bd)) { $bd = []; }
+    if (!isset($bd['search_params']) || !is_array($bd['search_params'])) { $bd['search_params'] = []; }
+    // Snapshot for history (read from the normalised locations the panel shows).
+    $prev = [
+        'pickup_location'  => (string) ($bd['pickup_location'] ?? $bd['search_params']['pickup_location'] ?? ''),
+        'dropoff_location' => (string) ($bd['dropoff_location'] ?? $bd['search_params']['dropoff_location'] ?? ''),
+        'pickup_date'      => (string) ($bd['pickup_date'] ?? $bd['search_params']['pickup_date'] ?? ''),
+        'dropoff_date'     => (string) ($bd['dropoff_date'] ?? $bd['search_params']['return_date'] ?? ''),
+    ];
+
+    // Apply edited car fields onto BOTH the flat keys (manual read) and search_params
+    // (live read), so whichever the voucher/panel consults is consistent. Only overwrite
+    // keys that were provided.
+    $applied = [];
+    $put = function (string $flatKey, string $spKey, $val) use (&$bd, &$applied) {
+        if ($val === null) { return; }
+        $v = trim((string) $val);
+        $bd[$flatKey] = $v;
+        $bd['search_params'][$spKey] = $v;
+        $applied[$flatKey] = $v;
+    };
+    $put('car_name',         'car_name',         $_POST['car_name']         ?? null);
+    $put('vehicle_type',     'vehicle_type',     $_POST['vehicle_type']     ?? null);
+    $put('transmission',     'transmission',     $_POST['transmission']     ?? null);
+    $put('pickup_location',  'pickup_location',  $_POST['pickup_location']  ?? null);
+    $put('dropoff_location', 'dropoff_location', $_POST['dropoff_location'] ?? null);
+    $put('pickup_date',      'pickup_date',      $_POST['pickup_date']      ?? null);
+    $put('pickup_time',      'pickup_time',      $_POST['pickup_time']      ?? null);
+    // drop-off date/time: live search_params historically uses return_date/return_time.
+    if (isset($_POST['dropoff_date'])) { $v = trim((string) $_POST['dropoff_date']); $bd['dropoff_date'] = $v; $bd['search_params']['return_date'] = $v; }
+    if (isset($_POST['dropoff_time'])) { $v = trim((string) $_POST['dropoff_time']); $bd['dropoff_time'] = $v; $bd['search_params']['return_time'] = $v; }
+    if (isset($_POST['driver_age']) && $_POST['driver_age'] !== '') {
+        $bd['driver_age'] = (int) $_POST['driver_age'];
+        $bd['search_params']['driver_age'] = (int) $_POST['driver_age'];
+    }
+
+    // CHANGE HISTORY (same meta shape stays/flights use).
+    if (!isset($bd['meta']) || !is_array($bd['meta'])) { $bd['meta'] = []; }
+    $hist = [
+        'at'   => date('Y-m-d H:i:s'),
+        'by'   => $_SESSION['user_id'] ?? null,
+        'from' => $prev,
+        'to'   => [
+            'pickup_location'  => (string) ($bd['pickup_location'] ?? ''),
+            'dropoff_location' => (string) ($bd['dropoff_location'] ?? ''),
+            'pickup_date'      => (string) ($bd['pickup_date'] ?? ''),
+            'dropoff_date'     => (string) ($bd['dropoff_date'] ?? ''),
+        ],
+    ];
+    if (!isset($bd['meta']['change_history']) || !is_array($bd['meta']['change_history'])) { $bd['meta']['change_history'] = []; }
+    $bd['meta']['change_history'][] = $hist;
+    $bd['meta']['last_changed'] = $hist;
+
+    $ok = $db->update('bookings', ['booking_data' => json_encode($bd)], ['invoice_id' => $invoice_id]);
+    if ($ok === false) { echo json_encode(['success' => false, 'message' => 'Failed to save the rental change.']); exit; }
+
+    // Money reconcile — rate difference (+) owes / (−) refund, plus change fee.
+    $rateDiff  = (float) ($_POST['rate_difference'] ?? 0);
+    $changeFee = max(0.0, (float) ($_POST['change_fee'] ?? 0));
+    $delta = ($rateDiff > 0) ? ($rateDiff + $changeFee) : (($rateDiff < 0) ? ($rateDiff + $changeFee) : $changeFee);
+    $money = ['direction' => 'none', 'message' => 'No money movement.'];
+    if (function_exists('bm_apply_booking_adjustment') && abs($delta) > 0.001) {
+        $money = bm_apply_booking_adjustment($db, (string) $invoice_id, round($delta, 2), $changeFee,
+            'Car rental change', ['actor' => $_SESSION['user_id'] ?? null]);
+    }
+
+    // Regenerate the voucher + notify. Buffer/discard output — GENERATE_BOOKING_PDF
+    // (voucher) + NOTIFY echo HTML which would corrupt this JSON response (proven on
+    // the stays build). Keep the response clean.
+    ob_start();
+    try {
+        $voucher = GENERATE_BOOKING_PDF($invoice_id);
+        NOTIFY::resend($booking['module'], $booking, [
+            'invoice_id'  => $invoice_id,
+            'amount'      => $booking['price_markup'],
+            'currency'    => $booking['currency'] ?? '',
+            'module_type' => 'Cars',
+            'event_note'  => 'changed',
+        ], $voucher);
+    } catch (\Throwable $e) { error_log('change-rental notify ' . $invoice_id . ': ' . $e->getMessage()); }
+    ob_end_clean();
+
+    echo json_encode([
+        'success'     => true,
+        'message'     => 'Rental updated.' . (($money['direction'] ?? 'none') !== 'none' ? ' ' . ($money['message'] ?? '') : ''),
+        'money'       => $money,
+        'payment_due' => $money['payment_due'] ?? 0,
+        'refunded'    => $money['refunded'] ?? 0,
+    ]);
+    exit;
+
+});
+
 // ================================ POST /admin/bookings/action/{invoice_id}
 $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE,$db) {
 
