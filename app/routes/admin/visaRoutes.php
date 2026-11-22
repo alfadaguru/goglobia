@@ -670,7 +670,16 @@ $router->post(admin.'/visa/settings/save', function () use ($SECURE,$db) {
     $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
     $setting_type = trim($_POST['setting_type'] ?? '');
     $name = trim($_POST['name'] ?? '');
+    // The visa_type / processing_speed `value` becomes a URL path segment in the
+    // visa search route (/visa/{from}/{to}/{date}/{type}/{speed}/{travelers}). Spaces,
+    // slashes and other URL-hostile characters would break that route and 404 the
+    // search. Normalise to a URL-safe slug: keep letters/digits/underscore, collapse
+    // any other run to a single hyphen, trim stray separators. Matches the route's
+    // [A-Za-z0-9_-] class and preserves existing values like 'super_rush'. Case is
+    // preserved because the booking page matches visa_settings.value exactly.
     $value = trim($_POST['value'] ?? '');
+    $value = preg_replace('/[^A-Za-z0-9_-]+/', '-', $value);
+    $value = trim((string) $value, '-');
     $icon = trim($_POST['icon'] ?? '');
     $description = trim($_POST['description'] ?? '');
     $display_order = intval($_POST['display_order'] ?? 0);

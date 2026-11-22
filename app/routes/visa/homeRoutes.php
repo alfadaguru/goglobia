@@ -15,7 +15,15 @@ $router->get('/visa', function () use ($SECURE, $db) {
 });
 
 // ================================ GET /visa/{from}/{to}/{date}/{type}/{speed}/{travelers} - VISA RESULTS
-$router->get('/visa/([A-Za-z]{2})/([A-Za-z]{2})/([0-9]{2}-[0-9]{2}-[0-9]{4})/([a-z_]+)/([a-z_]+)/([0-9]+)', 
+// The visa_type / processing_speed segments are admin-managed values from
+// visa_settings.value. They are NOT restricted to [a-z_] at admin-save time — an
+// operator can enter digits, hyphens or uppercase (e.g. 'e-visa', 'visa30',
+// 'Business'). The old regex ([a-z_]+) rejected those, so the search redirect 404'd
+// on every admin-added type that wasn't pure lowercase letters. Accept the full set
+// of URL-safe slug characters [A-Za-z0-9_-] so the result page loads; the handler
+// just stores the value in session and the booking page matches it against
+// visa_settings.value exactly (so the original casing must be preserved).
+$router->get('/visa/([A-Za-z]{2})/([A-Za-z]{2})/([0-9]{2}-[0-9]{2}-[0-9]{4})/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)/([0-9]+)',
     function ($fromCountry, $toCountry, $entryDate, $visaType, $processingSpeed, $travelers) use ($SECURE, $db) {
     
     $travelers = max(1, min(10, (int)$travelers));
