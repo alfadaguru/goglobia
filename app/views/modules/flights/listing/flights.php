@@ -901,7 +901,7 @@ try {
                         <!--
                             NOTE: the raw "Supplier Debug" panel was removed. It must
                             NEVER render on the customer/agent-facing search — it leaked
-                            the supplier identity (e.g. "ADIVAHA"), HTTP codes, timeouts
+                            the supplier identity, HTTP codes, timeouts
                             and raw JSON, which breaks the supplier-hiding mandate and
                             looks broken to travellers. It showed even for an admin,
                             because an admin using the public search is still a
@@ -1053,12 +1053,31 @@ try {
                 return (p * (this.payPssFirstPct / 100));
             },
 
-            <?php $modules = $db->select('modules', '*', ['type' => 'flights', 'status' => 1]);
+            <?php
+            $modules = $db->select('modules', '*', ['type' => 'flights', 'status' => 1]);
             $uniqueSuppliers = array_values(array_unique(array_column($modules, 'name')));
+            // SUPPLIER HIDING: emit OPAQUE TOKENS, never the raw wholesaler names, so
+            // View Source / the client JS state reveals no supplier identity. The fetch
+            // loop iterates these tokens; the /modules gateway decodes each token back
+            // to the real supplier server-side. Each result's f.supplier then becomes
+            // the token too (normalizeFlights stores the passed param), and booking
+            // decodes it. Admins additionally get a token→name label map (behind the
+            // server-side admin gate) so the admin-only supplier filter still reads.
+            $__supTokens = [];
+            $__supLabels = [];
+            $__isAdminViewer = (($_SESSION['user_role'] ?? '') === 'admin') || !empty($_SESSION['admin_logged_in']);
+            foreach ($uniqueSuppliers as $__s) {
+                $__t = function_exists('supplier_url_token') ? supplier_url_token(strtolower($__s)) : $__s;
+                $__supTokens[] = $__t;
+                if ($__isAdminViewer) { $__supLabels[$__t] = $__s; }
+            }
             ?>
 
         // Config
-        suppliers: [<?php foreach ($uniqueSuppliers as $module): ?>'<?php echo $module; ?>', <?php endforeach; ?>],
+        suppliers: <?php echo json_encode($__supTokens); ?>,
+            // Admin-only token→name map (empty for customers) so the supplier filter
+            // behind the admin gate shows real names, not tokens.
+            supplierLabels: <?php echo json_encode($__supLabels ?: (object)[]); ?>,
             searchParams: {},
             sortBy: 'price_low',
 
@@ -2204,8 +2223,8 @@ try {
                         case 'price_high':
                             return b.price - a.price;
                         case 'duration':
-                            // durationToMinutes handles BOTH "1h 20m" (what Adivaha
-                            // actually sends) and "H:MM"; getDurationMinutes only did
+                            // durationToMinutes handles BOTH "1h 20m" (what some
+                            // suppliers send) and "H:MM"; getDurationMinutes only did
                             // split(':') so "1h 20m" collapsed to the hour and dropped
                             // the minutes — fastest-sort was wrong. Use the robust one.
                             return this.durationToMinutes(a.duration_time) - this.durationToMinutes(b.duration_time);
@@ -2513,7 +2532,7 @@ try {
             },
 
             // refundable arrives as a STRING from the supplier ("Refundable" /
-            // "Non-Refundable" / "" ), set in modules/flights/adivaha/search.php:541.
+            // "Non-Refundable" / "" ), set in the supplier search layer.
             // A bare `f.refundable ? …` is ALWAYS truthy for a non-empty string, so a
             // Non-Refundable fare was being shown as Refundable. Returns true/false, or
             // null when unknown (empty/unrecognised) so the UI can say "Check fare rules"
@@ -2596,6 +2615,11 @@ try {
             getReturnStopCount(stop) { return this.flights.filter(f => f.isRoundTrip && (stop === 2 ? f.returnStops >= 2 : f.returnStops === stop)).length; },
             getAirlineCount(airline) { return this.flights.filter(f => (f.airlineName || f.airline) === airline).length; },
             getSupplierCount(supplier) { return this.filteredFlights.filter(f => f.supplier === supplier).length; },
+            // Supplier values are opaque TOKENS now. For the ADMIN-only supplier filter,
+            // map a token back to the real name via the server-injected admin label map
+            // (empty for customers, so a customer could never resolve a token even if
+            // they reached this code). Falls back to the token itself.
+            supplierLabel(supplierToken) { return (this.supplierLabels && this.supplierLabels[supplierToken]) || supplierToken; },
 
             // ============================================
             // BOOK NOW - Save to logs_bookings and redirect to checkout
