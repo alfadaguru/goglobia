@@ -186,6 +186,13 @@ $enabledModulesMap = array_flip($enabledModules);
                   if (!is_array($d)) { $d = []; }
                   $title = $d['title'] ?? ucfirst((string) ($fav['module'] ?? 'Item'));
                   $url   = $d['url'] ?? '';
+                  // A car favourite has no standalone detail page — the /car/{slug}
+                  // route intentionally 404s. Older saved rows stored that dead URL,
+                  // so any favourite pointing at a /car/ path is repaired to the car
+                  // search entry (which works), rather than linking to a 404.
+                  if (($fav['module'] ?? '') === 'cars' && $url !== '' && preg_match('#/car/[^/]+#', (string) $url)) {
+                     $url = root . 'cars';
+                  }
                   $image = $d['image'] ?? '';
                   $price = $d['price'] ?? '';
                   $cur   = $d['currency'] ?? '';

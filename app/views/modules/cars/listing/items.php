@@ -124,8 +124,13 @@ function renderCarCard(car) {
     // ============================================================================
     const carSlug = carName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     const carId = car.car_id || car.id || 'unknown';
-    // Supplier name removed from the URL (the /car/{slug} route resolves by slug).
-    const detailUrl = `<?=root?>car/${carSlug}/${carId}`;
+    // There is NO standalone car-detail page: cars book straight from the live
+    // search results, and the /car/{slug} route intentionally serves a 404 (no
+    // permalinkable per-car page exists — rates come from a live supplier search).
+    // So the "favourite" link must point at the car search entry, not a dead
+    // /car/{slug} path (which 404'd for every saved car). detailUrl is used only
+    // for the favourite's View link; the booking button uses window.bookCar.
+    const detailUrl = `<?=root?>cars`;
 
     // ============================================================================
     // SAFELY ESCAPE STRINGS FOR HTML
