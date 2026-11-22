@@ -54,10 +54,14 @@ PERFORMANCE:
 
         const hotelChain = h.original_data.chain || h.hotel_chain || '_';
 
-        // Opaque supplier TOKEN in the URL (never the raw supplier name). Falls back
-        // to the raw name only if the map is missing (route decodes either).
-        const supKey = String(h.supplier || '').toLowerCase();
-        const supToken = (supplierTokens && supplierTokens[supKey]) ? supplierTokens[supKey] : supKey;
+        // Opaque supplier TOKEN in the URL (never the raw supplier name). h.supplier
+        // is ALREADY an opaque token now (search results are masked/tokenized), so use
+        // it directly. Backward-compatible: if h.supplier were still a raw name (legacy
+        // cached data), map it via supplierTokens; the /stay route decodes either, and
+        // a raw name there just falls back to the raw-slug path.
+        const supRaw = String(h.supplier || '');
+        const supKey = supRaw.toLowerCase();
+        const supToken = (supplierTokens && supplierTokens[supKey]) ? supplierTokens[supKey] : supRaw;
         return `<?= root ?>stay/${slug}/${hotelId}/${supToken}/${hotelChain}/${searchParams.checkin}/${searchParams.checkout}/${searchParams.nationality}/${searchParams.rooms}/${rooms}`;
     }
 
@@ -206,7 +210,7 @@ PERFORMANCE:
                     <!-- Supplier Badge (admin-only). Shifted below the favourite heart (top-3 right-3) to avoid overlap. -->
                     <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] == 'admin') { ?>
                         <div class="absolute top-14 right-2 bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold uppercase">
-                            ${esc(h.supplier)}
+                            ${esc(this.supplierLabel(h.supplier))}
                         </div>
                     <?php } ?>
                 </div>
@@ -322,7 +326,7 @@ PERFORMANCE:
             <div class="border-t border-gray-200 dark:border-gray-700 px-4 py-2 bg-gray-50 dark:bg-gray-900">
                 <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                     <span class="material-symbols-outlined" style="font-size: 14px;">business</span>
-                    <span><?= T::powered ?> <?= T::by ?> ${esc(h.supplier)}</span>
+                    <span><?= T::powered ?> <?= T::by ?> ${esc(this.supplierLabel(h.supplier))}</span>
                     <span class="w-1 h-1 bg-gray-400 rounded-full"></span>
                     <span>${h.currency}</span>
                 </div>
@@ -489,7 +493,7 @@ PERFORMANCE:
                         </span>
                         <span class="flex items-center gap-1">
                             <span class="material-symbols-outlined" style="font-size: 14px;">verified</span>
-                            <span><?= T::verified ?> <?= T::by ?> ${esc(h.supplier)}</span>
+                            <span><?= T::verified ?> <?= T::by ?> ${esc(this.supplierLabel(h.supplier))}</span>
                         </span>
                     </div>
                 </div>
@@ -499,7 +503,7 @@ PERFORMANCE:
                 <div class="flex justify-between items-center">
                     <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                         <span class="material-symbols-outlined" style="font-size: 14px;">business</span>
-                        <span>${esc(h.supplier)}</span>
+                        <span>${esc(this.supplierLabel(h.supplier))}</span>
                         <span class="w-1 h-1 bg-gray-400 rounded-full"></span>
                         <span>${h.currency}</span>
                     </div>

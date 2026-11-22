@@ -434,15 +434,31 @@ try {
             // raw supplier name (supplier-identity hiding). The client builds the
             // detail URL from this map; the /stay route decodes it server-side.
             $supplierTokenMap = [];
+            $__stayTokens = [];
+            $__stayLabels = [];
+            $__stayIsAdmin = (($_SESSION['user_role'] ?? '') === 'admin') || !empty($_SESSION['admin_logged_in']);
             foreach ($moduleNames as $mn) {
-                $supplierTokenMap[$mn] = function_exists('supplier_url_token') ? supplier_url_token($mn) : $mn;
+                $__t = function_exists('supplier_url_token') ? supplier_url_token(strtolower($mn)) : $mn;
+                $supplierTokenMap[$mn] = $__t;
+                $__stayTokens[] = $__t;
+                if ($__stayIsAdmin) { $__stayLabels[$__t] = $mn; }
             }
             ?>
             // ========================================
             // CONFIGURATION - Suppliers and filter options
             // ========================================
-            suppliers: <?php echo json_encode(array_values($moduleNames)); ?>,
-            supplierTokens: <?php echo json_encode($supplierTokenMap); ?>,
+            // SUPPLIER HIDING: emit OPAQUE TOKENS, never raw wholesaler names (View
+            // Source / JS state reveals no identity). The fetch loop iterates these
+            // tokens; the /modules gateway decodes each server-side, and booking
+            // decodes the token back to the real name.
+            suppliers: <?php echo json_encode($__stayTokens); ?>,
+            // supplierTokens USED to map raw name -> token for the detail URL. Now that
+            // every result's h.supplier is ALREADY a token, the map is unnecessary AND
+            // would leak the raw names as its keys — so emit an empty object. buildHotelUrl
+            // falls back to h.supplier (the token) directly.
+            supplierTokens: {},
+            // Admin-only token->name map (empty for customers) for the supplier filter.
+            supplierLabels: <?php echo json_encode($__stayLabels ?: (object)[]); ?>,
             <?php
             $accommodationTypes = $db->select('stays_settings', ['name'], ['setting_type' => 'accommodation', 'status' => 1]);
             $accommodationTypeNames = array_column($accommodationTypes, 'name');
@@ -1062,7 +1078,10 @@ try {
                     }
                 });
                 try {
-                    const res = await fetch(`<?=root?>modules/stays/${String(supplier).toLowerCase()}/search`, {
+                    // `supplier` is now an OPAQUE TOKEN (base64url, case-sensitive) — do
+                    // NOT lowercase it or the gateway can't decode it. The gateway
+                    // decodes the token to the real supplier server-side.
+                    const res = await fetch(`<?=root?>modules/stays/${encodeURIComponent(supplier)}/search`, {
                         method: 'POST',
                         body: form
                     });
@@ -1681,6 +1700,10 @@ try {
                 // console.log(`📈 Supplier ${supplier} count: ${count}`);
                 return count;
             },
+            // Supplier values are opaque TOKENS. For the ADMIN-only supplier filter,
+            // map a token back to the real name via the server-injected admin label
+            // map (empty for customers). Falls back to the token.
+            supplierLabel(supplierToken) { return (this.supplierLabels && this.supplierLabels[supplierToken]) || supplierToken; },
             getAmenityCount(amenity) {
                 const count = this.hotels.filter(h =>
                     this.hotelHasAmenity(this.hotelAmenityNames(h), amenity)

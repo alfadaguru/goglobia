@@ -145,6 +145,16 @@ $router->post('/api/stays/booking/draft', function () use ($db) {
             throw new Exception('Invalid booking data');
         }
 
+        // SUPPLIER HIDING: the browser holds the supplier as an opaque TOKEN (search
+        // results were masked). Decode every supplier token in the incoming booking
+        // data back to the real name HERE — the single entry boundary — so all
+        // downstream booking/issue logic (which branches on the real supplier name)
+        // works unchanged. Non-token values (own-inventory 'hotels'/'stays', legacy)
+        // pass through untouched.
+        if (function_exists('decode_supplier_tokens_in_place')) {
+            decode_supplier_tokens_in_place($input);
+        }
+
         // Normalize 'id' to 'hotel_id'
         if (empty($input['hotel_id']) && !empty($input['id'])) {
             $input['hotel_id'] = $input['id'];

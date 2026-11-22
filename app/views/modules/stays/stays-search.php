@@ -349,16 +349,12 @@ function hotelSearchData() {
             // Build hotel details URL (chain defaults to '_' when not available).
             // The supplier segment is an OPAQUE token, never the raw supplier name.
             const hotelChain = hotel.chain || '_';
-            const supplierTokens = <?php
-                $__supTok = [];
-                if (isset($db) && is_object($db)) {
-                    $__stayMods = $db->select('modules', ['name'], ['type' => 'stays', 'status' => 1, 'active' => 1]) ?: [];
-                    foreach ($__stayMods as $__m) { $__n = strtolower($__m['name']); $__supTok[$__n] = function_exists('supplier_url_token') ? supplier_url_token($__n) : $__n; }
-                }
-                echo json_encode($__supTok);
-            ?>;
-            const supKey = String(hotel.supplier || 'hotels').toLowerCase();
-            const supToken = supplierTokens[supKey] || supKey;
+            // hotel.supplier is ALREADY an opaque token (search results are tokenized),
+            // so use it directly. We no longer emit a raw-name->token map (it would leak
+            // the supplier names as its keys). A token is case-sensitive base64url — do
+            // NOT lowercase it. If it were somehow still a raw name (legacy), the /stay
+            // route's raw-slug fallback handles it.
+            const supToken = String(hotel.supplier || 'hotels');
             const hotelUrl = `<?=root?>stay/${cleanHotelName}/${hotel.id}/${supToken}/${hotelChain}/${checkinDate}/${checkoutDate}/${nationality}/${totalRooms}/${roomConfigs}`;
 
             window.location.href = hotelUrl;

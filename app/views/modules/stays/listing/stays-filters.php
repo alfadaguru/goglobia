@@ -209,7 +209,7 @@
                                 </div>
                             </div>
                             <label :for="'supplier-' + supplier" class="cursor-pointer flex-1 flex items-center justify-between">
-                                <span class="text-sm text-gray-700 dark:text-gray-300 capitalize" x-text="supplier"></span>
+                                <span class="text-sm text-gray-700 dark:text-gray-300 capitalize" x-text="supplierLabel(supplier)"></span>
                                 <span class="text-xs text-gray-500" x-text="getSupplierCount(supplier)"></span>
                             </label>
                         </div>
