@@ -165,16 +165,16 @@ $__wlInv = function_exists('wl_is_tenant') && wl_is_tenant();
                         <div class="flex items-start gap-4 pb-4 mb-4 border-b border-gray-200 dark:border-gray-700">
                             <!-- Hotel Image -->
                             <div class="w-20 h-20 flex-shrink-0">
-                                <img src="<?= !empty($bookingData['hotel_images'][0]) ? $bookingData['hotel_images'][0] : root . 'uploads/no_img.jpg' ?>"
+                                <img src="<?= htmlspecialchars(!empty($bookingData['hotel_images'][0]) ? (string) $bookingData['hotel_images'][0] : root . 'uploads/no_img.jpg') ?>"
                                      class="w-full h-full object-cover rounded-xl border border-gray-200 dark:border-gray-700"
-                                     alt="<?= $bookingData['hotel_name'] ?>"
+                                     alt="<?= htmlspecialchars((string) ($bookingData['hotel_name'] ?? '')) ?>"
                                      onerror="this.src='<?= root ?>uploads/no_img.jpg'">
                             </div>
 
                             <!-- Hotel Details -->
                             <div class="flex-1">
                                 <h4 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                                    <?= $bookingData['hotel_name'] ?>
+                                    <?= htmlspecialchars((string) ($bookingData['hotel_name'] ?? '')) ?>
                                 </h4>
 
                                 <!-- Hotel Stars -->
@@ -637,7 +637,7 @@ $__wlInv = function_exists('wl_is_tenant') && wl_is_tenant();
                                                             <?php if (isset($traveler['age'])): ?>
                                                                 <p class="text-xs text-gray-500 dark:text-gray-400">
                                                                     <span class="material-symbols-outlined !text-xs align-middle">cake</span>
-                                                                    <?= T::age ?>: <?= $traveler['age'] ?> <?= T::years ?>
+                                                                    <?= T::age ?>: <?= (int) ($traveler['age'] ?? 0) ?> <?= T::years ?>
                                                                 </p>
                                                             <?php endif; ?>
                                                         </div>

@@ -115,7 +115,7 @@ $bookingData['base_currency'] = $booking['currency_markup'] ?? 'EUR';
             <span class="material-symbols-outlined">check_circle</span>
             <div>
                 <p class="font-semibold"><?= T::booking_confirmed ?? 'Ferry booking confirmed!' ?></p>
-                <p class="text-sm">Invoice ID: <strong><?= $invoiceId ?></strong> &nbsp;·&nbsp; Locator: <strong><?= htmlspecialchars($locator) ?></strong></p>
+                <p class="text-sm">Invoice ID: <strong><?= htmlspecialchars((string) $invoiceId) ?></strong> &nbsp;·&nbsp; Locator: <strong><?= htmlspecialchars($locator) ?></strong></p>
             </div>
         </div>
         <?php elseif ($status === 'pending'): ?>

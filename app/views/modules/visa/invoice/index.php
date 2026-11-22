@@ -128,7 +128,7 @@ $getVisaDocumentItems = function ($traveler) {
                             <div class="flex-1">
                                 <h4 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2">
                                     <span class="material-symbols-outlined text-blue-500">public</span>
-                                    <?= $bookingData['from_country_name'] ?> to <?= $bookingData['to_country_name'] ?>
+                                    <?= htmlspecialchars((string) ($bookingData['from_country_name'] ?? '')) ?> to <?= htmlspecialchars((string) ($bookingData['to_country_name'] ?? '')) ?>
                                 </h4>
 
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -297,7 +297,7 @@ foreach ($session_keys as $key) {
                                                     <?php if (isset($traveler['age'])): ?>
                                                         <p class="text-xs text-gray-500 dark:text-gray-400">
                                                             <span class="material-symbols-outlined !text-xs align-middle">cake</span>
-                                                            <?= T::age ?>: <?= $traveler['age'] ?> <?= T::years ?>
+                                                            <?= T::age ?>: <?= (int) ($traveler['age'] ?? 0) ?> <?= T::years ?>
                                                         </p>
                                                     <?php endif; ?>
                                                 </div>
