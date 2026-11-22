@@ -1631,6 +1631,60 @@ if (!function_exists('supplier_from_url_token')) {
     }
 }
 
+if (!function_exists('supplier_url_token')) {
+    /**
+     * Mint the opaque supplier token (gateway mirror of functions.php). Identical
+     * algorithm + key, so a token minted here decodes in the main app and vice
+     * versa. Deterministic IV → stable token per supplier.
+     */
+    function supplier_url_token(string $supplier): string
+    {
+        $supplier = strtolower(trim($supplier));
+        if ($supplier === '') return '';
+        $k = _supplier_token_key();
+        if (function_exists('openssl_encrypt')) {
+            $iv = substr(hash('sha256', 's|' . $supplier, true), 0, 16);
+            $ct = openssl_encrypt($supplier, 'AES-256-CBC', $k, OPENSSL_RAW_DATA, $iv);
+            $mac = substr(hash_hmac('sha256', $iv . $ct, $k, true), 0, 10);
+            return rtrim(strtr(base64_encode($iv . $ct . $mac), '+/', '-_'), '=');
+        }
+        $mac = substr(hash_hmac('sha256', $supplier, $k, true), 0, 10);
+        return 'h' . rtrim(strtr(base64_encode($supplier . '|' . $mac), '+/', '-_'), '=');
+    }
+}
+
+if (!function_exists('mask_supplier_identity_in_offers')) {
+    /**
+     * Gateway mirror of the main-app masker: replace every plaintext `supplier`
+     * value in a decoded offers array with its opaque token (so the customer's
+     * browser never receives the name; booking decodes it), and drop display-only
+     * identity fields. Idempotent. See app/lib/functions.php for the authoritative
+     * copy — kept in sync; the gateway cannot load functions.php.
+     */
+    function mask_supplier_identity_in_offers(array &$offers): array
+    {
+        $walk = function (&$node) use (&$walk) {
+            if (!is_array($node)) { return; }
+            foreach ($node as $key => &$val) {
+                if ($key === 'supplier' && is_string($val) && $val !== '') {
+                    $looksTokenized = function_exists('supplier_from_url_token')
+                        && supplier_from_url_token($val) !== '';
+                    if (!$looksTokenized && function_exists('supplier_url_token')) {
+                        $val = supplier_url_token(strtolower(trim($val)));
+                    }
+                } elseif (in_array($key, ['supplier_name', 'supplier_id', 'color'], true)) {
+                    unset($node[$key]);
+                    continue;
+                }
+                if (is_array($val)) { $walk($val); }
+            }
+            unset($val);
+        };
+        $walk($offers);
+        return $offers;
+    }
+}
+
 if (!function_exists('supplier_internal_token')) {
     function supplier_internal_token(string $invoiceId): string
     {
