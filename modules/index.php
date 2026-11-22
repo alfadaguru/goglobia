@@ -455,6 +455,34 @@ include __DIR__ . '/insurance/airhelp/index.php';         // AirHelp (flight-com
 include __DIR__ . '/insurance/travelsure/index.php';      // TravelSure (paid policy — SCAFFOLDING, supplier stubbed)
 
 // ============================================================================
+// SUPPLIER-HIDDEN SEARCH ROUTING (supplier-hiding mandate)
+// ----------------------------------------------------------------------------
+// The customer's browser now fetches  /modules/<service>/<TOKEN>/search  where
+// <TOKEN> is the opaque, reversible supplier token (minted by the main app).
+// Decode it HERE to the real supplier and rewrite the path so the existing
+// per-supplier route still matches — the supplier name never appears in the URL
+// or the Network tab. Then the response is masked below so no supplier name is in
+// the body either. Backward compatible: a raw supplier-name path (direct /
+// admin-tool / legacy) that does NOT decode is left untouched.
+// ============================================================================
+$__shUri = $_SERVER['REQUEST_URI'] ?? '';
+$__shWasTokened = false; // true only when we decoded a token → rewrote to a real name
+if (function_exists('supplier_from_url_token')
+    && preg_match('#^(.*?/modules/(?:flights|stays|tours|cars)/)([^/]+)(/search(?:[/?].*)?)$#i', $__shUri, $__shM)) {
+    $__shReal = supplier_from_url_token($__shM[2]);
+    if ($__shReal !== '' && preg_match('/^[a-z0-9_]+$/', $__shReal)) {
+        // The segment was a valid supplier TOKEN → this is a customer request.
+        // Rewrite to the real supplier so the existing route matches, and flag it
+        // so the response gets masked below. A plain supplier NAME (admin live-search
+        // tool, legacy/direct callers) decodes to '' → NOT rewritten, NOT masked, so
+        // back-office tooling keeps full supplier visibility. This path-shape test is
+        // the exemption — no header sniffing needed.
+        $_SERVER['REQUEST_URI'] = $__shM[1] . $__shReal . $__shM[3];
+        $__shWasTokened = true;
+    }
+}
+
+// ============================================================================
 // DISPATCH REQUEST - Route to appropriate handler
 // ============================================================================
 // Matches incoming request to registered routes
@@ -462,4 +490,27 @@ include __DIR__ . '/insurance/travelsure/index.php';      // TravelSure (paid po
 // Falls back to 404 error handler if no route matches
 // ============================================================================
 
-$router->dispatchGlobal();
+// Mask the supplier identity out of a SEARCH response before it reaches the
+// customer's browser. We mask ONLY when the request arrived as a supplier TOKEN
+// ($__shWasTokened) — i.e. a real customer request — so admin/back-office callers
+// that use the raw supplier name keep full visibility (no header sniffing needed).
+// If the buffered body is a clean JSON offers array we tokenize every `supplier`
+// in it; otherwise (validation error strings, non-JSON) we pass it through
+// untouched — those carry no supplier name.
+$__shMask = $__shWasTokened && function_exists('mask_supplier_identity_in_offers');
+
+if ($__shMask) {
+    ob_start();
+    $router->dispatchGlobal();
+    $__shBody = ob_get_clean();
+    $__shDecoded = json_decode((string) $__shBody, true);
+    if (is_array($__shDecoded)) {
+        mask_supplier_identity_in_offers($__shDecoded);
+        echo json_encode($__shDecoded);
+    } else {
+        // Non-JSON / error string — no supplier name to hide; emit verbatim.
+        echo $__shBody;
+    }
+} else {
+    $router->dispatchGlobal();
+}
