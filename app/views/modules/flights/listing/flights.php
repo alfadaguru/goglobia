@@ -727,6 +727,16 @@ try {
 
                                 <div x-show="!loading && filteredFlights.length > 0"
                                     class="flex items-center gap-2 w-full sm:w-auto">
+                                    <!-- Prominent one-click "Direct only" toggle. Mirrors the stops
+                                         filter (filters.stops = [0]) so it stays in sync with the
+                                         sidebar; direct-flight availability is reflected in the label. -->
+                                    <button type="button" @click="directOnly = !directOnly"
+                                        :aria-pressed="directOnly ? 'true' : 'false'"
+                                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs sm:text-sm font-medium whitespace-nowrap transition-colors"
+                                        :class="directOnly ? 'bg-primary text-white border-primary' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-primary'">
+                                        <span class="material-symbols-outlined text-[16px]" x-text="directOnly ? 'check_circle' : 'flight'"></span>
+                                        <?= T::direct ?? 'Direct' ?> <?= T::only ?? 'only' ?>
+                                    </button>
                                     <span
                                         class="text-xs sm:text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap"><?= T::sort ?>:</span>
                                     <select x-model="sortBy" @change="sortAndFilterResults()" class="select">
@@ -2571,6 +2581,17 @@ try {
 
             toggleStop(stop) { this.toggleFilter('stops', stop); },
             toggleReturnStop(stop) { this.toggleFilter('returnStops', stop); },
+            // One-click "Direct only": a view over the stops filter so it stays in
+            // sync with the sidebar. On = only non-stop (filters.stops [0]); turning it
+            // off clears the stops filter (shows all). Any manual stops selection that
+            // isn't exactly [0] reads as "not direct only".
+            get directOnly() {
+                return this.filters.stops.length === 1 && this.filters.stops[0] === 0;
+            },
+            set directOnly(v) {
+                this.filters.stops = v ? [0] : [];
+                this.sortAndFilterResults();
+            },
             toggleTimeSlot(id) { this.toggleFilter('timeSlots', id); },
             toggleReturnTimeSlot(id) { this.toggleFilter('returnTimeSlots', id); },
             toggleAirline(airline) { this.toggleFilter('airlines', airline); },
