@@ -26,6 +26,9 @@ $ccyFmt   = function ($amt, $ccy) {
                     "coverage_amount" => $p["coverage_amount"] !== null ? (float) $p["coverage_amount"] : null,
                     "duration_days"   => $p["duration_days"] !== null ? (int) $p["duration_days"] : null,
                     "region"          => (string) ($p["region"] ?? ""),
+                    "coverage_details" => (string) ($p["coverage_details"] ?? ""),
+                    "exclusions"       => (string) ($p["exclusions"] ?? ""),
+                    "policy_document_url" => (string) ($p["policy_document_url"] ?? ""),
                 ];
             }, $plans),
             "csrf"      => $csrf,
@@ -69,6 +72,18 @@ $ccyFmt   = function ($amt, $ccy) {
           <?php if (!empty($p['coverage_details'])): ?>
             <p class="text-xs text-gray-500 mt-3"><?= nl2br(htmlspecialchars((string) $p['coverage_details'])) ?></p>
           <?php endif; ?>
+          <?php if (!empty($p['exclusions'])): ?>
+            <div class="mt-3 text-xs">
+              <p class="font-semibold text-amber-700 flex items-center gap-1"><span class="material-symbols-outlined text-sm">block</span>Not covered</p>
+              <p class="text-gray-500 mt-0.5"><?= nl2br(htmlspecialchars((string) $p['exclusions'])) ?></p>
+            </div>
+          <?php endif; ?>
+          <?php if (!empty($p['policy_document_url'])): ?>
+            <a href="<?= htmlspecialchars((string) $p['policy_document_url']) ?>" target="_blank" rel="noopener"
+               class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline">
+              <span class="material-symbols-outlined text-sm">description</span>Full policy wording
+            </a>
+          <?php endif; ?>
           <div class="mt-auto pt-4">
             <div class="text-2xl font-bold text-gray-900"><?= $ccyFmt($p['price'], $p['currency']) ?><span class="text-sm font-normal text-gray-500"> / traveller</span></div>
             <button type="button" class="btn cyan w-full mt-3" @click="choose(<?= (int) $p['id'] ?>)">Buy now</button>
@@ -83,6 +98,21 @@ $ccyFmt   = function ($amt, $ccy) {
         <div class="flex items-start justify-between">
           <h3 class="text-lg font-semibold" x-text="selected ? ('Buy: ' + selected.name) : ''"></h3>
           <button type="button" class="text-gray-400 hover:text-gray-600" @click="selected=null"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <!-- Restate what the customer is buying BEFORE they pay: price, cover, region,
+             duration, exclusions + a link to the full wording — so the purchase is
+             informed, not just a name + a form. -->
+        <div x-show="selected" class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-700 space-y-1">
+          <div class="flex justify-between"><span class="text-slate-500">Price</span><span class="font-semibold" x-text="selected ? (selected.currency + ' ' + Number(selected.price).toFixed(2) + ' / traveller') : ''"></span></div>
+          <div class="flex justify-between" x-show="selected && selected.coverage_amount"><span class="text-slate-500">Cover up to</span><span class="font-semibold" x-text="selected && selected.coverage_amount ? (selected.currency + ' ' + Number(selected.coverage_amount).toFixed(2)) : ''"></span></div>
+          <div class="flex justify-between" x-show="selected && selected.duration_days"><span class="text-slate-500">Duration</span><span x-text="selected && selected.duration_days ? ('Up to ' + selected.duration_days + ' days') : ''"></span></div>
+          <div class="flex justify-between" x-show="selected && selected.region"><span class="text-slate-500">Region</span><span x-text="selected ? selected.region : ''"></span></div>
+          <p x-show="selected && selected.exclusions" class="pt-1 text-amber-700"><span class="font-semibold">Not covered:</span> <span x-text="selected ? selected.exclusions : ''"></span></p>
+          <template x-if="selected && selected.policy_document_url">
+            <a :href="selected.policy_document_url" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-sky-700 hover:underline pt-1">
+              <span class="material-symbols-outlined text-sm">description</span>Full policy wording
+            </a>
+          </template>
         </div>
         <form class="mt-4 space-y-3" @submit.prevent="submit()">
           <div class="grid grid-cols-2 gap-3">

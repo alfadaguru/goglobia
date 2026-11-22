@@ -27303,6 +27303,8 @@ CREATE TABLE `insurance_plans` (
   `provider_label` varchar(191) NOT NULL DEFAULT '',
   `description` text DEFAULT NULL,
   `coverage_details` text DEFAULT NULL,
+  `exclusions` text DEFAULT NULL,
+  `policy_document_url` varchar(500) NOT NULL DEFAULT '',
   `currency` varchar(10) NOT NULL DEFAULT 'NGN',
   `price` decimal(14,2) NOT NULL DEFAULT 0.00,
   `coverage_amount` decimal(14,2) DEFAULT NULL,

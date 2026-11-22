@@ -560,11 +560,9 @@ if (!function_exists('decode_supplier_tokens_in_place')) {
     {
         if (!is_array($data)) { return; }
         foreach ($data as $key => &$val) {
-            if (($key === 'supplier' || $key === 'supplier_name') && is_string($val) && $val !== '' && function_exists('supplier_from_url_token')) {
-                // cars carries the supplier under both 'supplier' and 'supplier_name';
-                // decode either back to the real name. Only a genuine token is replaced.
+            if ($key === 'supplier' && is_string($val) && $val !== '' && function_exists('supplier_from_url_token')) {
                 $real = supplier_from_url_token($val);
-                if ($real !== '') { $val = $real; }
+                if ($real !== '') { $val = $real; }   // only replace a genuine token
             } elseif (is_array($val)) {
                 decode_supplier_tokens_in_place($val);
             }

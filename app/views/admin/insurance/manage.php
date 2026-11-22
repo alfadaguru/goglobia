@@ -71,6 +71,14 @@ $v = function ($k, $d = '') use ($plan) { return htmlspecialchars((string) ($pla
                 <label class="block text-sm font-medium mb-1">Coverage details</label>
                 <textarea name="coverage_details" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="Medical, cancellation, baggage, delay…"><?= $v('coverage_details') ?></textarea>
             </div>
+            <div class="col-span-2">
+                <label class="block text-sm font-medium mb-1">Exclusions (what's NOT covered)</label>
+                <textarea name="exclusions" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="Pre-existing conditions, extreme sports, acts of war, pandemics…"><?= $v('exclusions') ?></textarea>
+            </div>
+            <div class="col-span-2">
+                <label class="block text-sm font-medium mb-1">Policy document URL (full wording PDF)</label>
+                <input type="url" name="policy_document_url" value="<?= $v('policy_document_url') ?>" placeholder="https://…/policy-wording.pdf" class="w-full border rounded-lg px-3 py-2">
+            </div>
 
             <div>
                 <label class="block text-sm font-medium mb-1">Sort order</label>

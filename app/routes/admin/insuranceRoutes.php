@@ -85,6 +85,8 @@ $router->post(admin . '/insurance/save', function () use ($SECURE, $db) {
         'provider_label'   => trim($_POST['provider_label'] ?? ''),
         'description'      => trim($_POST['description'] ?? ''),
         'coverage_details' => trim($_POST['coverage_details'] ?? ''),
+        'exclusions'       => trim($_POST['exclusions'] ?? ''),
+        'policy_document_url' => trim($_POST['policy_document_url'] ?? ''),
         'currency'         => strtoupper(trim($_POST['currency'] ?? 'NGN')),
         'price'            => round((float) ($_POST['price'] ?? 0), 2),
         'coverage_amount'  => ($_POST['coverage_amount'] ?? '') !== '' ? round((float) $_POST['coverage_amount'], 2) : null,
