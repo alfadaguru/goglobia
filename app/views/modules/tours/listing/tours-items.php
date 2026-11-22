@@ -17,9 +17,13 @@ function buildTourUrl(t, searchParams, supplierTokens) {
     const adults = searchParams.adults || 1;
     const children = searchParams.children || 0;
 
-    // Opaque supplier TOKEN in the URL, never the raw name (route decodes it).
-    const supKey = String(t.supplier || '').toLowerCase();
-    const supToken = (supplierTokens && supplierTokens[supKey]) ? supplierTokens[supKey] : supKey;
+    // t.supplier is ALREADY an opaque token (search results are tokenized) — use it
+    // directly (do NOT lowercase; tokens are case-sensitive). Backward-compatible:
+    // a legacy raw name maps via supplierTokens if present; the /tour route decodes
+    // either and falls back to a raw slug otherwise.
+    const supRaw = String(t.supplier || '');
+    const supKey = supRaw.toLowerCase();
+    const supToken = (supplierTokens && supplierTokens[supKey]) ? supplierTokens[supKey] : supRaw;
     return `<?=root?>tour/${slug}/${tourId}/${supToken}/${searchParams.start_date}/${searchParams.duration}/${adults}-${children}`;
 }
 
@@ -166,7 +170,7 @@ function renderTourCard(t, idx, searchParams) {
                     <!-- Tour Type Badge -->
                     <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] == 'admin') { ?>
                     <div class="absolute top-2 right-2 bg-green-600 text-white px-2 py-0.5 rounded text-xs font-bold capitalize">
-                        ${esc(t.supplier || '<?=T::tour?>')}
+                        ${esc(this.supplierLabel(t.supplier) || '<?=T::tour?>')}
                     </div>
                     <?php } ?>
 
@@ -306,7 +310,7 @@ function renderTourCard(t, idx, searchParams) {
                     <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] == 'admin') { ?>
                     <div class="flex items-center gap-2">
                         <span class="material-symbols-outlined" style="font-size: 14px;">business</span>
-                        <span><?=T::powered?> <?=T::by?> ${esc(t.supplier || 'N/A')}</span>
+                        <span><?=T::powered?> <?=T::by?> ${esc(this.supplierLabel(t.supplier) || 'N/A')}</span>
                         <span class="w-1 h-1 bg-gray-400 dark:bg-gray-600 rounded-full"></span>
                         <span>${t.currency || 'USD'}</span>
                     </div>

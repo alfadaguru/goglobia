@@ -273,12 +273,24 @@ try {
                 $moduleNames[] = $module['name'];
             }
             $moduleNames = array_unique($moduleNames);
-            // Opaque supplier->token map for tour-detail URLs (never the raw name).
-            $tourSupTokens = [];
-            foreach ($moduleNames as $mn) { $k = strtolower($mn); $tourSupTokens[$k] = function_exists('supplier_url_token') ? supplier_url_token($k) : $k; }
+            // SUPPLIER HIDING: emit OPAQUE TOKENS, never raw wholesaler names. Each
+            // result's t.supplier is the token; the gateway decodes it, and booking
+            // decodes it back. Admins get a token->name label map (empty for customers)
+            // for the admin-only supplier filter.
+            $__tourTokens = [];
+            $__tourLabels = [];
+            $__tourIsAdmin = (($_SESSION['user_role'] ?? '') === 'admin') || !empty($_SESSION['admin_logged_in']);
+            foreach ($moduleNames as $mn) {
+                $__t = function_exists('supplier_url_token') ? supplier_url_token(strtolower($mn)) : $mn;
+                $__tourTokens[] = $__t;
+                if ($__tourIsAdmin) { $__tourLabels[$__t] = $mn; }
+            }
             ?>
-            suppliers: <?php echo json_encode(array_values($moduleNames)); ?>,
-            supplierTokens: <?php echo json_encode($tourSupTokens); ?>,
+            suppliers: <?php echo json_encode($__tourTokens); ?>,
+            // Was a raw-name->token map (leaked names as keys); t.supplier is already a
+            // token, so emit empty. buildTourUrl uses t.supplier directly.
+            supplierTokens: {},
+            supplierLabels: <?php echo json_encode($__tourLabels ?: (object)[]); ?>,
             <?php
             $allInclusionsFromDB = $db->select('tours_settings', ['setting_label'], ['setting_type' => 'inclusion', 'status' => 1]);
             $allExclusionsFromDB = $db->select('tours_settings', ['setting_label'], ['setting_type' => 'exclusion', 'status' => 1]);
@@ -945,6 +957,10 @@ try {
             getSupplierCount(supplier) {
                 return this.tours.filter(t => t.supplier === supplier).length;
             },
+            // Supplier values are opaque TOKENS. Map token->name for the ADMIN-only
+            // supplier filter via the server-injected admin label map (empty for
+            // customers). Falls back to the token.
+            supplierLabel(supplierToken) { return (this.supplierLabels && this.supplierLabels[supplierToken]) || supplierToken; },
 
             getInclusionCount(inclusion) {
                 const count = this.tours.filter(t => {
