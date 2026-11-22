@@ -145,16 +145,21 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
         <p class="text-xs text-gray-500 mt-3">Prices are per pilgrim. Need a bespoke plan? <a class="text-primary" href="<?= root ?>umrah/customize?departure=<?= (int) $selectedDepartureId ?>">Customize this Umrah</a>.</p>
       </div>
 
-      <!-- Inclusions -->
+      <!-- Inclusions — TIER-REACTIVE. Shows the SELECTED tier's real inclusions (or
+           the template's as a fallback), NEVER the full label superset. Previously
+           this PHP block fell back to array_keys($labels) when the template had no
+           inclusions, listing every possible item as "included" — a hard over-promise
+           for packages that don't include them. -->
       <div class="section">
-        <div class="section-header"><h2>Everything included</h2></div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <?php
-          $labels = ['return_flight'=>'Return economy flight','umrah_visa'=>'Saudi Umrah visa','madinah_stay'=>$madinah.' nights Madinah','makkah_stay'=>$makkah.' nights Makkah','airport_transfers'=>'Airport transfers','madinah_makkah_transfer'=>'Madinah → Makkah transport','makkah_ziyarah'=>'Makkah Ziyarah','madinah_ziyarah'=>'Madinah Ziyarah','zain_sim'=>'Zain SIM','goglobia_esim'=>'GoGlobia eSIM','data_1gb'=>'1GB data','discounted_topups'=>'Discounted top-ups','nusuk_assistance'=>'Nusuk assistance','gift_kit'=>'Gift kit','yahaji_ring'=>'Yahaji 3 Pro Ring','group_coordination'=>'Group coordination','whatsapp_support'=>'24/7 support','orientation'=>'Orientation'];
-          foreach (($template['inclusions'] ?: array_keys($labels)) as $c): ?>
-            <div class="flex items-center gap-2 text-gray-700 text-sm"><span class="material-symbols-outlined text-primary text-[18px]">check_circle</span><?= htmlspecialchars($labels[$c] ?? ucwords(str_replace('_',' ',$c))) ?></div>
-          <?php endforeach; ?>
+        <div class="section-header"><h2>What's included<span class="text-sm font-normal text-gray-500" x-show="currentTier" x-text="currentTier ? ' — ' + currentTier.tier_label : ''"></span></h2></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" x-show="shownInclusions.length">
+          <template x-for="(code, i) in shownInclusions" :key="i">
+            <div class="flex items-center gap-2 text-gray-700 text-sm"><span class="material-symbols-outlined text-primary text-[18px]">check_circle</span><span x-text="inclLabel(code)"></span></div>
+          </template>
         </div>
+        <p class="text-sm text-gray-500" x-show="!shownInclusions.length">
+          Inclusions are confirmed per tier. <a class="text-primary" href="<?= htmlspecialchars($waLink ?? '#') ?>" target="_blank">Ask us</a> for the full list for your chosen tier.
+        </p>
       </div>
 
       <!-- Rooming + payment plan info -->
@@ -240,15 +245,28 @@ function umrahBooking() {
     ],
     total: 0, busy: false, cartBusy: false, groupBusy: false, msg: '', step: 'select',
     inclLabels: {
-      return_flight:'Return flight', umrah_visa:'Umrah visa', madinah_stay:'Madinah stay',
-      makkah_stay:'Makkah stay', airport_transfers:'Airport transfers',
-      madinah_makkah_transfer:'Inter-city transport', makkah_ziyarah:'Makkah Ziyarah',
-      madinah_ziyarah:'Madinah Ziyarah', zain_sim:'Zain SIM', goglobia_esim:'eSIM',
-      data_1gb:'1GB data', discounted_topups:'Top-ups', nusuk_assistance:'Nusuk help',
-      gift_kit:'Gift kit', yahaji_ring:'Yahaji Ring', group_coordination:'Group coord.',
+      return_flight:'Return economy flight', umrah_visa:'Saudi Umrah visa',
+      madinah_stay:'<?= (int) $madinah ?> nights Madinah', makkah_stay:'<?= (int) $makkah ?> nights Makkah',
+      airport_transfers:'Airport transfers',
+      madinah_makkah_transfer:'Madinah → Makkah transport', makkah_ziyarah:'Makkah Ziyarah',
+      madinah_ziyarah:'Madinah Ziyarah', zain_sim:'Zain SIM', goglobia_esim:'GoGlobia eSIM',
+      data_1gb:'1GB data', discounted_topups:'Discounted top-ups', nusuk_assistance:'Nusuk assistance',
+      gift_kit:'Gift kit', yahaji_ring:'Yahaji 3 Pro Ring', group_coordination:'Group coordination',
       whatsapp_support:'24/7 support', orientation:'Orientation'
     },
     inclLabel(code) { return this.inclLabels[code] || String(code||'').replace(/_/g,' '); },
+    // Template-level inclusions (server-defined). Used ONLY as a fallback for the
+    // "Everything included" list when the selected tier defines none. We never fall
+    // back to the full label superset, which would over-promise items the package
+    // doesn't include.
+    templateInclusions: <?= htmlspecialchars(json_encode(array_values((array) ($template['inclusions'] ?? []))), ENT_QUOTES) ?>,
+    // Tier-reactive inclusions: show the SELECTED tier's inclusions; if the tier has
+    // none, fall back to the template's; if neither, empty (render the neutral note).
+    get shownInclusions() {
+      const t = this.currentTier;
+      if (t && Array.isArray(t.inclusions) && t.inclusions.length) return t.inclusions;
+      return Array.isArray(this.templateInclusions) ? this.templateInclusions : [];
+    },
     init(deps, tiersByDep, sel, plans, media) {
       this.departures = deps || [];
       this.tiersByDep = tiersByDep || {};
