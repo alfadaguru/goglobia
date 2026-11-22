@@ -96,6 +96,8 @@ function renderCarCard(car) {
     const bags = car.bags || car.luggage || 2;
     const transmission = car.transmission || 'Automatic';
     const fuelPolicy = car.fuel_policy || 'Full to Full';
+    const fuelType = car.fuel_type || '';
+    const freeCancellation = car.free_cancellation || false;
     const ac = car.air_conditioning || car.ac || true;
 
     // ============================================================================
@@ -256,6 +258,12 @@ function renderCarCard(car) {
                                 <span><?=T::air?> <?=T::conditioning?></span>
                             </div>
                             ` : ''}
+                            ${fuelType ? `
+                            <div class="flex items-center gap-1">
+                                <span class="material-symbols-outlined text-sm">local_gas_station</span>
+                                <span>${esc(fuelType)}</span>
+                            </div>
+                            ` : ''}
                         </div>
 
                         <!-- FEATURES & INCLUSIONS -->
@@ -270,6 +278,18 @@ function renderCarCard(car) {
                                 <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
                                     <span class="material-symbols-outlined text-xs">check_circle</span>
                                     <?=T::unlimited?> <?=T::mileage?>
+                                </span>
+                            ` : ''}
+                            ${freeCancellation ? `
+                                <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium inline-flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-xs">event_available</span>
+                                    <?=T::free_cancellation ?? 'Free cancellation'?>
+                                </span>
+                            ` : ''}
+                            ${fuelPolicy ? `
+                                <span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium inline-flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-xs">local_gas_station</span>
+                                    ${esc(fuelPolicy)}
                                 </span>
                             ` : ''}
                             ${inclusions.slice(0, 3).map(inc => `
