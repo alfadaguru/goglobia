@@ -284,6 +284,13 @@ if (!empty($paymentGateways)) {
                                      The package-selection gate (!selectedPackage) is preserved.
                                      Links stay so the customer can still read the terms. -->
                                 <div class="pt-6 border-t border-gray-200 dark:border-gray-700">
+                                    <!-- Refund policy shown BEFORE payment (customer-flow audit
+                                         #105): an eSIM is provisioned on purchase, so it cannot be
+                                         refunded once issued. -->
+                                    <div class="flex items-start gap-2 mb-3 text-xs text-amber-700 dark:text-amber-300">
+                                        <span class="material-symbols-outlined" style="font-size:16px;">info</span>
+                                        <span>eSIMs are non-refundable once issued. Please confirm your device is eSIM-compatible and unlocked before purchase.</span>
+                                    </div>
                                     <p class="text-sm text-gray-600 dark:text-gray-400">
                                         By continuing, you agree to our
                                         <a href="<?= root ?>page/terms-of-use" target="_blank"

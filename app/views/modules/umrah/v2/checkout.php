@@ -179,6 +179,14 @@ for ($i = 0; $i < $infants; $i++)  { $slotsJs[] = ['pax_type' => 'infant']; }
           </select>
           <p class="text-[11px] text-slate-400 mt-1">Pay in full or lock your price with an installment plan — the amount due now adjusts automatically.</p>
 
+          <!-- Cancellation / refund policy shown BEFORE payment (customer-flow audit
+               #105): an Umrah package involves visa processing and supplier holds, so
+               the customer must see the terms before they pay. -->
+          <div class="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-3 text-[11px] text-amber-800">
+            <p class="font-semibold flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:14px;">info</span>Cancellation &amp; refunds</p>
+            <p class="mt-1">Your seat is held when you confirm and your price locks once the qualifying payment clears. Once Umrah visa processing begins, visa and supplier fees are non-refundable; any refundable balance is returned per the package terms. Contact us before your departure date to discuss changes.</p>
+          </div>
+
           <button class="btn w-full justify-center mt-4" :disabled="busy" @click="confirmAndPay()"
             x-text="busy ? 'Processing…' : 'Confirm & Pay'"></button>
           <p class="text-xs mt-2" :class="msgOk ? 'text-green-600' : 'text-rose-600'" x-text="msg"></p>

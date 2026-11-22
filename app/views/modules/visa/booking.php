@@ -718,6 +718,13 @@ if ($isUserLoggedIn) {
                             <span><?= T::total ?? 'Total' ?>:</span>
                             <span class="text-lg font-bold"><?= $currency ?> <?= number_format($totalWithTax, 2) ?></span>
                         </div>
+                        <!-- Refund policy shown BEFORE payment (customer-flow audit #105):
+                             a visa fee covers government + processing charges that cannot be
+                             recovered once an application is lodged. -->
+                        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300">
+                            <span class="material-symbols-outlined" style="font-size:16px;">info</span>
+                            <span>Visa fees are non-refundable once your application is submitted for processing. A refused visa does not qualify for a refund of the government or processing fee.</span>
+                        </div>
                     </div>
                     <?php else: ?>
                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-center">
