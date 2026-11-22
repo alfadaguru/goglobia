@@ -86,6 +86,16 @@ $router->post('/api/flights/booking/draft', function () use ($db) {
             throw new Exception('This flight is unavailable at the moment, please book another.');
         }
 
+        // SUPPLIER HIDING: the browser holds the supplier as an opaque TOKEN (search
+        // results were masked). Decode every supplier token in the flight_data tree
+        // back to the real name HERE — the single entry boundary — so all downstream
+        // booking/revalidate/issue logic (which branches on the real supplier name)
+        // works unchanged. Non-token values (own-inventory 'flights', legacy) pass
+        // through untouched.
+        if (function_exists('decode_supplier_tokens_in_place')) {
+            decode_supplier_tokens_in_place($flightData);
+        }
+
         $searchParams    = $input['search_params'] ?? [];
         $displayCurrency = strtoupper(trim((string)($input['currency'] ?? ($flightData['currency'] ?? 'USD'))));
 

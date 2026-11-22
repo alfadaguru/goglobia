@@ -545,6 +545,32 @@ if (!function_exists('mask_supplier_identity_in_offers')) {
     }
 }
 
+if (!function_exists('decode_supplier_tokens_in_place')) {
+    /**
+     * Inverse of mask_supplier_identity_in_offers(): the customer's browser holds
+     * the supplier as an OPAQUE TOKEN (search results were masked). When that data
+     * comes BACK at booking (save-draft etc.), decode every `supplier` value in the
+     * structure from its token to the real plaintext name, so the booking/revalidate/
+     * issue path — which branches on the real supplier name — works unchanged. A
+     * value that is NOT a valid token (already plaintext, e.g. a direct/legacy
+     * booking, or own-inventory 'flights') is left exactly as-is. Recursive;
+     * mutates in place. Safe + idempotent.
+     */
+    function decode_supplier_tokens_in_place(&$data): void
+    {
+        if (!is_array($data)) { return; }
+        foreach ($data as $key => &$val) {
+            if ($key === 'supplier' && is_string($val) && $val !== '' && function_exists('supplier_from_url_token')) {
+                $real = supplier_from_url_token($val);
+                if ($real !== '') { $val = $real; }   // only replace a genuine token
+            } elseif (is_array($val)) {
+                decode_supplier_tokens_in_place($val);
+            }
+        }
+        unset($val);
+    }
+}
+
 // SUPPLIER AUTH CHECK — gate for the self-registered supplier area.
 // Mirrors ADMIN_AUTH(): a logged-in user whose role is exactly 'supplier'. Any
 // other visitor (guest, customer, agent, admin) is bounced to login. Because
