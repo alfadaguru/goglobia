@@ -15,8 +15,25 @@ $fromTs = (int) ($journey['from_date_time'] ?? 0);
 $toTs = (int) ($journey['to_date_time'] ?? 0);
 $fromCode = trim((string) ($journey['from_station_code'] ?? ''));
 $toCode = trim((string) ($journey['to_station_code'] ?? ''));
-$fromStation = trim((string) ($journey['from_station_english'] ?? $fromCode));
-$toStation = trim((string) ($journey['to_station_english'] ?? $toCode));
+// Resolve the human station name from the code (same resolver the rail booking
+// email + PDF use), so the ticket shows "Beijing South", not a bare code. Falls
+// back to from_station_english, then the raw code, so the slot is never blank.
+if (!function_exists('_train_station_label') && isset($db) && $db !== null) {
+    require_once dirname(__DIR__, 5) . '/modules/rail/train/stations.php';
+}
+if (isset($db) && $db !== null && function_exists('_train_station_label')) {
+    $fromStation = $fromCode !== '' ? _train_station_label($db, $fromCode) : '';
+    $toStation = $toCode !== '' ? _train_station_label($db, $toCode) : '';
+    if ($fromStation === '' || $fromStation === $fromCode) {
+        $fromStation = trim((string) ($journey['from_station_english'] ?? $fromCode));
+    }
+    if ($toStation === '' || $toStation === $toCode) {
+        $toStation = trim((string) ($journey['to_station_english'] ?? $toCode));
+    }
+} else {
+    $fromStation = trim((string) ($journey['from_station_english'] ?? $fromCode));
+    $toStation = trim((string) ($journey['to_station_english'] ?? $toCode));
+}
 $depDate = $fromTs > 0 ? date('D, d M Y', $fromTs) : '';
 $depTime = $fromTs > 0 ? date('H:i', $fromTs) : '';
 $arrDate = $toTs > 0 ? date('D, d M Y', $toTs) : $depDate;
@@ -30,7 +47,7 @@ $paxName = trim((string) ($booking['first_name'] ?? '') . ' ' . (string) ($booki
 
 ob_start();
 ?>
-<div class="sec-h"><span class="leg">TRAIN</span> &nbsp; <?= $e($fromCode ?: $fromStation) ?> &rarr; <?= $e($toCode ?: $toStation) ?></div>
+<div class="sec-h"><span class="leg">TRAIN</span> &nbsp; <?= $e($fromStation ?: $fromCode) ?> &rarr; <?= $e($toStation ?: $toCode) ?></div>
 <div class="card">
     <div class="card-top"><table><tr>
         <td class="card-title">Rail Service<?php if ($trafficNo !== ''): ?> <span class="card-sub"><?= $e($trafficNo) ?></span><?php endif; ?></td>
