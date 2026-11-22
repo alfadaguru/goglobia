@@ -28,6 +28,13 @@
                       </span>
                     </div>
                     <div class="text-xs text-gray-400 dark:text-gray-500 truncate" x-text="trainTypeLabel(train.train_no)"></div>
+                    <!-- Confirmation type: rail tickets are issued as e-tickets on
+                         payment (instant). Shown so the customer knows how they receive
+                         the ticket before booking. -->
+                    <div class="inline-flex items-center gap-1 mt-0.5 text-[11px] text-blue-700 dark:text-blue-300">
+                      <span class="material-symbols-outlined" style="font-size:12px;">confirmation_number</span>
+                      <span>E-ticket</span>
+                    </div>
                     <div x-show="!isOnSale(train) && train.saleTime" class="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
                       <?= T::tickets_open_at ?>:
                       <span x-text="formatSaleOpens(train.saleTime)"></span>

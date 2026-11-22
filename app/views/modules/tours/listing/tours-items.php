@@ -240,6 +240,21 @@ function renderTourCard(t, idx, searchParams) {
                                 }
                             </div>
 
+                            <!-- Refundability + confirmation: only shown when the supplier
+                                 result actually reports free cancellation, so no false promise. -->
+                            <div class="flex flex-wrap gap-1">
+                                ${t.free_cancellation ? `
+                                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+                                        <span class="material-symbols-outlined" style="font-size: 12px;">event_available</span>
+                                        <span><?= T::free_cancellation ?? 'Free cancellation' ?></span>
+                                    </span>` : ''
+                                }
+                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                                    <span class="material-symbols-outlined" style="font-size: 12px;">confirmation_number</span>
+                                    <span>Instant confirmation</span>
+                                </span>
+                            </div>
+
                             <!-- Exclusions Row -->
                             <div class="flex flex-wrap gap-1">
                                 ${t.exclusions && t.exclusions.length > 0 ?

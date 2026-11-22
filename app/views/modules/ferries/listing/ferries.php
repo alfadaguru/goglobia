@@ -906,6 +906,7 @@ if (file_exists($routesCacheFile)) {
                 const initialPrice = accs.length ? this.convertPrice(this.accPrice(accs[0])) : 0;
 
                 const badges = [
+                    `<span class="inline-flex items-center gap-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 text-xs px-2 py-0.5 rounded-full"><span class="material-symbols-outlined text-xs">confirmation_number</span>E-ticket · Instant confirmation</span>`,
                     svc.passengers ? `<span class="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full"><span class="material-symbols-outlined text-xs">person</span><?= T::passengers ?? 'Passengers' ?></span>` : '',
                     svc.vehicles ? `<span class="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full"><span class="material-symbols-outlined text-xs">directions_car</span><?= T::vehicles ?? 'Vehicles' ?></span>` : '',
                     svc.pets ? `<span class="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full"><span class="material-symbols-outlined text-xs">pets</span><?= T::pets ?? 'Pets' ?></span>` : '',
@@ -1114,6 +1115,7 @@ if (file_exists($routesCacheFile)) {
                 };
 
                 const badges = [
+                    `<span class="inline-flex items-center gap-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 text-xs px-2 py-0.5 rounded-full"><span class="material-symbols-outlined text-xs">confirmation_number</span>E-ticket · Instant confirmation</span>`,
                     svc.passengers ? `<span class="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full"><span class="material-symbols-outlined text-xs">person</span><?= T::passengers ?? 'Passengers' ?></span>` : '',
                     svc.vehicles ? `<span class="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full"><span class="material-symbols-outlined text-xs">directions_car</span><?= T::vehicles ?? 'Vehicles' ?></span>` : '',
                     svc.pets ? `<span class="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full"><span class="material-symbols-outlined text-xs">pets</span><?= T::pets ?? 'Pets' ?></span>` : '',

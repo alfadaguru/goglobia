@@ -708,6 +708,11 @@ try {
                             max_travelers: tour.max_travelers || tour.max_adults || 0,
                             inclusions: tour.inclusions || [],
                             exclusions: tour.exclusions || [],
+                            // Refundability + confirmation: surfaced on the card so the
+                            // customer knows cancellation terms before booking. Carried
+                            // through from the supplier result (was dropped before).
+                            free_cancellation: tour.free_cancellation || false,
+                            cancel_summary: tour.cancel_summary || '',
                             original_data: tour
                         };
 
