@@ -560,9 +560,11 @@ if (!function_exists('decode_supplier_tokens_in_place')) {
     {
         if (!is_array($data)) { return; }
         foreach ($data as $key => &$val) {
-            if ($key === 'supplier' && is_string($val) && $val !== '' && function_exists('supplier_from_url_token')) {
+            if (($key === 'supplier' || $key === 'supplier_name') && is_string($val) && $val !== '' && function_exists('supplier_from_url_token')) {
+                // cars carries the supplier under both 'supplier' and 'supplier_name';
+                // decode either back to the real name. Only a genuine token is replaced.
                 $real = supplier_from_url_token($val);
-                if ($real !== '') { $val = $real; }   // only replace a genuine token
+                if ($real !== '') { $val = $real; }
             } elseif (is_array($val)) {
                 decode_supplier_tokens_in_place($val);
             }
@@ -1428,6 +1430,8 @@ function ensureInsurancePlansSchema($db): void
             `provider_label` varchar(191) NOT NULL DEFAULT '',
             `description` text DEFAULT NULL,
             `coverage_details` text DEFAULT NULL,
+            `exclusions` text DEFAULT NULL,
+            `policy_document_url` varchar(500) NOT NULL DEFAULT '',
             `currency` varchar(10) NOT NULL DEFAULT 'NGN',
             `price` decimal(14,2) NOT NULL DEFAULT 0.00,
             `coverage_amount` decimal(14,2) DEFAULT NULL,
@@ -1447,6 +1451,24 @@ function ensureInsurancePlansSchema($db): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
     } catch (\Throwable $e) {
         error_log('ensureInsurancePlansSchema: create insurance_plans failed: ' . $e->getMessage());
+    }
+
+    // Idempotent column adds (customer-flow audit #103): exclusions (what the policy
+    // does NOT cover) + a link to the full policy-wording document, so the storefront
+    // can show both before purchase. Existing installs get them via ALTER; swallow
+    // failures (e.g. a DB user without ALTER) per the self-healing-schema convention.
+    try {
+        foreach ([
+            'exclusions'          => "ALTER TABLE `insurance_plans` ADD COLUMN `exclusions` text DEFAULT NULL",
+            'policy_document_url' => "ALTER TABLE `insurance_plans` ADD COLUMN `policy_document_url` varchar(500) NOT NULL DEFAULT ''",
+        ] as $col => $alter) {
+            $exists = $db->query("SHOW COLUMNS FROM `insurance_plans` LIKE " . $db->quote($col))->fetch();
+            if (!$exists) {
+                $db->query($alter);
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureInsurancePlansSchema: add exclusions/policy_document_url failed: ' . $e->getMessage());
     }
 
     // Seed the own-inventory insurance module row so MARKUP()/currency resolve for
