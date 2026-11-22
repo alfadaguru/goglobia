@@ -54,6 +54,15 @@ $router->post('/cars/booking/save-draft', function () use ($SECURE, $db) {
             throw new Exception('Invalid booking data');
         }
 
+        // SUPPLIER HIDING: the browser holds the supplier as an opaque TOKEN (under
+        // car_data.supplier AND car_data.supplier_name for cars). Decode every supplier
+        // token back to the real name HERE so downstream booking logic — which branches
+        // on the real supplier (e.g. isMozioBooking) — works unchanged. Non-token values
+        // (own-inventory 'cars', legacy) untouched.
+        if (function_exists('decode_supplier_tokens_in_place')) {
+            decode_supplier_tokens_in_place($input);
+        }
+
         // Generate secure hash (16 characters)
         $hash = bin2hex(random_bytes(8));
 

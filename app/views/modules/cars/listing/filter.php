@@ -180,7 +180,7 @@
                             </div>
                         </div>
                         <label :for="'supplier-' + supplier" class="cursor-pointer flex-1">
-                            <span class="text-sm text-gray-700 dark:text-gray-300 capitalize" x-text="supplier.replace('_', ' ')"></span>
+                            <span class="text-sm text-gray-700 dark:text-gray-300 capitalize" x-text="supplierLabel(supplier).replace('_', ' ')"></span>
                         </label>
                     </div>
                 </template>

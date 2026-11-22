@@ -419,7 +419,12 @@ $router->post('cars/kiwitaxi/search', function() use ($db) {
                         'pickup_date'        => $pickup_date_iso,
                         'pickup_time'        => $pickup_time,
 
-                        // Booking
+                        // Booking — this is an AFFILIATE REDIRECT supplier (no on-site
+                        // booking). The client used to detect this by supplier NAME
+                        // ('kiwitaxi'); now that supplier is hidden/tokenized, emit a
+                        // neutral flag so the client can redirect without knowing who we
+                        // are. The real supplier is still resolved server-side at booking.
+                        'redirect_only'      => true,
                         'booking_url'        => $bookingUrl,
                         'return_transfer_id' => $returnTransferId,
                         'roundtrip_available' => $availableRoundtrip,

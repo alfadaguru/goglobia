@@ -3,7 +3,7 @@
 // CARS LISTING PAGE - MULTI-SOURCE SEARCH WITH PROGRESSIVE LOADING
 // ============================================================================
 // Architecture: Same as stays/flights - Alpine.js reactive component
-// Sources: Local DB (cars), CarTrawler API, Discover Cars API, + any future crawlers
+// Sources: own inventory + live supplier APIs
 // Pattern: Parallel supplier search with real-time result merging
 // ============================================================================
 
@@ -70,11 +70,22 @@ if ($service_type === 'transfer') {
         return in_array($s, ['cars', 'kiwitaxi', 'mozio']);
     }));
 }
-// Hourly/chauffeur bookings: only Mozio supports this today.
+// Hourly/chauffeur bookings: only one supplier supports this today.
 if ($service_type === 'hourly') {
     $supplierNames = array_values(array_filter($supplierNames, function($s) {
         return in_array($s, ['mozio']);
     }));
+}
+// SUPPLIER HIDING: emit OPAQUE TOKENS, never raw wholesaler names. Each result's
+// car.supplier is the token; the gateway decodes it and booking decodes it back.
+// Admins get a token->name label map (empty for customers) for the supplier filter.
+$__carTokens = [];
+$__carLabels = [];
+$__carIsAdmin = (($_SESSION['user_role'] ?? '') === 'admin') || !empty($_SESSION['admin_logged_in']);
+foreach ($supplierNames as $__cn) {
+    $__t = function_exists('supplier_url_token') ? supplier_url_token(strtolower($__cn)) : $__cn;
+    $__carTokens[] = $__t;
+    if ($__carIsAdmin) { $__carLabels[$__t] = $__cn; }
 }
 ?>
 <!-- Include noUiSlider CSS and JS (same price-range widget as the stays listing) -->
@@ -480,7 +491,9 @@ function carSearch() {
         // ========================================
         // CONFIGURATION - Suppliers from DB (enabled modules)
         // ========================================
-        suppliers: <?php echo json_encode(array_values($supplierNames)); ?>,
+        suppliers: <?php echo json_encode($__carTokens); ?>,
+        // Admin-only token->name map (empty for customers) for the supplier filter.
+        supplierLabels: <?php echo json_encode($__carLabels ?: (object)[]); ?>,
 
         // ========================================
         // SEARCH PARAMETERS
@@ -690,8 +703,10 @@ function carSearch() {
                     actual_price_per_day: parseFloat(car.actual_price_per_day || pricePerDay),
                     currency: car.currency || this.searchParams.currency,
                     rental_days: parseInt(car.rental_days || 1),
+                    // Both carry the opaque supplier TOKEN (search results are masked);
+                    // `supplier` is the loop variable = the token for this fetch.
                     supplier: car.supplier || supplier,
-                    supplier_name: car.supplier_name || supplier,
+                    supplier_name: car.supplier || car.supplier_name || supplier,
                     color: car.color || this.getSupplierColor(supplier),
                     unlimited_mileage: car.unlimited_mileage || false,
                     free_cancellation: car.free_cancellation || false,
@@ -718,7 +733,9 @@ function carSearch() {
                     amenities: car.amenities || [],
                     actual_price_details: car.actual_price_details || null,
                     car_id: car.vehicle_id || car.id || car.car_id,
-                    // KiwiTaxi affiliate booking URL (direct redirect)
+                    // Affiliate-redirect supplier flag (identity-free) + booking URL, so
+                    // the client can redirect without knowing the supplier name.
+                    redirect_only: car.redirect_only === true,
                     booking_url: car.booking_url || car.url || '',
                     // Pass through raw data for booking
                     _raw: car
@@ -954,14 +971,18 @@ function carSearch() {
         // SUPPLIER COLORS
         // ========================================
         getSupplierColor(supplier) {
-            const colors = {
-                'cars': '#2563eb',
-                'cartrawler': '#FF6B35',
-                'discover_cars': '#10B981',
-                'default': '#6366F1'
-            };
-            return colors[supplier] || colors['default'];
-        }
+            // Supplier is an opaque token now (identity hidden), so we can't key a
+            // colour by name (it would also leak the names in page source). Derive a
+            // stable colour from the token itself — consistent per supplier, reveals
+            // nothing.
+            const palette = ['#2563eb', '#FF6B35', '#10B981', '#6366F1', '#d97706', '#0891b2'];
+            const s = String(supplier || '');
+            let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) >>> 0; }
+            return palette[h % palette.length];
+        },
+        // Supplier values are opaque TOKENS. Map token->name for the ADMIN-only filter
+        // via the server-injected admin label map (empty for customers).
+        supplierLabel(supplierToken) { return (this.supplierLabels && this.supplierLabels[supplierToken]) || supplierToken; }
     };
 }
 </script>

@@ -65,11 +65,17 @@ function renderCarCard(car) {
     const price = parseFloat(car.price || car.total_price || car.display_price || 0);
     const pricePerDay = parseFloat(car.price_per_day || car.actual_price_per_day || car.display_price_per_day || 0);
     const currency = car.currency || 'USD';
-    const supplier = car.supplier || car.supplier_name || 'N/A';
+    // car.supplier is an opaque token; resolve to the real name for the ADMIN-only
+    // badge. renderCarCard is NOT bound to the component `this` (see note below), so
+    // reach the component via the window.carSearchComponent global to call
+    // supplierLabel (admin-only map; returns the token for non-admins, but the badge
+    // is admin-gated anyway so customers never see it).
+    const __carComp = (typeof window !== 'undefined' && window.carSearchComponent) ? window.carSearchComponent : null;
+    const supplier = (__carComp && __carComp.supplierLabel ? __carComp.supplierLabel(car.supplier) : (car.supplier || car.supplier_name)) || 'N/A';
     const supplierColor = car.color || '#3B82F6';
     // Supplier identity is ADMIN-ONLY — customers must never see which supplier a
     // car came from (Goglobia is the only provider they know). Previously this was
-    // inverted (`isAdmin || supplier!=='mozio'`), which showed every non-mozio
+    // inverted (showing the badge to customers), which leaked every non-own
     // supplier to customers.
     const isAdmin = <?= (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') ? 'true' : 'false' ?>;
     const showSupplierBadge = isAdmin;
@@ -202,7 +208,7 @@ function renderCarCard(car) {
                         ${esc(carType)}
                     </div>
 
-                    <!-- SUPPLIER BADGE (Mozio label only for admin) -->
+                    <!-- SUPPLIER BADGE (admin only) -->
                     ${showSupplierBadge ? `
                     <div class="absolute top-2 right-2 text-white px-2 py-0.5 rounded text-xs font-bold capitalize" style="background-color: ${supplierColor};">
                         ${esc(supplier)}
@@ -359,10 +365,11 @@ window.bookCar = function(car, searchParams) {
     const originalContent = btn.innerHTML;
     
     // ============================================================
-    // KIWITAXI: Direct affiliate redirect - no on-site booking
+    // AFFILIATE-REDIRECT supplier: direct redirect, no on-site booking.
+    // Detected by the identity-free `redirect_only` flag the search sets (NOT the
+    // supplier name, which is now a hidden/opaque token).
     // ============================================================
-    const supplierKey = (car.supplier || car.supplier_name || '').toLowerCase();
-    if (supplierKey === 'kiwitaxi') {
+    if (car.redirect_only === true || car._raw?.redirect_only === true) {
         const affiliateUrl = car.booking_url || car._raw?.booking_url || '';
         if (affiliateUrl) {
             window.open(affiliateUrl, '_blank');
