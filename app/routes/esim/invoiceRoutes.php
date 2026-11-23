@@ -21,7 +21,7 @@ $router->get('/invoice/esim/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
         $header = true;
         $footer = true;
         require_once views . 'includes/header.php';
-        require_once views . 'errors/404.php';
+        require_once views . '404.php';
         require_once views . 'includes/footer.php';
         exit;
     }

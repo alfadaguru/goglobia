@@ -104,6 +104,15 @@ $router->get('/api/ai/search', function () use ($db) {
             $departureContext['nationality_source'] = $natSource;
         }
 
+        // CLASS LOAD: there is no PSR-4 autoloader for the App\ namespace, so the
+        // aiSearchService class file must be required explicitly before use (same
+        // pattern as RateLimiter above / the AI classes in giaRoutes.php). Without
+        // this, `new \App\lib\ai\aiSearchService` fatals with "Class not found" and
+        // every /api/ai/search call 500s.
+        if (!class_exists('\\App\\lib\\ai\\aiSearchService')) {
+            require_once dirname(__DIR__, 2) . '/lib/ai/aiSearchService.php';
+        }
+
         $service = new \App\lib\ai\aiSearchService($db);
         $payload = $service->search($q, $enabled, $departureContext);
 
