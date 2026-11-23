@@ -102,6 +102,48 @@ $taxAmount = 0;
 $totalWithTax = $subtotal;
 $hasTax = false;
 
+// AGENT B2B (search-parity fix AS-2): visa uses a COMMISSION model, not a net-price
+// discount — the agent pays the SAME price as a customer (price_markup is identical),
+// but EARNS a commission (bookingRoutes.php:233-263). Previously that earning only
+// surfaced AFTER booking, so an agent searching had no visibility of what they make.
+// Compute the SAME earning here (identical logic + the service-fee cap) and show it
+// in the summary when the actor is an agent/agency-staff. This is honest: we do NOT
+// fake a lower price (the agent really pays full price); we surface their commission.
+$visaAgentEarning = 0.0;
+$visaShowAgentEarning = false;
+$__visaOwner = '';
+if (function_exists('agent_acting_context')) {
+    $__actx = agent_acting_context($db);
+    if (is_array($__actx) && empty($__actx['is_admin']) && !empty($__actx['owner'])) {
+        $__visaOwner = (string) $__actx['owner'];
+    }
+}
+if ($__visaOwner !== '' && $pricePerPerson > 0 && !$isInquiryOnly) {
+    $visaShowAgentEarning = true;
+    // Service-fee cap (mirrors $finalCommission = service_fee * travelers at checkout).
+    $__svcFee = (float) ($visaInfo['service_fee'] ?? 0);
+    if ($currency !== ($visaInfo['currency'] ?? $currency) && $__svcFee > 0 && function_exists('CURRENCY_CONVERT')) {
+        $__c = CURRENCY_CONVERT($__svcFee, $db, (string) ($visaInfo['currency'] ?? 'USD'), $currency);
+        $__svcFee = is_array($__c) ? (float) ($__c['price'] ?? $__svcFee) : (float) $__c;
+    }
+    $__cap = round($__svcFee * $travelersCount, 2);
+    $__mrow = $db->get('modules', ['markup_b2b', 'markup_type_b2b'], ['type' => 'visa']);
+    $__b2bVal  = (float) ($__mrow['markup_b2b'] ?? 0);
+    $__b2bType = strtolower((string) ($__mrow['markup_type_b2b'] ?? 'percentage'));
+    if ($__b2bVal > 0) {
+        if ($__b2bType === 'percentage') {
+            $__tierBonus = function_exists('agent_tier_discount_percent')
+                ? (float) agent_tier_discount_percent($db, $__visaOwner) : 0.0;
+            $visaAgentEarning = round($subtotal * ($__b2bVal + $__tierBonus) / 100, 2);
+        } else {
+            $visaAgentEarning = round($__b2bVal * $travelersCount, 2);
+        }
+    } else {
+        $visaAgentEarning = $__cap; // no b2b markup set → agent earns the service fee
+    }
+    $visaAgentEarning = max(0.0, min($visaAgentEarning, $__cap)); // never exceed platform margin
+}
+
 // Get countries for dropdowns
 $countries = $db->select('countries', ['iso', 'nicename', 'phonecode'], ['status' => 'active', 'ORDER' => ['nicename' => 'ASC']]);
 
@@ -718,6 +760,14 @@ if ($isUserLoggedIn) {
                             <span><?= T::total ?? 'Total' ?>:</span>
                             <span class="text-lg font-bold"><?= $currency ?> <?= number_format($totalWithTax, 2) ?></span>
                         </div>
+                        <?php // AGENT B2B (AS-2): visa is a commission model — the agent pays the full
+                        // price above but earns this commission. Shown only to agents/agency staff. ?>
+                        <?php if (!empty($visaShowAgentEarning) && $visaAgentEarning > 0): ?>
+                        <div class="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300">
+                            <span class="inline-flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:16px;">sell</span>Your commission:</span>
+                            <span class="font-semibold"><?= $currency ?> <?= number_format($visaAgentEarning, 2) ?></span>
+                        </div>
+                        <?php endif; ?>
                         <!-- Refund policy shown BEFORE payment (customer-flow audit #105):
                              a visa fee covers government + processing charges that cannot be
                              recovered once an application is lodged. -->

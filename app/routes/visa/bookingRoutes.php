@@ -231,36 +231,42 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
         // the tier % exceeds the b2b %). Higher tiers instead earn a small BONUS.
         // Customers earn nothing (agent_earning = 0).
         $visaAgentEarning = 0.0;
-        $visaBookerId = (string)($_SESSION['user_id'] ?? '');
-        if ($visaBookerId !== '') {
-            $vb = $db->get('users', ['role'], ['user_id' => $visaBookerId]);
-            $visaIsAgent = (is_array($vb) && strtolower((string)($vb['role'] ?? '')) === 'agent')
-                || strtolower((string)($_SESSION['user_role'] ?? '')) === 'agent';
-            if ($visaIsAgent) {
-                $visaModuleRow = $db->get('modules', ['markup_b2b', 'markup_type_b2b'], ['type' => 'visa']);
-                $b2bVal  = (float)($visaModuleRow['markup_b2b'] ?? 0);
-                $b2bType = strtolower((string)($visaModuleRow['markup_type_b2b'] ?? 'percentage'));
-                if ($b2bVal > 0) {
-                    if ($b2bType === 'percentage') {
-                        // Tier adds a small earning BONUS (not a reduction).
-                        if (!function_exists('agent_tier_discount_percent')) {
-                            $walletLib = dirname(__DIR__, 3) . '/lib/wallet.php';
-                            if (file_exists($walletLib)) { require_once $walletLib; }
-                        }
-                        $tierBonus = function_exists('agent_tier_discount_percent')
-                            ? (float) agent_tier_discount_percent($db, $visaBookerId) : 0.0;
-                        $effPct = $b2bVal + $tierBonus;
-                        $visaAgentEarning = round($finalPriceMarkup * $effPct / 100, 2);
-                    } else {
-                        $visaAgentEarning = round($b2bVal * $travelersCount, 2);
-                    }
-                } else {
-                    // No b2b markup set → agent earns the platform service fee.
-                    $visaAgentEarning = round($finalCommission, 2);
-                }
-                // Never pay out more than the platform's own margin (service fee).
-                $visaAgentEarning = max(0.0, min($visaAgentEarning, (float)$finalCommission));
+        // Detect the acting AGENCY via agent_acting_context() — the SAME source the
+        // search/booking-form summary uses (views/modules/visa/booking.php, AS-2). This
+        // catches agency STAFF too (session role 'customer'), so the commission shown in
+        // search is the commission actually credited here. The tier belongs to the agency
+        // OWNER, so resolve + look up the tier against $visaAgentOwner, not the actor.
+        $visaAgentOwner = '';
+        if (function_exists('agent_acting_context')) {
+            $__vctx = agent_acting_context($db);
+            if (is_array($__vctx) && empty($__vctx['is_admin']) && !empty($__vctx['owner'])) {
+                $visaAgentOwner = (string) $__vctx['owner'];
             }
+        }
+        if ($visaAgentOwner !== '') {
+            $visaModuleRow = $db->get('modules', ['markup_b2b', 'markup_type_b2b'], ['type' => 'visa']);
+            $b2bVal  = (float)($visaModuleRow['markup_b2b'] ?? 0);
+            $b2bType = strtolower((string)($visaModuleRow['markup_type_b2b'] ?? 'percentage'));
+            if ($b2bVal > 0) {
+                if ($b2bType === 'percentage') {
+                    // Tier adds a small earning BONUS (not a reduction) — on the OWNER's tier.
+                    if (!function_exists('agent_tier_discount_percent')) {
+                        $walletLib = dirname(__DIR__, 3) . '/lib/wallet.php';
+                        if (file_exists($walletLib)) { require_once $walletLib; }
+                    }
+                    $tierBonus = function_exists('agent_tier_discount_percent')
+                        ? (float) agent_tier_discount_percent($db, $visaAgentOwner) : 0.0;
+                    $effPct = $b2bVal + $tierBonus;
+                    $visaAgentEarning = round($finalPriceMarkup * $effPct / 100, 2);
+                } else {
+                    $visaAgentEarning = round($b2bVal * $travelersCount, 2);
+                }
+            } else {
+                // No b2b markup set → agent earns the platform service fee.
+                $visaAgentEarning = round($finalCommission, 2);
+            }
+            // Never pay out more than the platform's own margin (service fee).
+            $visaAgentEarning = max(0.0, min($visaAgentEarning, (float)$finalCommission));
         }
 
         // GET COUNTRY NAMES

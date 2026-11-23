@@ -646,6 +646,25 @@ $router->get('/esim/(\d+)/([a-z]{2})/([a-z]+)/packages/?', function ($moduleId, 
             }
         }
 
+        // AGENT B2B (search-parity fix AS-1): the LISTING previously applied a flat
+        // commission to everyone, so a logged-in agent saw the B2C price in search and
+        // only got their B2B rate at BOOKING (airalo_authoritative_price). Resolve the
+        // acting AGENCY OWNER once (agent OR agency staff — staff session role is
+        // 'customer', so read the context, not the session) and apply the SAME
+        // tier-discount adjustment the booking path uses (airalo/api.php:421-429):
+        // subtract the agent tier discount from a PERCENTAGE commission (fixed rules
+        // unchanged). This makes the listing price match what the agent actually pays.
+        $__esimAgentOwner = '';
+        if (function_exists('agent_acting_context')) {
+            $__ctx = agent_acting_context($db);
+            if (is_array($__ctx) && empty($__ctx['is_admin']) && !empty($__ctx['owner'])) {
+                $__esimAgentOwner = (string) $__ctx['owner'];
+            }
+        }
+        $__esimTierDiscount = ($__esimAgentOwner !== '' && function_exists('agent_tier_discount_percent'))
+            ? (float) agent_tier_discount_percent($db, $__esimAgentOwner)
+            : 0.0;
+
         $expandedPackages = [];
         foreach ((array) $rawPackages as $pkg) {
             $basePrice = $extractPrice($pkg);
@@ -653,6 +672,12 @@ $router->get('/esim/(\d+)/([a-z]{2})/([a-z]+)/packages/?', function ($moduleId, 
             $rule = $rulesByType[$pkgType] ?? $rulesByType['all'] ?? ['commission_type' => 'fixed', 'value' => 1];
             $value = (float) ($rule['value'] ?? 1);
             $commType = strtolower((string) ($rule['commission_type'] ?? 'fixed'));
+
+            // Agent B2B: discount a PERCENTAGE commission by the agent's tier (mirrors
+            // airalo_authoritative_price). Fixed commissions are left as-is.
+            if ($commType === 'percentage' && $__esimTierDiscount > 0) {
+                $value = max(0.0, $value - $__esimTierDiscount);
+            }
 
             $markupAmount = $commType === 'percentage'
                 ? ($basePrice * $value / 100)
