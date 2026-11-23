@@ -64,6 +64,17 @@ if (isset($_SESSION['user_role'])) {
     }
 }
 
+// AS-5 (search-parity audit): also treat active agency STAFF (session role
+// 'customer') as an agent for the in-search B2B signal — they inherit the
+// owner's B2B rate via MARKUP(), so the card SHOULD flag the wholesale rate.
+// agent_acting_context() is the same staff-aware source the pricing fixes use.
+if (!$isAgent && function_exists('agent_acting_context')) {
+    $__fctx = agent_acting_context($db);
+    if (is_array($__fctx) && empty($__fctx['is_admin']) && !empty($__fctx['owner'])) {
+        $isAgent = true;
+    }
+}
+
 // Get markup settings from modules table for flights
 $moduleSettings = $db->get('modules', ['markup_b2b', 'markup_b2c', 'markup_type_b2b', 'markup_type_b2c'], [
     'type' => 'flights',
@@ -1040,6 +1051,13 @@ try {
             // These values determine price markup based on user role (B2C customer or B2B agent)
             userRole: '<?= $userRole ?>',              // 'customer' or 'agent'
             isAgent: <?= $isAgent ? 'true' : 'false' ?>,  // Boolean flag
+            // AS-3 (search-parity audit): a small "B2B / Agent rate" badge so an agent
+            // KNOWS the price shown is their net wholesale rate, not retail. Empty for
+            // customers/guests. Returns an HTML string injected into each price block.
+            b2bBadge() {
+                if (!this.isAgent) return '';
+                return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 mt-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold rounded uppercase tracking-wide" title="This is your agent net (wholesale) rate"><span class="material-symbols-outlined" style="font-size:12px;">sell</span>B2B rate</span>`;
+            },
             markupPercentage: <?= $markupPercentage ?>,   // Markup % (e.g., 10 for B2C, 15 for B2B)
             markupType: '<?= $markupType ?>',          // 'percentage' or 'fixed'
 
@@ -3027,6 +3045,7 @@ try {
                                 <div class="text-right">
                                     <p class="text-xs text-gray-500 dark:text-gray-400"><?= T::total ?></p>
                                     <p class="text-lg font-bold text-gray-900 dark:text-gray-100">${f.currency} ${f.price}</p>
+                                    ${this.b2bBadge()}
                                 </div>
                             </div>
 
@@ -3079,6 +3098,7 @@ try {
                                     <div class="mb-4">
                                         <p class="text-xs text-gray-500 dark:text-gray-400"><?= T::total ?></p>
                                         <p class="text-2xl font-bold text-gray-900 dark:text-gray-100">${f.currency} ${f.price}</p>
+                                        ${this.b2bBadge()}
                                     </div>
                                     <button @click="bookNow(paginatedFlights()[${idx}], ${idx})"
                                             :disabled="bookingFlightIndex === ${idx}"
@@ -3493,6 +3513,7 @@ try {
                                 <div class="text-right shrink-0">
                                     <p class="text-[10px] text-gray-500 dark:text-gray-400">Price per adult</p>
                                     <p class="text-lg font-extrabold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">${this.money(f.price, f.currency)}</p>
+                                    ${this.b2bBadge()}
                                     <p class="text-[10px] text-green-600 dark:text-green-400 font-medium">✓ Taxes included</p>
                                 </div>
                             </div>
@@ -3551,6 +3572,7 @@ try {
                                 <div class="w-[188px] xl:w-[208px] border-l border-gray-200 dark:border-gray-700 pl-5 flex flex-col justify-center items-stretch shrink-0">
                                     <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">Price per adult</p>
                                     <p class="text-2xl font-extrabold text-gray-900 dark:text-gray-100 leading-none tabular-nums tracking-tight">${this.money(f.price, f.currency)}</p>
+                                    ${this.b2bBadge()}
                                     <p class="text-[11px] text-green-600 dark:text-green-400 font-medium mt-1 flex items-center gap-1">
                                         <span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>
                                         Includes all taxes &amp; fees

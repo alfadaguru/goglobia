@@ -3,9 +3,27 @@
 // TOUR CARD ITEM TEMPLATE - PRODUCTION READY
 // ============================================================================
 // app/views/modules/tours/listing/tours-items.php
-@$SECURE or die('Access Denied!'); ?>
+@$SECURE or die('Access Denied!');
+
+// AS-5 (search-parity audit): tours cards are JS-rendered and had NO agent signal.
+// Resolve a staff-aware agent flag once (agent OR active agency staff) so AS-3 can
+// badge the price as the agent's net/wholesale rate.
+$__tourIsAgent = (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'agent');
+if (!$__tourIsAgent && function_exists('agent_acting_context')) {
+    $__tctx = agent_acting_context($db);
+    if (is_array($__tctx) && empty($__tctx['is_admin']) && !empty($__tctx['owner'])) {
+        $__tourIsAgent = true;
+    }
+}
+?>
 
 <script>
+// AS-3/AS-5: B2B rate signal for agents (empty string for customers/guests).
+const __tourIsAgent = <?= $__tourIsAgent ? 'true' : 'false' ?>;
+function tourB2bBadge() {
+    if (!__tourIsAgent) return '';
+    return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 mt-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold rounded uppercase tracking-wide" title="This is your agent net (wholesale) rate"><span class="material-symbols-outlined" style="font-size:12px;">sell</span>B2B rate</span>`;
+}
 /**
  * BUILD TOUR URL - SEO-friendly URL builder
  */
@@ -297,6 +315,7 @@ function renderTourCard(t, idx, searchParams) {
                                 </p>
                                 <p class="text-sm text-gray-500 dark:text-gray-400 mb-0"><?=T::per?> <?=T::person?></p>
                             </div>
+                            ${tourB2bBadge()}
                             <p class="text-[11px] text-green-600 dark:text-green-400 font-medium mt-1 flex items-center gap-1">
                                 <span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>
                                 Includes taxes &amp; fees

@@ -639,7 +639,16 @@ $router->post('/tours/tours/details', function() use ($db) {
                 'display_price' => $display_price,
                 'display_price_per_adult' => $display_price_per_adult,
                 'display_price_per_child' => $display_price_per_child,
-                
+
+                // AS-4 (search-parity audit): total trip margin for an AGENT = what a
+                // RETAIL customer would pay (B2C) − what the agent pays (B2B), summed
+                // across travelers. Null for customers (MARKUP returns null b2c/margin).
+                // Display-only; does NOT affect display_price (the agent's real price).
+                'agent_margin' => (isset($marked_up_adult_price['agent_margin']) || isset($marked_up_child_price['agent_margin']))
+                    ? round(((float) ($marked_up_adult_price['agent_margin'] ?? 0)) * $adults
+                          + ((float) ($marked_up_child_price['agent_margin'] ?? 0)) * $children, 2)
+                    : null,
+
                 // Actual price: WITHOUT markup but WITH currency conversion
                 'actual_price' => $actual_price,
                 'actual_price_per_adult' => $actual_price_per_adult,

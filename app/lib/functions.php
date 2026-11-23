@@ -6761,6 +6761,29 @@ if (!function_exists('MARKUP')) {
 
     $finalPrice = $convertedPrice;
 
+    // AS-4 (search-parity audit): for an AGENT, also compute the B2C price this same
+    // item would have cost a RETAIL customer, so callers can show the agent their
+    // margin (what they earn by reselling at retail). This is DISPLAY-ONLY: it does
+    // NOT change $finalPrice (what the agent is charged) — it's an extra field. The
+    // math mirrors the block above but with the B2C markup rate (no tier discount,
+    // which is an agent-only benefit). Null for customers (nothing to compare).
+    $b2cComparePrice = null;
+    $agentMargin = null;
+    if ($isAgent && !$customMarkup) {
+        $b2cVal  = floatval($moduleData['markup_b2c'] ?? 0);
+        $b2cType = ($moduleData['markup_type_b2c'] ?? 'percentage');
+        $b2cWithMarkup = $b2cType === 'fixed' ? ($price + $b2cVal) : ($price + ($price * $b2cVal / 100));
+        $b2cConverted = $b2cWithMarkup;
+        if ($fromCurrency && $toCurrency && $fromCurrency !== $toCurrency && $price > 0) {
+            $fr = currencyRateCached($db, $fromCurrency);
+            $tr = currencyRateCached($db, $toCurrency);
+            if ($fr && $tr) { $b2cConverted = round(($b2cWithMarkup / $fr) * $tr, 2); }
+        }
+        $b2cComparePrice = round($b2cConverted, 2);
+        // Margin = what retail pays − what the agent pays (never negative on display).
+        $agentMargin = round(max(0, $b2cComparePrice - $finalPrice), 2);
+    }
+
     return [
         'price' => round($finalPrice, 2),
         'markup' => round($markupAmount, 2),
@@ -6768,7 +6791,11 @@ if (!function_exists('MARKUP')) {
         'markup_type' => $markupType,
         'markup_value' => $markupValue,
         'base_price' => round($price, 2),
-        'converted_base_price' => round($convertedBasePrice, 2)
+        'converted_base_price' => round($convertedBasePrice, 2),
+        // AS-4: agent-only display fields (null for customers). b2c_price = retail
+        // comparison; agent_margin = b2c_price − price (the agent's resale upside).
+        'b2c_price' => $b2cComparePrice,
+        'agent_margin' => $agentMargin,
     ];
 }
 }

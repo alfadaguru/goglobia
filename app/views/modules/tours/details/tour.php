@@ -396,6 +396,20 @@ if ($duration && $duration !== 'any') {
                                 <span x-show="loading" class="text-gray-300">Loading price...</span>
                             </h3>
 
+                            <!-- AS-4 (search-parity audit): agent margin vs retail. Shown ONLY to
+                                 agents (tourData.agent_margin is null for customers). This is the
+                                 agent's resale upside = B2C price − the B2B price they pay. -->
+                            <div x-show="!loading && tourData && Number(tourData?.agent_margin || 0) > 0"
+                                 class="mb-3 sm:mb-4 -mt-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-sm font-medium">
+                                <span class="material-symbols-outlined" style="font-size:16px;">trending_up</span>
+                                <span>
+                                    Your margin:
+                                    <span x-text="tourData?.currency ?? 'USD'"></span>
+                                    <span class="font-bold" x-text="Number(tourData?.agent_margin || 0).toFixed(2)"></span>
+                                    <span class="text-xs opacity-80">vs retail</span>
+                                </span>
+                            </div>
+
                             <!-- Date Picker -->
                             <div class="mb-3 sm:mb-4">
                                 <label class="block text-sm font-medium mb-1"><?= T::start_date ?></label>

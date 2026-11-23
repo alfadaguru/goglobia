@@ -24,7 +24,26 @@ PERFORMANCE:
 @since December 2025
 ============================================================================
 -->
+<?php
+// AS-5 (search-parity audit): stays cards are JS-rendered, so unlike flights the
+// view had NO agent signal. Resolve a staff-aware agent flag ONCE here (agent OR
+// active agency staff — the same source the pricing fixes use) and expose it to the
+// card JS so AS-3 can badge the price as the agent's net/wholesale rate.
+$__stayIsAgent = (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'agent');
+if (!$__stayIsAgent && function_exists('agent_acting_context')) {
+    $__sctx = agent_acting_context($db);
+    if (is_array($__sctx) && empty($__sctx['is_admin']) && !empty($__sctx['owner'])) {
+        $__stayIsAgent = true;
+    }
+}
+?>
 <script>
+    // AS-3/AS-5: B2B rate signal for agents (empty string for customers/guests).
+    const __stayIsAgent = <?= $__stayIsAgent ? 'true' : 'false' ?>;
+    function stayB2bBadge() {
+        if (!__stayIsAgent) return '';
+        return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 mt-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold rounded uppercase tracking-wide" title="This is your agent net (wholesale) rate"><span class="material-symbols-outlined" style="font-size:12px;">sell</span>B2B rate</span>`;
+    }
     /**
      * STORE HOTEL DATA FOR DETAILS PAGE
      * Saves clicked hotel info to localStorage for retrieval on detail page
@@ -305,6 +324,7 @@ PERFORMANCE:
                                 </div>
                                 <!-- Total -->
                                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-0 mt-0.5 tabular-nums">${this.money(h.price, h.currency)} <?= T::total ?></p>
+                                ${stayB2bBadge()}
                                 <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1">
                                     <span class="material-symbols-outlined" style="font-size:13px;">info</span>
                                     <?= T::taxes ?> &amp; <?= T::fees ?> confirmed at checkout
