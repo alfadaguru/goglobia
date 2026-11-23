@@ -124,10 +124,15 @@ $router->post('flights/adivaha/revalidate', function () use ($db) {
         // price the customer last saw with a PERCENTAGE tolerance (shared helper). The
         // old `> 0.50` ABSOLUTE check was half a naira on an NGN base — FX-conversion
         // rounding (Adivaha prices in INR) tripped a surprise re-quote within seconds.
+        // COMPARE LIKE-FOR-LIKE: $oldPrice is the MARKED-UP price the customer saw
+        // (`new_price` = $markedUp['price']), so the new side MUST be the marked-up
+        // price too — not the net `$converted['price']`, which false-flagged a change
+        // on every revalidate equal to the markup margin.
         $supplierChanged = !empty($quote['is_price_changed']);
+        $newMarked       = (float) $markedUp['price'];
         $priceChanged    = function_exists('flight_revalidate_price_changed')
-            ? flight_revalidate_price_changed((float) $oldPrice, (float) $converted['price'], $supplierChanged)
-            : ($supplierChanged || ($oldPrice > 0 && abs((float) $converted['price'] - $oldPrice) > 0.50));
+            ? flight_revalidate_price_changed((float) $oldPrice, $newMarked, $supplierChanged)
+            : ($supplierChanged || ($oldPrice > 0 && abs($newMarked - $oldPrice) > 0.50));
 
         // Baggage display from the offer meta, when present.
         $baggageDisplay = 'Check fare rules';

@@ -184,9 +184,14 @@ $router->post('flights/amadeus/revalidate', function () use ($db) {
         $convertedTotal = CURRENCY_CONVERT($newNetTotal, $db, $sourceCurrency, $currency);
         $markedUpTotal = MARKUP($newNetTotal, $module, $db, $sourceCurrency, $currency);
         // PERCENTAGE tolerance (shared helper); was `> 0.50` absolute (FX-rounding noise).
+        // COMPARE LIKE-FOR-LIKE: $oldPrice is the MARKED-UP price the customer saw
+        // (`new_price` = $markedUpTotal['price']), so the new side MUST be marked-up
+        // too — not net `$convertedTotal['price']`, which false-flagged a change on
+        // every revalidate equal to the markup margin.
+        $newMarked = (float) $markedUpTotal['price'];
         $priceChanged = function_exists('flight_revalidate_price_changed')
-            ? flight_revalidate_price_changed((float) $oldPrice, (float) $convertedTotal['price'])
-            : ($oldPrice > 0 && abs($convertedTotal['price'] - $oldPrice) > 0.50);
+            ? flight_revalidate_price_changed((float) $oldPrice, $newMarked)
+            : ($oldPrice > 0 && abs($newMarked - $oldPrice) > 0.50);
 
         $baggageDisplay = 'Check fare rules';
         if (!empty($repricedOffer['travelerPricings'][0]['fareDetailsBySegment'][0]['includedCheckedBags'])) {

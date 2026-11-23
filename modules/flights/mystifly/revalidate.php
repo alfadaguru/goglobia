@@ -94,12 +94,25 @@ $router->post('flights/mystifly/revalidate', function () use ($db) {
             }
         }
 
+        // Convert + mark up the new supplier total into the customer's currency
+        // BEFORE the price-change check, so the comparison is like-for-like.
+        $credentials    = getMystiflyCredentials($db);
+        $module         = $credentials['module'] ?? null;
+        $convertedTotal = CURRENCY_CONVERT($newTotal, $db, $newCurrencyRaw, $currency);
+        $markedUpTotal  = $module ? MARKUP($newTotal, $module, $db, $newCurrencyRaw, $currency) : $convertedTotal;
+
         // Price change detection — PERCENTAGE tolerance (shared helper); the old
         // `> 0.50` absolute was FX-rounding noise on a low-unit base currency.
+        // COMPARE LIKE-FOR-LIKE: $oldPrice is the MARKED-UP price the customer saw
+        // (`new_price` = $markedUpTotal['price'], in the DISPLAY currency), so the new
+        // side MUST be the marked-up, currency-converted price too. The old check used
+        // the raw supplier $newTotal (pre-conversion, pre-markup, supplier currency),
+        // which false-flagged a change on nearly every revalidate.
         $oldPrice     = (float)($_POST['old_price'] ?? 0);
+        $newMarked    = (float) $markedUpTotal['price'];
         $priceChanged = function_exists('flight_revalidate_price_changed')
-            ? flight_revalidate_price_changed($oldPrice, (float) $newTotal)
-            : ($oldPrice > 0 && $newTotal > 0 && abs($newTotal - $oldPrice) > 0.50);
+            ? flight_revalidate_price_changed($oldPrice, $newMarked)
+            : ($oldPrice > 0 && $newMarked > 0 && abs($newMarked - $oldPrice) > 0.50);
 
         // HoldAllowed lives in PricedItineraries[0] in v1, not inside RevalidateItinerary
         $holdRaw      = $ri['HoldAllowed'] ?? $pricedItem0['HoldAllowed'] ?? false;
@@ -119,12 +132,8 @@ $router->post('flights/mystifly/revalidate', function () use ($db) {
         }
 
         $baggageDisplay = 'Check fare rules'; // baggage not returned by revalidate
-
-        // Convert price to requested currency
-        $credentials    = getMystiflyCredentials($db);
-        $module         = $credentials['module'] ?? null;
-        $convertedTotal = CURRENCY_CONVERT($newTotal, $db, $newCurrencyRaw, $currency);
-        $markedUpTotal  = $module ? MARKUP($newTotal, $module, $db, $newCurrencyRaw, $currency) : $convertedTotal;
+        // ($credentials/$module/$convertedTotal/$markedUpTotal computed above, before
+        // the price-change check, so old (marked-up) vs new (marked-up) compare alike.)
 
         echo json_encode([
             'status'  => true,

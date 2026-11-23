@@ -112,10 +112,16 @@ $router->post('flights/tiqwa/revalidate', function () use ($db) {
         // Price-change signal: trust Tiqwa's own price_change flag, AND cross-check
         // against what the customer last saw with a PERCENTAGE tolerance (shared helper).
         // Was `> 0.50` absolute — FX-rounding noise on a low-unit base currency.
+        // COMPARE LIKE-FOR-LIKE: $oldPrice is the MARKED-UP price the customer saw
+        // (search/revalidate surface `price` = $markedUp['price']), so the new side
+        // MUST also be the marked-up price — not the net `$converted['price']`.
+        // Using the net price here compared marked-up-old vs net-new and reported a
+        // false "price changed" on every revalidate equal to the markup margin.
         $supplierChanged = !empty($offer['price_change']);
+        $newMarked       = (float) $markedUp['price'];
         $priceChanged    = function_exists('flight_revalidate_price_changed')
-            ? flight_revalidate_price_changed((float) $oldPrice, (float) $converted['price'], $supplierChanged)
-            : ($supplierChanged || ($oldPrice > 0 && abs((float) $converted['price'] - $oldPrice) > 0.50));
+            ? flight_revalidate_price_changed((float) $oldPrice, $newMarked, $supplierChanged)
+            : ($supplierChanged || ($oldPrice > 0 && abs($newMarked - $oldPrice) > 0.50));
 
         echo json_encode([
             'status'  => true,
