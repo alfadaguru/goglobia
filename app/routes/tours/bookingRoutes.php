@@ -121,9 +121,13 @@ $router->get('/api/tour/booking/download-invoice/([A-Z0-9]{8})', function ($invo
         // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
         // admin / owner / creating session / valid payment token. Was
         // previously unauthenticated. enforceInvoiceAccess() exits on denial.
-        if (function_exists('enforceInvoiceAccess')) {
-            enforceInvoiceAccess($db, $booking);
+        // FAIL-CLOSED: deny when the guard is unavailable (matches the stays path),
+        // so a missing helper can never silently serve the PDF to anyone.
+        if (!function_exists('enforceInvoiceAccess')) {
+            http_response_code(500);
+            die('Access control unavailable.');
         }
+        enforceInvoiceAccess($db, $booking);
 
         // Always generate/refresh PDF before download
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
