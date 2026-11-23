@@ -1328,10 +1328,11 @@ if (file_exists($routesCacheFile)) {
             localStorage.setItem(cacheKey, JSON.stringify(existing.slice(0, 10)));
         } catch (e) { /* localStorage unavailable */ }
 
+        const __ferCsrf = document.querySelector('meta[name="csrf-token"]')?.content || '<?= CSRF::getToken() ?>';
         fetch('<?= root ?>api/ferries/booking/draft', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(draftPayload),
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': __ferCsrf },
+            body: JSON.stringify({ ...draftPayload, csrf_token: __ferCsrf }),
         })
             .then(r => r.json())
             .then(data => {

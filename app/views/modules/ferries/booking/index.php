@@ -1078,10 +1078,11 @@ function bookingForm() {
                     throw new Error('Validation failed:\n' + errors);
                 }
 
+                const __ferCsrf = document.querySelector('meta[name="csrf-token"]')?.content || '<?= CSRF::getToken() ?>';
                 const res = await fetch('<?= root ?>api/ferries/booking/submit', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': __ferCsrf },
+                    body: JSON.stringify({ ...payload, csrf_token: __ferCsrf }),
                 });
 
                 const data = await res.json();

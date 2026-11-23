@@ -25,6 +25,19 @@ $router->post('/api/ferries/booking/draft', function () use ($SECURE, $db) {
         $input = json_decode(file_get_contents('php://input'), true) ?: [];
         if (!is_array($input)) $input = $_POST;
 
+        // CSRF (customer-flow audit): this draft-write was fully open (no token), so
+        // a cross-site / scripted writer could POST arbitrary JSON into logs_bookings
+        // and bloat the table. Require the same-origin token the ferries client now
+        // attaches (body csrf_token or X-CSRF-TOKEN header). Draft content is still
+        // re-validated + re-priced at /submit, so this is a bloat/DoS guard. Mirrors
+        // the visa/esim/rail draft guards.
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!CSRF::validateToken($csrfToken)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Invalid security token. Please refresh and try again.']);
+            return;
+        }
+
         // VALIDATE MINIMUM REQUIRED FIELDS
         if (empty($input['selected_sailing']) || empty($input['passengers'])) {
             http_response_code(422);
@@ -295,6 +308,17 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
     try {
         $input = json_decode(file_get_contents('php://input'), true) ?: [];
         if (!is_array($input)) $input = $_POST;
+
+        // CSRF: state-changing confirm (creates a booking + calls the supplier).
+        // Require the same-origin token the ferries client now attaches, matching the
+        // visa/esim/rail submit guards. The price is re-derived server-side regardless.
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!CSRF::validateToken($csrfToken)) {
+            restore_error_handler();
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Invalid security token. Please refresh and try again.']);
+            return;
+        }
 
         $hash = trim((string)($input['hash'] ?? ''));
         if (!preg_match('/^[a-f0-9]{16}$/', $hash)) {
