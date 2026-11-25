@@ -130,19 +130,33 @@ if ($displayCurrencyRate > 0) {
 // nudges the customer to proceed. Enabled when ANY active flights module has
 // the toggle on; we use the smallest configured minutes to stay conservative.
 // ============================================================================
+// REAL fare-validity countdown — supplier-aware (honest, not a fake "hold").
+// Only suppliers whose SEARCH fares genuinely expire get a hard countdown:
+//   • Adivaha: async search trace is valid ~15 min (supplier-documented in
+//     openapi-flight.yaml) → strict countdown; server revalidate fails closed when
+//     it lapses. We use the real TTL (admin fare_timer_minutes, default 15, but
+//     never above Adivaha's 15-min ceiling since the trace truly dies then).
+//   • Tiqwa: synchronous search carries NO trace / no search-level expiry, and it
+//     supports book-on-hold → NO hard countdown (soft). Showing a strict timer for
+//     Tiqwa would be a false deadline.
+// So the countdown is enabled only when an Adivaha flight module is active + toggled.
 $resultsFareTimerEnabled = false;
 $resultsFareTimerMinutes = 15;
 try {
-    $ftRows = $db->select('modules', ['fare_timer_enabled', 'fare_timer_minutes'], [
+    $ftRows = $db->select('modules', ['name', 'fare_timer_enabled', 'fare_timer_minutes'], [
         'type' => 'flights', 'status' => '1',
     ]);
     $minMinutes = null;
     foreach (($ftRows ?: []) as $ftRow) {
-        if (((string) ($ftRow['fare_timer_enabled'] ?? '0')) === '1') {
+        // Only hard-expiry suppliers drive the strict results countdown. Adivaha is
+        // the one with a real search-trace TTL; others (tiqwa, own-inventory) are soft.
+        $sup = strtolower((string) ($ftRow['name'] ?? ''));
+        $hardExpirySupplier = ($sup === 'adivaha');
+        if ($hardExpirySupplier && ((string) ($ftRow['fare_timer_enabled'] ?? '0')) === '1') {
             $resultsFareTimerEnabled = true;
             $m = (int) ($ftRow['fare_timer_minutes'] ?? 15);
             if ($m < 1) $m = 1;
-            if ($m > 120) $m = 120;
+            if ($m > 15) $m = 15; // Adivaha's trace truly dies ~15 min — never promise longer
             if ($minMinutes === null || $m < $minMinutes) $minMinutes = $m;
         }
     }
@@ -643,28 +657,36 @@ try {
             </div>
 
 <?php if ($resultsFareTimerEnabled): ?>
-            <!-- Fare-hold countdown (admin-enabled per flights provider). Soft urgency
-                 hint; shows once results have loaded and until the hold window lapses. -->
+            <!-- REAL fare-validity countdown. HONEST: this is NOT a price "hold" — it is
+                 the supplier's genuine search-fare validity window. For Adivaha the search
+                 trace is valid ~15 min (supplier-documented), after which the fare must be
+                 re-quoted; the server fails closed at booking if it lapsed. We therefore
+                 say "Prices update in …" (true) rather than "fares held / lock the price"
+                 (false). The countdown is anchored to the search moment (fareTimerDeadline
+                 is set from the real trace start, below). -->
             <div class="container" x-show="fareTimerEnabled && searchComplete && filteredFlights.length > 0 && !fareTimerExpired" x-cloak>
                 <div class="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 px-4 py-2.5 flex items-center gap-3">
                     <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 shrink-0" style="font-size: 22px;">timer</span>
                     <div class="text-sm leading-tight">
                         <span class="font-semibold text-amber-800 dark:text-amber-200">
-                            Fares held for
+                            Prices refresh in
                             <span class="tabular-nums font-bold" x-text="fareTimerLabel"></span>
                         </span>
                         <span class="text-amber-700 dark:text-amber-300 hidden sm:inline">·
-                            Book now to lock this price</span>
+                            fares are live and can change — book soon</span>
                     </div>
                 </div>
             </div>
-            <!-- Expired state: prompt a fresh search -->
+            <!-- Expired state: the fare window lapsed; a fresh search is genuinely required. -->
             <div class="container" x-show="fareTimerEnabled && fareTimerExpired" x-cloak>
-                <div class="rounded-xl border border-gray-300 bg-gray-50 dark:bg-gray-800 dark:border-gray-600 px-4 py-2.5 flex items-center gap-3">
-                    <span class="material-symbols-outlined text-gray-500 shrink-0" style="font-size: 22px;">update</span>
-                    <div class="text-sm text-gray-700 dark:text-gray-300">
-                        These fares have expired. Please search again for the latest prices.
+                <div class="rounded-xl border border-gray-300 bg-gray-50 dark:bg-gray-800 dark:border-gray-600 px-4 py-2.5 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <span class="material-symbols-outlined text-gray-500 shrink-0" style="font-size: 22px;">update</span>
+                        <div class="text-sm text-gray-700 dark:text-gray-300">
+                            These prices have refreshed. Please search again for the latest fares.
+                        </div>
                     </div>
+                    <button type="button" @click="window.location.reload()" class="btn btn-sm whitespace-nowrap">Search again</button>
                 </div>
             </div>
 <?php endif; ?>
@@ -1396,15 +1418,19 @@ try {
                 // console.log(`✅ Complete! UI cleaned up.`);
             },
 
-            // Fare-hold countdown. Same tick/format as the confirm-booking timer
-            // (booking/index.php startFareTimer), but anchored client-side to NOW +
-            // fareTimerMinutes because the results page has no server booking draft.
-            // Soft urgency only — the real expiry is the supplier re-quote at booking.
+            // REAL fare-validity countdown (Adivaha). The supplier search trace is
+            // minted when the search fires and this results page loads immediately
+            // after, so page-load is a faithful anchor for the trace start. We hold
+            // back a small safety margin (30s) so we never display more time than the
+            // ~15-min trace actually guarantees — the trace can lapse a touch early,
+            // and the server revalidate fails closed at booking regardless. Carried
+            // forward to the booking page, which re-anchors to the same window.
             startFareTimer() {
                 if (!this.fareTimerEnabled || this.fareTimerMinutes < 1) { return; }
                 if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
                 this.fareTimerExpired = false;
-                this.fareTimerDeadline = Math.floor(Date.now() / 1000) + (this.fareTimerMinutes * 60);
+                const SAFETY_MARGIN_SEC = 30; // show slightly less than the real TTL
+                this.fareTimerDeadline = Math.floor(Date.now() / 1000) + (this.fareTimerMinutes * 60) - SAFETY_MARGIN_SEC;
                 const tick = () => {
                     const remaining = this.fareTimerDeadline - Math.floor(Date.now() / 1000);
                     if (remaining <= 0) {
