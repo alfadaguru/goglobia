@@ -223,6 +223,44 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 }
             } catch (\Throwable $e) { error_log('ensureAgentPortalSchema agent_api_keys.env: ' . $e->getMessage()); }
 
+            // --- API CERTIFICATION FLOW (owner spec 2026-11-25) --------------
+            // apply → admin approve → PAY (wallet) → admin grants test access →
+            // agent runs cert checklist → admin sign-off → live. Add the PAYMENT
+            // columns + an 'approved' status (approved-but-unpaid) to agent_api_access,
+            // and a cert-runs table that records each service certification attempt.
+            foreach ([
+                ['fee_amount',   "ALTER TABLE `agent_api_access` ADD COLUMN `fee_amount` decimal(14,2) DEFAULT NULL"],
+                ['fee_currency', "ALTER TABLE `agent_api_access` ADD COLUMN `fee_currency` varchar(10) DEFAULT NULL"],
+                ['paid_at',      "ALTER TABLE `agent_api_access` ADD COLUMN `paid_at` datetime DEFAULT NULL"],
+                ['payment_txn',  "ALTER TABLE `agent_api_access` ADD COLUMN `payment_txn` varchar(255) DEFAULT NULL"],
+                ['approved_at',  "ALTER TABLE `agent_api_access` ADD COLUMN `approved_at` datetime DEFAULT NULL"],
+            ] as [$__c, $__sql]) {
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `agent_api_access` LIKE '$__c'")->fetch()) { $db->query($__sql); }
+                } catch (\Throwable $e) { error_log("ensureAgentPortalSchema agent_api_access.$__c: " . $e->getMessage()); }
+            }
+            // Insert 'approved' (admin OK'd, awaiting payment) between requested and
+            // sandbox. Idempotent MODIFY. Keeps every existing state.
+            try {
+                $db->query("ALTER TABLE `agent_api_access` MODIFY COLUMN `status` enum('none','requested','approved','sandbox','certifying','live','rejected','suspended') NOT NULL DEFAULT 'none'");
+            } catch (\Throwable $e) { error_log('ensureAgentPortalSchema agent_api_access.status enum: ' . $e->getMessage()); }
+
+            // Certification runs: one row per service cert attempt. steps_json holds
+            // the per-check pass/fail detail; passed is the overall gate the admin
+            // sees before signing a service live.
+            $db->query("CREATE TABLE IF NOT EXISTS `agent_api_cert_runs` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `owner_user_id` varchar(255) NOT NULL,
+                `service` varchar(32) NOT NULL,
+                `passed` tinyint(1) NOT NULL DEFAULT 0,
+                `steps_json` longtext DEFAULT NULL,
+                `run_by` varchar(255) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_owner_service` (`owner_user_id`,`service`),
+                KEY `idx_created` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
             // --- agencies branding + onboarding columns ----------------------
             foreach ([
                 ['agencies', 'brand_primary',   "ALTER TABLE `agencies` ADD COLUMN `brand_primary` VARCHAR(7) DEFAULT NULL"],
@@ -735,6 +773,100 @@ if (!function_exists('agent_api_can_mint')) {
         if ($s === 'live') { return 'live'; }                 // live-approved: can mint live (and sandbox)
         if ($s === 'sandbox' || $s === 'certifying') { return 'sandbox'; }
         return ''; // none/requested/rejected/suspended → cannot mint
+    }
+}
+
+// ============================================================================
+// API CERTIFICATION — the cert checklist + run (owner spec 2026-11-25).
+// A service is certified by REAL evidence of integration, not a checkbox:
+//   1) the agency is paid + has sandbox access for this service;
+//   2) at least one ACTIVE API key exists;
+//   3) the agent made >=1 real SANDBOX API call to this service (agent_api_usage);
+//   4) a webhook delivery was received successfully (proves event handling).
+// All green → the agent may move the service sandbox→certifying (awaiting the
+// admin live sign-off). Admin sees the latest run before signing live.
+// ============================================================================
+if (!function_exists('agent_api_cert_checklist')) {
+    /** Returns ['steps'=>[['key','label','ok','detail'],...], 'passed'=>bool]. */
+    function agent_api_cert_checklist($db, string $owner, string $service): array
+    {
+        $steps = [];
+
+        // 1) Paid + sandbox (or better) access to this service.
+        $callEnv = function_exists('agent_api_service_can_call') ? agent_api_service_can_call($db, $owner, $service) : '';
+        $access  = function_exists('agent_api_access_get') ? agent_api_access_get($db, $owner) : [];
+        $paid    = !empty($access['paid_at']);
+        $steps[] = ['key'=>'access', 'label'=>'Paid & sandbox access granted',
+            'ok'=>($paid && $callEnv !== ''),
+            'detail'=>$paid ? ($callEnv !== '' ? 'Sandbox access active.' : 'Paid, but this service is not sandbox-enabled yet.') : 'API access fee not paid yet.'];
+
+        // 2) At least one active API key.
+        $activeKeys = 0;
+        try { $activeKeys = (int) $db->count('agent_api_keys', ['user_id'=>$owner, 'status'=>'active']); } catch (\Throwable $e) {}
+        $steps[] = ['key'=>'key', 'label'=>'Active API key created', 'ok'=>($activeKeys > 0),
+            'detail'=>$activeKeys > 0 ? ($activeKeys.' active key(s).') : 'Create an API key from the Keys tab.'];
+
+        // 3) >=1 real sandbox API call to THIS service. The usage endpoint is the
+        //    raw path (e.g. /api/flights/search); match the service token in it.
+        //    Service names have no underscores so Medoo [~] is safe (no % auto-escape bug).
+        $calls = 0;
+        try { $calls = (int) $db->count('agent_api_usage', ['user_id'=>$owner, 'endpoint[~]'=>$service]); } catch (\Throwable $e) {}
+        $steps[] = ['key'=>'call', 'label'=>'Made a sandbox API call', 'ok'=>($calls > 0),
+            'detail'=>$calls > 0 ? ($calls.' call(s) logged for '.$service.'.') : 'Call the '.$service.' sandbox endpoint at least once with your key.'];
+
+        // 4) A webhook delivery was received (delivered=1). Proves event handling.
+        $delivered = 0;
+        try { $delivered = (int) $db->count('agent_api_webhook_deliveries', ['user_id'=>$owner, 'delivered'=>1]); } catch (\Throwable $e) {}
+        $steps[] = ['key'=>'webhook', 'label'=>'Verified a webhook delivery', 'ok'=>($delivered > 0),
+            'detail'=>$delivered > 0 ? 'Webhook endpoint acknowledged a delivery.' : 'Register a webhook and send a test delivery that returns 2xx.'];
+
+        $passed = true;
+        foreach ($steps as $s) { if (empty($s['ok'])) { $passed = false; break; } }
+        return ['steps'=>$steps, 'passed'=>$passed];
+    }
+}
+
+if (!function_exists('agent_api_cert_run')) {
+    /** Run the checklist, record a cert run, and (if passed) advance the service
+     *  sandbox→certifying. Returns ['ok'=>bool,'passed'=>bool,'steps'=>array,'message'=>string]. */
+    function agent_api_cert_run($db, string $owner, string $service, string $actor): array
+    {
+        $services = function_exists('agent_api_console_services') ? agent_api_console_services() : [];
+        if (!isset($services[$service])) { return ['ok'=>false,'passed'=>false,'steps'=>[],'message'=>'Unknown service.']; }
+
+        $life = (string)(agent_api_service_row($db, $owner, $service)['lifecycle'] ?? 'none');
+        if (!in_array($life, ['sandbox','certifying'], true)) {
+            return ['ok'=>false,'passed'=>false,'steps'=>[],'message'=>'Request sandbox access for this service before certifying.'];
+        }
+
+        $res = agent_api_cert_checklist($db, $owner, $service);
+        try {
+            $db->insert('agent_api_cert_runs', [
+                'owner_user_id'=>$owner, 'service'=>$service,
+                'passed'=>$res['passed'] ? 1 : 0,
+                'steps_json'=>json_encode($res['steps']),
+                'run_by'=>$actor, 'created_at'=>date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) { error_log('agent_api_cert_run insert: '.$e->getMessage()); }
+
+        // On pass, move the service to 'certifying' (pending admin live sign-off).
+        if ($res['passed'] && $life === 'sandbox' && function_exists('agent_api_service_set_lifecycle')) {
+            agent_api_service_set_lifecycle($db, $owner, $service, 'certifying');
+        }
+        return ['ok'=>true, 'passed'=>$res['passed'], 'steps'=>$res['steps'],
+            'message'=>$res['passed'] ? 'Certification passed — awaiting final admin sign-off.' : 'Some checks are not complete yet.'];
+    }
+}
+
+if (!function_exists('agent_api_cert_latest')) {
+    /** The most recent cert run for (owner,service), or null. */
+    function agent_api_cert_latest($db, string $owner, string $service): ?array
+    {
+        try {
+            $r = $db->get('agent_api_cert_runs', ['passed','steps_json','run_by','created_at'],
+                ['owner_user_id'=>$owner, 'service'=>$service, 'ORDER'=>['id'=>'DESC']]);
+            return $r ?: null;
+        } catch (\Throwable $e) { return null; }
     }
 }
 

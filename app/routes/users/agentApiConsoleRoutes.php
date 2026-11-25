@@ -87,6 +87,19 @@ $router->get('/agent/api/services', function () use ($SECURE, $db) {
     $canManage    = agent_can($db, 'api', 'manage');
     $csrf         = CSRF::getToken();
 
+    // Cert checklist per service (for services at sandbox/certifying) + the latest
+    // run result, so the agent sees exactly what's left before they can certify.
+    $certData = [];
+    foreach ($allSvcs as $svc => $_lbl) {
+        $life = (string) ($svcRows[$svc]['lifecycle'] ?? 'none');
+        if (in_array($life, ['sandbox','certifying'], true)) {
+            $certData[$svc] = [
+                'checklist' => agent_api_cert_checklist($db, $owner, $svc),
+                'latest'    => agent_api_cert_latest($db, $owner, $svc),
+            ];
+        }
+    }
+
     $apiActive = 'services';
     $title = 'API Services';
     require_once views . 'agent/layout-top.php';
@@ -201,6 +214,94 @@ $router->post('/agent/api/service/request', function () use ($SECURE, $db) {
     if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'api.service.request', $service); }
     $_SESSION['message'] = ['type' => $res['ok'] ? 'success' : 'error',
         'text' => $res['ok'] ? ucfirst($service) . ' requested. We will enable its sandbox and reach out.' : $res['message']];
+    header('Location: ' . $back); exit;
+});
+
+// Agent PAYS the API access fee from the wallet (approved → sandbox access).
+// The fee + currency are set by the admin at approval time (agent_api_access).
+// Idempotent on the access row: a paid account short-circuits. Debits via the
+// wallet spine (reason 'fee'), stamps paid_at + payment_txn, and advances the
+// account to 'sandbox' so keys/services can be used for testing.
+$router->post('/agent/api/pay', function () use ($SECURE, $db) {
+    [$ctx, $owner] = _agent_api_console_ctx($db, 'manage');
+    CSRF::guard();
+    $back = root . 'agent/api';
+    // Only the OWNER can pay (it moves agency money); staff with api:manage cannot.
+    if (empty($ctx['is_owner'])) {
+        $_SESSION['message'] = ['type'=>'error','text'=>'Only the agency owner can pay the API access fee.'];
+        header('Location: ' . $back); exit;
+    }
+    $access = agent_api_access_get($db, $owner);
+    $status = (string)($access['status'] ?? 'none');
+    if (!empty($access['paid_at'])) {
+        $_SESSION['message'] = ['type'=>'info','text'=>'Your API access fee is already paid.'];
+        header('Location: ' . $back); exit;
+    }
+    if ($status !== 'approved') {
+        $_SESSION['message'] = ['type'=>'error','text'=>'Your API access must be approved by an account manager before payment.'];
+        header('Location: ' . $back); exit;
+    }
+    $fee = round((float)($access['fee_amount'] ?? 0), 2);
+    $currency = (string)($access['fee_currency'] ?? (function_exists('wallet_default_currency') ? wallet_default_currency($db) : 'NGN'));
+    if ($fee <= 0) {
+        // A zero fee means "no charge" — just advance to sandbox + mark paid.
+        try {
+            $db->update('agent_api_access',
+                ['status'=>'sandbox','paid_at'=>date('Y-m-d H:i:s'),'payment_txn'=>'NO-FEE','sandbox_granted_at'=>date('Y-m-d H:i:s'),'updated_at'=>date('Y-m-d H:i:s')],
+                ['owner_user_id'=>$owner]);
+        } catch (\Throwable $e) { error_log('agent api pay no-fee: '.$e->getMessage()); }
+        $_SESSION['message'] = ['type'=>'success','text'=>'API sandbox access activated.'];
+        header('Location: ' . $back); exit;
+    }
+    if (!function_exists('wallet_spend')) {
+        $_SESSION['message'] = ['type'=>'error','text'=>'Wallet unavailable. Please try again later.'];
+        header('Location: ' . $back); exit;
+    }
+    $r = wallet_spend($db, $owner, $fee, $currency, [
+        'reason' => 'fee',
+        'idempotency_key' => 'AGT-API-FEE-' . $owner,  // one charge per agency, ever
+        'note' => 'API access certification fee',
+    ]);
+    if (empty($r['ok'])) {
+        $_SESSION['message'] = ['type'=>'error','text'=>($r['message'] ?? 'Payment failed.').' Top up your wallet and try again.'];
+        header('Location: ' . $back); exit;
+    }
+    $txnId = (string)($r['transaction']['transaction_id'] ?? $r['transaction']['id'] ?? 'AGT-API-FEE-'.$owner);
+    try {
+        $db->update('agent_api_access',
+            ['status'=>'sandbox', 'paid_at'=>date('Y-m-d H:i:s'), 'payment_txn'=>$txnId,
+             'sandbox_granted_at'=>date('Y-m-d H:i:s'), 'updated_at'=>date('Y-m-d H:i:s')],
+            ['owner_user_id'=>$owner]);
+    } catch (\Throwable $e) { error_log('agent api pay mark: '.$e->getMessage()); }
+    if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'api.pay', $currency.' '.$fee); }
+    if (function_exists('notify_user')) {
+        notify_user($db, $owner, ['type'=>'api_paid','icon'=>'verified_user',
+            'title'=>'API sandbox access activated',
+            'body'=>'Your API access fee was paid. You can now create keys and certify services.',
+            'url'=>root.'agent/api', 'dedupe_key'=>'api_paid_'.$owner]);
+    }
+    $_SESSION['message'] = ['type'=>'success','text'=>'Paid. Your API sandbox access is now active.'];
+    header('Location: ' . $back); exit;
+});
+
+// Agent RUNS the certification checklist for a service (real-evidence checks).
+// On pass, the service advances sandbox→certifying (awaiting admin live sign-off).
+$router->post('/agent/api/service/certify-run', function () use ($SECURE, $db) {
+    [$ctx, $owner] = _agent_api_console_ctx($db, 'manage');
+    CSRF::guard();
+    $service = strtolower(trim((string)($_POST['service'] ?? '')));
+    $back = root . 'agent/api/services';
+    $res = agent_api_cert_run($db, $owner, $service, (string)$ctx['actor']);
+    if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'api.cert.run', $service.' '.($res['passed']?'PASS':'incomplete')); }
+    if (!empty($res['passed']) && function_exists('notify_user')) {
+        notify_user($db, $owner, ['type'=>'api_cert_pass','icon'=>'task_alt',
+            'title'=>ucfirst($service).' certification passed',
+            'body'=>'Awaiting final admin sign-off to go live.',
+            'url'=>root.'agent/api/services', 'ref_type'=>'api_service','ref_id'=>$service,
+            'dedupe_key'=>'api_cert_pass_'.$owner.'_'.$service]);
+    }
+    $_SESSION['message'] = ['type'=> !empty($res['ok']) ? (!empty($res['passed']) ? 'success' : 'info') : 'error',
+        'text'=>$res['message'] ?? 'Certification run complete.'];
     header('Location: ' . $back); exit;
 });
 

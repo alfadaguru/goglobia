@@ -1,11 +1,12 @@
 <?php
 @$SECURE or die('Access Denied!');
 $statusLabels = [
-    'none'=>'Not started','requested'=>'Under review','sandbox'=>'Sandbox active',
+    'none'=>'Not started','requested'=>'Under review','approved'=>'Approved — payment due',
+    'sandbox'=>'Sandbox active',
     'certifying'=>'Certifying','live'=>'Live','rejected'=>'Rejected','suspended'=>'Suspended',
 ];
 $statusBadge = [
-    'none'=>'badge-gray','requested'=>'badge-warning','sandbox'=>'badge-info',
+    'none'=>'badge-gray','requested'=>'badge-warning','approved'=>'badge-warning','sandbox'=>'badge-info',
     'certifying'=>'badge-warning','live'=>'badge-success','rejected'=>'badge-error','suspended'=>'badge-error',
 ];
 $flash = $_SESSION['message'] ?? null; unset($_SESSION['message']);
@@ -58,6 +59,27 @@ $flash = $_SESSION['message'] ?? null; unset($_SESSION['message']);
         <a href="<?=root?>api-access" class="btn">Request API access</a>
       <?php elseif ($accessStatus === 'requested'): ?>
         <p class="text-sm text-slate-600">Your access request is <strong>under review</strong>. Our team will reach out by email. Once you're in, request the individual services you need on the <a class="text-violet-600" href="<?=root?>agent/api/services">Services</a> tab.</p>
+      <?php elseif ($accessStatus === 'approved'): ?>
+        <?php
+          $__fee = round((float)($access['fee_amount'] ?? 0), 2);
+          $__ccy = htmlspecialchars((string)($access['fee_currency'] ?? 'NGN'));
+        ?>
+        <p class="text-sm text-slate-600 mb-3">Your API access is <strong>approved</strong>. Pay the access fee from your wallet to unlock sandbox testing, keys and certification.</p>
+        <div class="flex items-center gap-4 flex-wrap">
+          <div class="px-4 py-3 rounded-lg bg-slate-50 border border-slate-200">
+            <span class="text-[11px] uppercase text-slate-400 block">Access fee</span>
+            <span class="text-lg font-bold text-slate-800"><?= $__fee > 0 ? ($__ccy.' '.number_format($__fee,2)) : 'No charge' ?></span>
+          </div>
+          <?php if (!empty($ctx['is_owner'])): ?>
+          <form method="post" action="<?=root?>agent/api/pay" onsubmit="return confirm('Pay the API access fee from your wallet?');">
+            <?= CSRF::tokenField() ?>
+            <button class="btn"><?= $__fee > 0 ? 'Pay from wallet' : 'Activate sandbox' ?></button>
+          </form>
+          <?php else: ?>
+          <span class="text-[12px] text-slate-400">Ask the agency owner to pay the access fee.</span>
+          <?php endif; ?>
+        </div>
+        <p class="text-[12px] text-slate-400 mt-2">Only the agency owner can pay. The fee is charged once from your wallet.</p>
       <?php elseif ($accessStatus === 'suspended'): ?>
         <p class="text-sm text-rose-600">Your API access is <strong>suspended</strong>. Please contact support.</p>
       <?php else: ?>

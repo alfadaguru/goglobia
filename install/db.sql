@@ -32981,13 +32981,18 @@ CREATE TABLE IF NOT EXISTS `agent_api_keys` (
 CREATE TABLE IF NOT EXISTS `agent_api_access` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `owner_user_id` varchar(255) NOT NULL,
-  `status` enum('none','requested','sandbox','certifying','live','rejected','suspended') NOT NULL DEFAULT 'none',
+  `status` enum('none','requested','approved','sandbox','certifying','live','rejected','suspended') NOT NULL DEFAULT 'none',
   `company_name` varchar(255) DEFAULT NULL,
   `contact_email` varchar(255) DEFAULT NULL,
   `contact_phone` varchar(40) DEFAULT NULL,
   `use_case` text DEFAULT NULL,
   `expected_volume` varchar(120) DEFAULT NULL,
   `admin_note` text DEFAULT NULL,
+  `fee_amount` decimal(14,2) DEFAULT NULL,
+  `fee_currency` varchar(10) DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
+  `payment_txn` varchar(255) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
   `requested_at` datetime DEFAULT NULL,
   `sandbox_granted_at` datetime DEFAULT NULL,
   `certify_requested_at` datetime DEFAULT NULL,
@@ -32998,6 +33003,19 @@ CREATE TABLE IF NOT EXISTS `agent_api_access` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_owner` (`owner_user_id`),
   KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_api_cert_runs` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `service` varchar(32) NOT NULL,
+  `passed` tinyint(1) NOT NULL DEFAULT 0,
+  `steps_json` longtext DEFAULT NULL,
+  `run_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_owner_service` (`owner_user_id`,`service`),
+  KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS `agent_api_services` (

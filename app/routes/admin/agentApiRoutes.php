@@ -143,6 +143,52 @@ $router->post(admin.'/users/api-services/set', function () use ($SECURE, $db) {
     exit;
 });
 
+// SET a SERVICE lifecycle (admin per-service sign-off). This is the admin side of
+// the hybrid cert flow: grant a service sandbox, or sign it LIVE. Signing LIVE is
+// GATED — the agency's latest cert run for that service MUST have passed (the agent
+// proved real integration). Reject/suspend a service too. JSON endpoint.
+$router->post(admin.'/users/api-services/lifecycle', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    admin_require($db, 'agent_api', 'edit');
+    header('Content-Type: application/json');
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
+        echo json_encode(['success' => false, 'message' => 'Invalid form submission']); exit;
+    }
+    $userId  = trim($_POST['user_id'] ?? '');
+    $service = strtolower(trim($_POST['service'] ?? ''));
+    $to      = strtolower(trim($_POST['lifecycle'] ?? ''));
+    $note    = substr(trim((string) ($_POST['admin_note'] ?? '')), 0, 2000);
+    $allowed = ['sandbox','live','rejected','suspended'];
+    if ($userId === '' || $service === '' || !in_array($to, $allowed, true)) {
+        echo json_encode(['success' => false, 'message' => 'user_id, service and a valid lifecycle are required']); exit;
+    }
+    if (!function_exists('agent_api_service_set_lifecycle')) {
+        echo json_encode(['success' => false, 'message' => 'Agent API not available']); exit;
+    }
+    // GATE: signing a service LIVE requires a PASSED cert run (owner spec).
+    if ($to === 'live') {
+        $latest = function_exists('agent_api_cert_latest') ? agent_api_cert_latest($db, $userId, $service) : null;
+        if (!$latest || (int)($latest['passed'] ?? 0) !== 1) {
+            echo json_encode(['success' => false, 'message' => 'This service has not passed certification yet. The agent must complete the cert checklist first.']); exit;
+        }
+    }
+    $res = agent_api_service_set_lifecycle($db, $userId, $service, $to, [
+        'admin_note' => $note ?: null,
+        'reviewed_by' => (string)($_SESSION['user_id'] ?? ''),
+    ]);
+    // Notify the agency of the per-service decision (best-effort).
+    if (!empty($res['ok']) && function_exists('notify_user')) {
+        $labels = ['sandbox'=>'sandbox access granted','live'=>'is now LIVE','rejected'=>'was rejected','suspended'=>'was suspended'];
+        notify_user($db, $userId, ['type'=>'api_service_'.$to, 'icon'=>$to==='live'?'rocket_launch':'api',
+            'title'=>ucfirst($service).' API '.($labels[$to] ?? $to),
+            'body'=>$note !== '' ? $note : ('Your '.$service.' API service '.($labels[$to] ?? $to).'.'),
+            'url'=>root.'agent/api/services', 'ref_type'=>'api_service','ref_id'=>$service,
+            'dedupe_key'=>'api_svc_'.$to.'_'.$userId.'_'.$service.'_'.date('Ymd')]);
+    }
+    echo json_encode(['success' => (bool)($res['ok'] ?? false), 'message' => $res['message'] ?? 'Updated']);
+    exit;
+});
+
 // ============================================================================
 // AGENT API — PAID-ACCESS APPROVAL QUEUE (request → sandbox → certify → live).
 //   GET  /admin/agent-api                 → queue of access requests + states
@@ -169,6 +215,19 @@ $router->get(admin.'/agent-api', function () use ($SECURE, $db) {
             $r['agency_name'] = $ag['agency_name'] ?? '';
             $r['sandbox_keys'] = (int) $db->count('agent_api_keys', ['user_id' => $r['owner_user_id'], 'env' => 'sandbox', 'status' => 'active']);
             $r['live_keys']    = (int) $db->count('agent_api_keys', ['user_id' => $r['owner_user_id'], 'env' => 'live', 'status' => 'active']);
+            // Per-service lifecycle + cert status so the admin can sign individual
+            // services live (gated on a passed cert run) right from the queue.
+            $r['services'] = [];
+            if (function_exists('agent_api_all_service_rows')) {
+                $svcRows = agent_api_all_service_rows($db, (string)$r['owner_user_id']);
+                foreach ($svcRows as $svc => $sr) {
+                    $life = (string)($sr['lifecycle'] ?? 'none');
+                    if ($life === 'none') { continue; }
+                    $latest = function_exists('agent_api_cert_latest') ? agent_api_cert_latest($db, (string)$r['owner_user_id'], $svc) : null;
+                    $r['services'][] = ['service'=>$svc, 'lifecycle'=>$life,
+                        'cert_passed'=> $latest ? (int)($latest['passed'] ?? 0) : 0];
+                }
+            }
         } catch (\Throwable $e) {}
     }
     unset($r);
@@ -194,11 +253,14 @@ $router->post(admin.'/agent-api/act', function () use ($SECURE, $db) {
     $curStatus = (string) ($cur['status'] ?? 'none');
 
     // Valid transitions (admin-driven). Each target + the states it may come from.
+    // Flow: requested → approve (set fee) → [agent pays → sandbox] → certify (agent)
+    //       → grant_live (admin, ONLY if the latest cert run passed) → live.
     $map = [
-        'grant_sandbox' => ['to' => 'sandbox',   'from' => ['requested','certifying','suspended'], 'stamp' => 'sandbox_granted_at', 'msg' => 'Sandbox access granted.'],
+        'approve'       => ['to' => 'approved',   'from' => ['requested','rejected'],               'stamp' => 'approved_at',        'msg' => 'Approved — the agency can now pay the access fee.'],
+        'grant_sandbox' => ['to' => 'sandbox',    'from' => ['requested','approved','certifying','suspended'], 'stamp' => 'sandbox_granted_at', 'msg' => 'Sandbox access granted.'],
         'grant_live'    => ['to' => 'live',       'from' => ['certifying','sandbox','suspended'],   'stamp' => 'live_granted_at',    'msg' => 'Live access granted.'],
-        'reject'        => ['to' => 'rejected',   'from' => ['requested','certifying'],             'stamp' => null,                 'msg' => 'Access request rejected.'],
-        'suspend'       => ['to' => 'suspended',  'from' => ['sandbox','certifying','live'],        'stamp' => null,                 'msg' => 'Access suspended.'],
+        'reject'        => ['to' => 'rejected',   'from' => ['requested','approved','certifying'],  'stamp' => null,                 'msg' => 'Access request rejected.'],
+        'suspend'       => ['to' => 'suspended',  'from' => ['approved','sandbox','certifying','live'], 'stamp' => null,             'msg' => 'Access suspended.'],
     ];
     if (!isset($map[$action])) { $_SESSION['message'] = ['type'=>'error','text'=>'Unknown action.']; header('Location: '.$back); exit; }
     $t = $map[$action];
@@ -209,6 +271,16 @@ $router->post(admin.'/agent-api/act', function () use ($SECURE, $db) {
 
     $upd = ['status' => $t['to'], 'admin_note' => $note ?: null, 'reviewed_by' => (string)($_SESSION['user_id'] ?? ''), 'updated_at' => date('Y-m-d H:i:s')];
     if ($t['stamp']) { $upd[$t['stamp']] = date('Y-m-d H:i:s'); }
+
+    // On approve: set the access FEE the agency must pay (0 = free sandbox). Admin
+    // supplies it on the approve form. Fee is charged when the agent clicks Pay.
+    if ($action === 'approve') {
+        $fee = max(0.0, (float) ($_POST['fee_amount'] ?? 0));
+        $ccy = strtoupper(substr(trim((string) ($_POST['fee_currency'] ?? '')), 0, 10))
+            ?: (function_exists('wallet_default_currency') ? wallet_default_currency($db) : 'NGN');
+        $upd['fee_amount'] = $fee;
+        $upd['fee_currency'] = $ccy;
+    }
 
     try {
         $db->update('agent_api_access', $upd, ['owner_user_id' => $owner]);

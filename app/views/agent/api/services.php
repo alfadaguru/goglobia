@@ -61,14 +61,36 @@ $gatedIn = (agent_api_can_mint($db, $owner) !== '');
           <?php elseif ($life === 'requested'): ?>
             <p class="text-sm text-slate-500">Requested — awaiting sandbox access from your account manager.</p>
           <?php elseif ($life === 'sandbox'): ?>
-            <p class="text-sm text-slate-600 mb-2">✅ Sandbox is active. Build and test, then request live certification.</p>
-            <form method="POST" action="<?=root?>agent/api/service/request-live">
+            <p class="text-sm text-slate-600 mb-2">✅ Sandbox is active. Complete these checks, then run certification.</p>
+            <?php $cd = $certData[$svc]['checklist'] ?? null; if ($cd): ?>
+            <ul class="text-[13px] space-y-1 mb-3">
+              <?php foreach ($cd['steps'] as $step): ?>
+              <li class="flex items-start gap-2">
+                <span class="material-symbols-outlined text-[16px] <?= !empty($step['ok'])?'text-emerald-600':'text-slate-300' ?>"><?= !empty($step['ok'])?'check_circle':'radio_button_unchecked' ?></span>
+                <span class="<?= !empty($step['ok'])?'text-slate-600':'text-slate-500' ?>"><?= htmlspecialchars($step['label']) ?><span class="block text-[11px] text-slate-400"><?= htmlspecialchars($step['detail']) ?></span></span>
+              </li>
+              <?php endforeach; ?>
+            </ul>
+            <form method="POST" action="<?=root?>agent/api/service/certify-run">
               <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
               <input type="hidden" name="service" value="<?= htmlspecialchars($svc) ?>">
-              <button class="btn btn-sm">Request live certification</button>
+              <button class="btn btn-sm" <?= !empty($cd['passed'])?'':'disabled' ?>><?= !empty($cd['passed'])?'Run certification':'Complete the checks above' ?></button>
             </form>
+            <?php endif; ?>
           <?php elseif ($life === 'certifying'): ?>
-            <p class="text-sm text-amber-600">Certifying — we're reviewing your sandbox integration for <?= htmlspecialchars($label) ?>.</p>
+            <?php $latest = $certData[$svc]['latest'] ?? null; ?>
+            <?php if ($latest && (int)($latest['passed'] ?? 0) === 1): ?>
+            <p class="text-sm text-emerald-600">✅ Certification passed. Awaiting final admin sign-off to go live.</p>
+            <?php else: ?>
+            <p class="text-sm text-amber-600">Certifying <?= htmlspecialchars($label) ?> — re-run the checklist if your evidence changed.</p>
+            <?php endif; ?>
+            <?php $cd = $certData[$svc]['checklist'] ?? null; if ($cd): ?>
+            <form method="POST" action="<?=root?>agent/api/service/certify-run" class="mt-2">
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+              <input type="hidden" name="service" value="<?= htmlspecialchars($svc) ?>">
+              <button class="btn btn-sm btn-ghost">Re-run certification</button>
+            </form>
+            <?php endif; ?>
           <?php elseif ($life === 'live'): ?>
             <p class="text-sm text-emerald-600">✅ Live. Your live keys can call <?= htmlspecialchars($label) ?>.</p>
           <?php elseif ($life === 'suspended'): ?>
