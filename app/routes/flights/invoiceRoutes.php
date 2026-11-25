@@ -46,9 +46,33 @@ $router->get('/invoice/flights/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
         $callbackResult = handle_payment_callback($token, $action, $extra);
         
         error_log("PAYMENT CALLBACK RESULT: " . json_encode($callbackResult));
-        
+
+        // HONEST OUTCOME (audit HIGH-1): handle_payment_callback returns success=true even
+        // when the supplier issue failed and the booking was auto-refunded (e.g. the airline
+        // fare rose beyond tolerance). Showing the green "Payment Successful" banner then is a
+        // lie — the booking is actually cancelled/refunded. Re-read the LIVE booking status
+        // after the callback and, if it is a refunded/cancelled/failed-issue terminal state,
+        // tell the customer the truth (refunded + search again) instead of "successful".
+        $liveBooking = $db->get('bookings', ['payment_status', 'booking_status', 'booking_payment_issue'], ['invoice_id' => $invoiceId]);
+        $livePay  = strtolower((string) ($liveBooking['payment_status'] ?? ''));
+        $liveStat = strtolower((string) ($liveBooking['booking_status'] ?? ''));
+        $wasRefunded = in_array($livePay, ['refunded', 'refund_initiated'], true)
+            || in_array($liveStat, ['cancelled', 'voided'], true);
+
         // Set notification based on result
-        if ($action === 'success' && !empty($callbackResult['success'])) {
+        if ($action === 'success' && $wasRefunded) {
+            // Paid, but the supplier could not issue the ticket (most commonly the airline
+            // fare increased after payment) → auto-refunded. Be honest + actionable.
+            $issueNote = trim((string) ($liveBooking['booking_payment_issue'] ?? ''));
+            $_SESSION['payment_notice'] = [
+                'type' => 'warning',
+                'title' => 'Booking could not be completed — you have been refunded',
+                'message' => ($issueNote !== ''
+                    ? $issueNote . ' '
+                    : 'We were unable to confirm this fare with the airline after payment. ')
+                    . 'Your payment has been refunded. Please search again for the current price.'
+            ];
+        } elseif ($action === 'success' && !empty($callbackResult['success'])) {
             $_SESSION['payment_notice'] = [
                 'type' => 'success',
                 'title' => 'Payment Successful',

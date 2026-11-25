@@ -122,7 +122,17 @@ if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
             <?php unset($_SESSION['payment_notice']); ?>
         <?php endif; ?>
 
-        <!-- SUCCESS MESSAGE -->
+        <!-- SUCCESS MESSAGE — only when the booking is ACTUALLY confirmed/paid.
+             (audit HIGH-1: this green "Booking Confirmed Successfully!" alert was hardcoded
+             to always show, so it appeared even on cancelled/refunded/pending bookings next
+             to a red "Cancelled" badge — a direct contradiction that misleads the customer.) -->
+        <?php
+            $__bkStat = strtolower((string) ($booking['booking_status'] ?? ''));
+            $__payStat = strtolower((string) ($booking['payment_status'] ?? ''));
+            $__isConfirmed = in_array($__bkStat, ['confirmed', 'completed'], true)
+                && in_array($__payStat, ['paid', 'partially_paid'], true);
+        ?>
+        <?php if ($__isConfirmed): ?>
         <div class="alert alert-success mb-6" id="successMessage" x-data="{ show: true }" x-show="show" x-transition>
             <span class="material-symbols-outlined">check_circle</span>
             <div>
@@ -130,6 +140,7 @@ if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
                 <p class="text-sm">Your flight booking has been confirmed. Invoice ID: <strong><?= $invoiceId ?></strong></p>
             </div>
         </div>
+        <?php endif; ?>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
 
