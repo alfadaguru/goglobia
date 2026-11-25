@@ -226,25 +226,34 @@ $hasSeatSelection = isset($flightData['seat_selection']) && $flightData['seat_se
 $bookingCreatedAt = $_SESSION['booking_created_at'] ?? date('Y-m-d H:i:s');
 
 // ---------------------------------------------------------------------------
-// Per-provider fare-hold countdown timer. Admin enables it per flight module and
-// sets the minutes (modules.fare_timer_enabled / fare_timer_minutes; default 15).
-// The countdown is a UX hint anchored to when the booking draft was created
-// ($bookingCreatedAt); it is NOT the authority — the real expiry is the
-// supplier fare-quote/book call (which returns a clean "search again" on an
-// expired trace). On expiry we disable Pay and prompt a fresh search.
+// REAL fare-validity countdown, CONTINUOUS from the results page (redesign 2/3).
+// Supplier-aware + honest, matching the results-page timer:
+//   • Adivaha: the search trace genuinely expires ~15 min (supplier-documented).
+//     The countdown is anchored to when the booking draft was created
+//     ($bookingCreatedAt) — which is the moment the customer left the results page
+//     to book — so it CONTINUES the same real window seamlessly. The server
+//     fare-quote/book fails closed on an expired trace; on 0 we disable Pay and
+//     prompt a fresh search.
+//   • Tiqwa (and own-inventory): NO hard countdown — Tiqwa has no search-level
+//     expiry and supports book-on-hold, so a strict deadline here would be false.
 // ---------------------------------------------------------------------------
 $fareTimerEnabled = false;
 $fareTimerMinutes = 15;
 $fareTimerDeadlineTs = 0;
 try {
-    $ftRow = $db->get('modules', ['fare_timer_enabled', 'fare_timer_minutes'], [
-        'name' => $supplierName, 'type' => 'flights',
-    ]);
-    if ($ftRow) {
-        $fareTimerEnabled = ((string) ($ftRow['fare_timer_enabled'] ?? '0')) === '1';
-        $m = (int) ($ftRow['fare_timer_minutes'] ?? 15);
-        if ($m < 1) $m = 1; if ($m > 120) $m = 120;
-        $fareTimerMinutes = $m;
+    // Only Adivaha drives the strict booking-page countdown (real trace TTL).
+    $__supLc = strtolower((string) $supplierName);
+    if ($__supLc === 'adivaha') {
+        $ftRow = $db->get('modules', ['fare_timer_enabled', 'fare_timer_minutes'], [
+            'name' => $supplierName, 'type' => 'flights',
+        ]);
+        if ($ftRow) {
+            $fareTimerEnabled = ((string) ($ftRow['fare_timer_enabled'] ?? '0')) === '1';
+            $m = (int) ($ftRow['fare_timer_minutes'] ?? 15);
+            if ($m < 1) $m = 1;
+            if ($m > 15) $m = 15; // never promise longer than Adivaha's real 15-min trace
+            $fareTimerMinutes = $m;
+        }
     }
 } catch (\Throwable $e) {
     // Columns may not exist yet on an un-migrated DB — timer simply stays off.
@@ -252,7 +261,8 @@ try {
 }
 if ($fareTimerEnabled) {
     $createdTs = strtotime($bookingCreatedAt) ?: time();
-    $fareTimerDeadlineTs = $createdTs + ($fareTimerMinutes * 60);
+    // 30s safety margin — never show more time than the ~15-min trace guarantees.
+    $fareTimerDeadlineTs = $createdTs + ($fareTimerMinutes * 60) - 30;
 }
 
 if ($isUserLoggedIn) {
