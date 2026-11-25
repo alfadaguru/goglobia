@@ -977,6 +977,21 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
             }
         }
 
+        // SUPPLIER-HIDING DECODE (money-path boundary): the draft's supplier value is the
+        // OPAQUE token minted for the customer's browser (mask_supplier_identity_in_offers),
+        // not the plaintext name. Decode it back to the real supplier here, BEFORE the
+        // revalidate-path + no-revalidate whitelist checks below — otherwise those compare
+        // against the token (e.g. "uV1Mrh…"), file_exists(modules/flights/<token>/revalidate.php)
+        // is false, and in_array(<token>, ['flights']) is false, so an own-inventory ('flights')
+        // fare is WRONGLY blocked as "unverifiable" and can never be booked. (supplier_from_url_token
+        // returns '' for a non-token, so a genuine plaintext name is left untouched.)
+        if (function_exists('supplier_from_url_token')) {
+            $__realSup = supplier_from_url_token($supplierName);
+            if ($__realSup !== '') {
+                $supplierName = $__realSup;
+            }
+        }
+
         // Extract form data (guest_details contains the entire formData object)
         $formData = $input['guest_details'] ?? [];
         $primaryGuest = $formData['primary_guest'] ?? [];
