@@ -255,6 +255,26 @@ $router->post('/agent/trips/(TRP[A-Z0-9]+)/convert', function ($ref) use ($SECUR
     $retry = 0;
     while ($retry < 5 && $db->has('bookings', ['invoice_id' => $invoiceId])) { $invoiceId = 'TRIP' . strtoupper(bin2hex(random_bytes(6))); $retry++; }
 
+    $now = date('Y-m-d H:i:s');
+
+    // RACE GUARD (review fix): CLAIM the trip FIRST with a single conditional UPDATE
+    // (status='accepted' → 'booked' + stamp the invoice). A second concurrent convert
+    // finds status already 'booked' → 0 rows affected → we bail BEFORE creating a
+    // second (orphan) booking. The single UPDATE is atomic, so exactly one request
+    // wins the claim. Only after winning do we create the booking row.
+    $claim = $db->update('agent_trip_plans',
+        ['status'=>'booked', 'booking_invoice_id'=>$invoiceId, 'updated_at'=>$now],
+        ['ref'=>$ref, 'owner_user_id'=>$owner, 'status'=>'accepted']);
+    $claimed = $claim && method_exists($claim, 'rowCount') && $claim->rowCount() >= 1;
+    if (!$claimed) {
+        // Someone else just converted it (or the status changed). Re-read + route to
+        // the existing booking's pay screen rather than creating a duplicate.
+        $fresh = $db->get('agent_trip_plans', ['booking_invoice_id'], ['ref'=>$ref, 'owner_user_id'=>$owner]);
+        $inv = $fresh ? trim((string)($fresh['booking_invoice_id'] ?? '')) : '';
+        if ($inv !== '') { header('Location: ' . root . 'agent/booking/' . $inv . '/pay'); exit; }
+        _agent_trips_deny('This proposal was just converted. Refresh to see the booking.');
+    }
+
     // Human-readable summary of the lines for the booking record + ticket.
     $items = json_decode((string)($trip['items_data'] ?? '[]'), true) ?: [];
     $summaryLines = [];
@@ -266,7 +286,7 @@ $router->post('/agent/trips/(TRP[A-Z0-9]+)/convert', function ($ref) use ($SECUR
     // The booking row. module_type='trip', module='' → settle path confirms (no
     // supplier). user_id + agency_id = owner so it loads in the agent pay screen and
     // the bookings list. price_markup = what the agent pays us (the quoted total).
-    $now = date('Y-m-d H:i:s');
+    // We've already claimed the trip, so this runs exactly once.
     try {
         $db->insert('bookings', [
             'invoice_id'      => $invoiceId,
@@ -288,17 +308,14 @@ $router->post('/agent/trips/(TRP[A-Z0-9]+)/convert', function ($ref) use ($SECUR
             'created_at'      => $now,
         ]);
     } catch (\Throwable $e) {
+        // Insert failed AFTER we claimed the trip — roll the claim back so the agent
+        // can retry (else the trip is 'booked' pointing at a booking that doesn't exist).
         error_log('agent trip convert insert '.$ref.': '.$e->getMessage());
-        _agent_trips_deny('Could not create the booking from this proposal.');
+        try { $db->update('agent_trip_plans', ['status'=>'accepted','booking_invoice_id'=>null,'updated_at'=>$now], ['ref'=>$ref,'owner_user_id'=>$owner]); } catch (\Throwable $e2) {}
+        _agent_trips_deny('Could not create the booking from this proposal. Please try again.');
     }
 
-    // Link the trip → booking and flip to 'booked' (payment happens on the pay screen).
-    try {
-        $db->update('agent_trip_plans',
-            ['status'=>'booked', 'booking_invoice_id'=>$invoiceId, 'updated_at'=>$now],
-            ['ref'=>$ref, 'owner_user_id'=>$owner]);
-    } catch (\Throwable $e) { error_log('agent trip convert link '.$ref.': '.$e->getMessage()); }
-
+    // Trip was already linked + flipped to 'booked' by the atomic claim above.
     if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'trip.convert', $ref.' → '.$invoiceId); }
     $_SESSION['message'] = ['type'=>'success','text'=>'Booking created from the proposal. Pay from your wallet to confirm.'];
     header('Location: ' . root . 'agent/booking/' . $invoiceId . '/pay');
