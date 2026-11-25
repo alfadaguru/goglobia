@@ -36143,6 +36143,23 @@ CREATE TABLE IF NOT EXISTS `agent_clients` (
   KEY `idx_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+CREATE TABLE IF NOT EXISTS `agent_client_documents` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `client_id` int(11) NOT NULL,
+  `doc_type` varchar(48) NOT NULL DEFAULT 'other',
+  `title` varchar(191) DEFAULT NULL,
+  `file_path` varchar(255) NOT NULL,
+  `original_name` varchar(255) DEFAULT NULL,
+  `mime` varchar(80) DEFAULT NULL,
+  `size_bytes` int(11) DEFAULT NULL,
+  `uploaded_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_owner` (`owner_user_id`),
+  KEY `idx_client` (`client_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS `agent_trip_plans` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `ref` varchar(40) NOT NULL,

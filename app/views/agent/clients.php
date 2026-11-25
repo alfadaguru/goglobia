@@ -34,7 +34,7 @@ $name = fn($c) => trim(((string)($c['title']??'')).' '.((string)($c['first_name'
                 <tbody>
                 <?php foreach ($clients as $c): ?>
                     <tr class="border-t border-slate-50">
-                        <td class="px-5 py-2 text-slate-700"><?= htmlspecialchars($name($c)) ?></td>
+                        <td class="px-5 py-2"><a href="<?= root ?>agent/clients/<?= (int)$c['id'] ?>" class="text-violet-700 hover:underline font-medium"><?= htmlspecialchars($name($c)) ?></a></td>
                         <td class="px-5 py-2 text-slate-500"><?= htmlspecialchars((string)($c['email']??'')) ?></td>
                         <td class="px-5 py-2 text-slate-500"><?= htmlspecialchars((string)($c['phone']??'')) ?></td>
                         <td class="px-5 py-2"><?php foreach (array_filter(array_map('trim', explode(',', (string)($c['tags']??'')))) as $t): ?><span class="inline-block px-2 py-0.5 rounded bg-violet-50 text-violet-700 text-[11px] mr-1"><?= htmlspecialchars($t) ?></span><?php endforeach; ?></td>
