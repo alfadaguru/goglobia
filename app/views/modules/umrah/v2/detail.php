@@ -259,7 +259,7 @@ function umrahBooking() {
     // "Everything included" list when the selected tier defines none. We never fall
     // back to the full label superset, which would over-promise items the package
     // doesn't include.
-    templateInclusions: <?= htmlspecialchars(json_encode(array_values((array) ($template['inclusions'] ?? []))), ENT_QUOTES) ?>,
+    templateInclusions: <?= json_encode(array_values((array) ($template['inclusions'] ?? [])), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>,
     // Tier-reactive inclusions: show the SELECTED tier's inclusions; if the tier has
     // none, fall back to the template's; if neither, empty (render the neutral note).
     get shownInclusions() {

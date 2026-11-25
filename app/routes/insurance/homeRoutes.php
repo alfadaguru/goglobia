@@ -7,13 +7,15 @@
 @$SECURE or die('Access Denied!');
 
 $router->get('/insurance', function () use ($SECURE, $db) {
-    // GATE (bugfix): only render when an insurance module is ACTIVE. The old code
-    // fetched $module but never checked it, so the claim form showed even while the
-    // module was disabled — yet the submit (bookingRoutes) rejects with status!=1,
-    // giving the customer a form that can't be submitted. Honour the gate here:
-    // when off, send them home with a notice instead of a dead form. (Enabling the
-    // module is an admin action at /admin/settings/modules.)
-    $module = $db->get('modules', '*', ['type' => 'insurance', 'status' => 1, 'active' => 1]);
+    // GATE (bugfix): /insurance is the AirHelp flight-compensation CLAIM form, and the
+    // submit handler (bookingRoutes) only accepts it when the 'airhelp' module is active
+    // (name='airhelp', status=1). The old gate here checked for ANY active insurance
+    // module (type='insurance') — which matches the separate 'goglobia' paid-plans module
+    // — so the AirHelp form rendered even when AirHelp itself was off, giving the customer
+    // a form that always failed on submit with a misleading "check your details" error.
+    // Gate on the SAME module the submit requires, so the form and submit agree.
+    // (Enabling the module is an admin action at /admin/settings/modules.)
+    $module = $db->get('modules', '*', ['name' => 'airhelp', 'type' => 'insurance', 'status' => 1]);
     if (!$module) {
         $_SESSION['message'] = ['type' => 'info', 'text' => 'The flight-compensation service is not available right now.'];
         header('Location: ' . root);

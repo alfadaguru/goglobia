@@ -143,7 +143,16 @@ $router->post('/insurance/claim/submit', function () use ($SECURE, $db) {
         ], JSON_UNESCAPED_SLASHES);
     } catch (Throwable $e) {
         error_log('INSURANCE_CLAIM_SUBMIT: ' . $e->getMessage());
-        echo json_encode(['status' => false, 'message' => 'We could not submit your claim. Please check your details and try again.'], JSON_UNESCAPED_SLASHES);
+        // Surface actionable throws verbatim (service-unavailable, expired session) —
+        // they tell the customer the real, fixable reason. Only fall back to the generic
+        // validation message for other errors, so we never say "check your details" when
+        // the service is off or the session simply expired.
+        $em = $e->getMessage();
+        $actionable = stripos($em, 'not available') !== false
+            || stripos($em, 'session token') !== false
+            || stripos($em, 'refresh') !== false;
+        $msg = $actionable ? $em : 'We could not submit your claim. Please check your details and try again.';
+        echo json_encode(['status' => false, 'message' => $msg], JSON_UNESCAPED_SLASHES);
     }
 });
 
