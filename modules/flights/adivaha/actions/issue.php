@@ -928,16 +928,38 @@ $router->post('flights/adivaha/issue', function () use ($db) {
 
         // Failure: record the error (leave status for retry; do NOT set a PNR).
         $errMsg = adivahaExtractError($res);
+
+        // TRACE-EXPIRED AFTER PAYMENT (audit HIGH-1): Adivaha search traces live only
+        // ~15 min. A trace that was still valid at the pre-pay revalidate can lapse during
+        // the payment gateway round-trip, so /flights/book now fails with an expired
+        // trace/ratekey (trace_expired / 410 / 404 / "expired"/"not found"). We cannot
+        // re-book a dead trace — that exact fare is genuinely gone and a fresh search is
+        // required — so the auto-refund that follows (status:false) is CORRECT. The gap
+        // was the CRYPTIC "Failed to issue ticket" message; tell the customer the real,
+        // actionable reason so a paid-then-refunded is understood, not mysterious.
+        $errLc = strtolower((string) $errMsg);
+        $code  = (int) ($res['http_code'] ?? 0);
+        $traceExpired = ($code === 410)
+            || (strpos($errLc, 'trace_expired') !== false)
+            || (strpos($errLc, 'trace expired') !== false)
+            || (strpos($errLc, 'ratekey') !== false && strpos($errLc, 'expir') !== false)
+            || (($code === 404) && (strpos($errLc, 'trace') !== false || strpos($errLc, 'offer') !== false || strpos($errLc, 'not found') !== false));
+
+        $customerMsg = $traceExpired
+            ? 'The fare expired while your payment was being processed (flight fares are held for about 15 minutes). Your payment has been refunded — please search again for the current price.'
+            : 'Failed to issue ticket with Adivaha: ' . $errMsg;
+
         try {
             $db->update('bookings', [
-                'error_response'        => json_encode(['status' => false, 'message' => $errMsg, 'http' => $res['http_code'], 'api_response' => $res['data']]),
-                'booking_payment_issue' => substr($errMsg, 0, 250),
+                'error_response'        => json_encode(['status' => false, 'message' => $errMsg, 'http' => $res['http_code'], 'api_response' => $res['data'], 'trace_expired' => $traceExpired]),
+                'booking_payment_issue' => substr($traceExpired ? ('Fare/trace expired during payment — auto-refunded. ' . $errMsg) : $errMsg, 0, 250),
             ], ['invoice_id' => $invoice_id]);
         } catch (\Throwable $e) { error_log('adivaha issue error-record: ' . $e->getMessage()); }
 
         echo json_encode([
-            'status'         => false,
-            'message'        => 'Failed to issue ticket with Adivaha: ' . $errMsg,
+            'status'         => false,              // auto-refund (correct — fare is gone)
+            'message'        => $customerMsg,
+            'trace_expired'  => $traceExpired,
             'http'           => $res['http_code'],
             'debug_response' => $res['data'],
             'invoice_id'     => $invoice_id,
