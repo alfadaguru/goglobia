@@ -257,11 +257,51 @@ $router->post('flights/tiqwa/issue', function () use ($db) {
         $payRes = tiqwaApiRequest('POST', $payUrl, [], $token, [], 120);
         tiqwaLog('issue/pay', ['reference' => $reference], $payRes['raw'], $payRes['http_code'], $payRes['curl_error'], $invoice_id);
 
-        // 403 = ticket wallet underfunded (owner decision B): return status:false so
-        // the payment gateway holds 'pending' + AUTO-REFUNDS the customer. The
-        // reservation stays at Tiqwa and will auto-expire; admin is alerted to fund.
+        // Tiqwa /pay returns HTTP 403 for THREE DISTINCT reasons (Flight.v1.json /pay
+        // 403 examples): (1) "Your wallet balance is too low…" = ticket wallet
+        // underfunded; (2) "This itinerary has already been issued" = a ticket ALREADY
+        // EXISTS; (3) "Duplicate issuing. This itinerary is still processing…" = issuing
+        // is in flight. Only case (1) is a real failure that should refund. Cases (2)+(3)
+        // mean the customer HAS (or is getting) a ticket — refunding them would charge
+        // Tiqwa for the ticket AND refund the customer (a direct loss) or let them fly
+        // free. (audit CRITICAL-1) So branch on the MESSAGE, not the bare 403 status.
         if ($payRes['http_code'] === 403) {
             $msg = tiqwaExtractError($payRes);
+            $msgLc = strtolower((string) $msg);
+            $alreadyIssued = (strpos($msgLc, 'already been issued') !== false)
+                || (strpos($msgLc, 'already issued') !== false);
+            $stillProcessing = (strpos($msgLc, 'still processing') !== false)
+                || (strpos($msgLc, 'duplicate issuing') !== false);
+
+            if ($alreadyIssued || $stillProcessing) {
+                // The ticket exists / is issuing — treat EXACTLY like a successful async
+                // /pay: keep the booking paid+pending with the reference, do NOT refund,
+                // and let the ticket.issued webhook (or the completion poll) fill the PNR.
+                $booking_data['tiqwa_paid_at'] = $booking_data['tiqwa_paid_at'] ?? date('c');
+                $booking_data['supplier']      = 'tiqwa';
+                $db->update('bookings', [
+                    'booking_status'        => 'pending',
+                    'booking_data'          => json_encode($booking_data),
+                    'error_response'        => null,
+                    'booking_payment_issue' => null,
+                ], ['invoice_id' => $invoice_id]);
+                echo json_encode([
+                    'status'            => true,     // do NOT refund — ticket exists / issuing
+                    'pnr'               => '',
+                    'booking_reference' => $reference,
+                    'reference'         => $reference,
+                    'booking_status'    => 'pending',
+                    'is_ticketed'       => false,
+                    'message'           => $alreadyIssued
+                        ? 'Ticket already issued at Tiqwa — awaiting ticket number.'
+                        : 'Ticket is being issued at Tiqwa — awaiting ticket number.',
+                    'response_error'    => '',
+                ]);
+                exit;
+            }
+
+            // Genuine wallet-underfunded (case 1): return status:false so the gateway
+            // holds 'pending' + auto-refunds the customer; admin is alerted to top up.
             $db->update('bookings', [
                 'error_response'        => json_encode(['step' => 'pay', 'message' => $msg, 'http' => 403, 'reference' => $reference]),
                 'booking_payment_issue' => 'Tiqwa ticket wallet underfunded — held for review + auto-refund. ' . substr($msg, 0, 180),
