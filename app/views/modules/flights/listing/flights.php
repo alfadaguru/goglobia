@@ -1433,10 +1433,31 @@ try {
                     }
                 });
 
-                const res = await fetch(`<?= root ?>modules/flights/${supplier}/search`, {
-                    method: 'POST',
-                    body: form
-                });
+                // PER-SUPPLIER TIMEOUT (reliability fix): a supplier whose /search hangs
+                // server-side would otherwise leave this fetch awaiting forever — so its
+                // promise never settles, Promise.allSettled() never resolves, and
+                // searchComplete never becomes true (the search spins indefinitely at
+                // "N/total suppliers", results stuck partial). Cap each supplier with an
+                // AbortController; on timeout the fetch throws -> the existing .catch()
+                // records the supplier as failed and .finally() bumps completedSuppliers,
+                // so the search finalises with whatever the other suppliers returned.
+                const __ctrl = new AbortController();
+                const __to = setTimeout(() => __ctrl.abort(), 30000); // 30s per supplier
+                let res;
+                try {
+                    res = await fetch(`<?= root ?>modules/flights/${supplier}/search`, {
+                        method: 'POST',
+                        body: form,
+                        signal: __ctrl.signal
+                    });
+                } catch (e) {
+                    clearTimeout(__to);
+                    if (e.name === 'AbortError') {
+                        throw new Error('Supplier timed out');
+                    }
+                    throw e;
+                }
+                clearTimeout(__to);
 
                 const text = await res.text();
                 // console.log(`📥 ${supplier}: Received ${text.length} characters`);
