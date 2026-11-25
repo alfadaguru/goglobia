@@ -130,14 +130,27 @@ $router->post('flights/tiqwa/issue', function () use ($db) {
         $flightId = trim((string) (
             $booking_data['flight_id'] ?? $booking_data['offer_id'] ?? $booking_data['booking_token'] ?? ''
         ));
+        // The real booking-page draft nests the offer id one level deeper, at
+        // flight_data.booking_data.{flight_id|offer_id|booking_token} — check that FIRST
+        // (this is where the web funnel actually stores it; the top-level keys above are
+        // empty for a normal web booking, which caused "Flight offer not found" -> a
+        // paid-then-auto-refunded booking with no ticket).
+        if ($flightId === '' && isset($fd['booking_data'])) {
+            $fdbd = is_object($fd['booking_data']) ? (array) $fd['booking_data'] : (array) $fd['booking_data'];
+            $flightId = trim((string) ($fdbd['flight_id'] ?? $fdbd['offer_id'] ?? $fdbd['booking_token'] ?? ''));
+        }
         if ($flightId === '') {
-            // Dig out of a stored leg group (segments[0][0].booking_data).
+            // Dig out of a stored segment's booking_data. Tiqwa stores segments as a FLAT
+            // array of segment objects (segments[0] = a segment), so check segments[0]
+            // single-indexed; also keep the legacy leg-group shape (segments[0][0]).
             $segs = is_array($fd['segments'] ?? null) ? $fd['segments'] : (is_array($booking_data['segments'] ?? null) ? $booking_data['segments'] : []);
-            $first = $segs[0][0] ?? null;
-            if (is_object($first)) $first = (array) $first;
-            if (is_array($first) && isset($first['booking_data'])) {
-                $bd = is_object($first['booking_data']) ? (array) $first['booking_data'] : $first['booking_data'];
-                $flightId = trim((string) ($bd['flight_id'] ?? $bd['offer_id'] ?? ''));
+            foreach ([$segs[0][0] ?? null, $segs[0] ?? null] as $first) {
+                if (is_object($first)) $first = (array) $first;
+                if (is_array($first) && isset($first['booking_data'])) {
+                    $bd = is_object($first['booking_data']) ? (array) $first['booking_data'] : (array) $first['booking_data'];
+                    $flightId = trim((string) ($bd['flight_id'] ?? $bd['offer_id'] ?? $bd['booking_token'] ?? ''));
+                    if ($flightId !== '') break;
+                }
             }
         }
         if ($flightId === '' && $existingRef === '') {
