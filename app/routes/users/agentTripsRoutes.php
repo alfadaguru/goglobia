@@ -210,6 +210,101 @@ $router->post('/agent/trips/(TRP[A-Z0-9]+)/send', function ($ref) use ($SECURE, 
     exit;
 });
 
+// ---- POST /agent/trips/{ref}/convert  (accepted proposal → payable booking) -
+// Creates ONE wallet-payable booking at the quoted total, then sends the agent to
+// the normal agent pay screen. Honest for free-text lines: it does NOT fake a
+// supplier booking — module_type='trip', module='' means the settle path confirms
+// on payment with no supplier call (bm_module_has_issue_endpoint returns false).
+// The agency fulfils each line through the normal per-service flows afterwards.
+// Idempotent: a trip already converted reuses its booking_invoice_id.
+$router->post('/agent/trips/(TRP[A-Z0-9]+)/convert', function ($ref) use ($SECURE, $db) {
+    [$ctx, $owner] = _agent_trips_ctx($db);
+    CSRF::guard();
+    // Converting collects money → require the booking-create capability, not just trips.
+    if (!agent_can($db, 'bookings', 'add')) { _agent_trips_deny('You do not have permission to create bookings.'); }
+    $trip = $db->get('agent_trip_plans', '*', ['ref' => $ref, 'owner_user_id' => $owner]);
+    if (!$trip) { _agent_trips_deny('Trip plan not found.'); }
+
+    // Idempotency: if this trip already became a booking, go straight to its pay
+    // screen (or bookings list if it's already paid) instead of creating another.
+    $existingInv = trim((string)($trip['booking_invoice_id'] ?? ''));
+    if ($existingInv !== '') {
+        $eb = $db->get('bookings', ['payment_status'], ['invoice_id' => $existingInv]);
+        if ($eb) {
+            if (($eb['payment_status'] ?? '') === 'paid') {
+                $_SESSION['message'] = ['type'=>'info','text'=>'This trip is already booked and paid.'];
+                header('Location: ' . root . 'agent/bookings'); exit;
+            }
+            header('Location: ' . root . 'agent/booking/' . $existingInv . '/pay'); exit;
+        }
+        // The linked booking vanished (deleted) — fall through and recreate.
+    }
+
+    // Only convert an ACCEPTED proposal (the client said yes). Guard other states.
+    if ((string)$trip['status'] !== 'accepted') {
+        _agent_trips_deny('Only an accepted proposal can be converted to a booking.');
+    }
+
+    $totals = json_decode((string)($trip['totals_data'] ?? '{}'), true) ?: [];
+    $total  = round((float)($totals['total'] ?? 0), 2);
+    if ($total <= 0) { _agent_trips_deny('This proposal has no priced lines to book.'); }
+    $currency = (string)($trip['currency'] ?? (function_exists('wallet_default_currency') ? wallet_default_currency($db) : 'NGN'));
+
+    // Build a unique invoice id (same shape used across the app: INV + hex).
+    $invoiceId = 'TRIP' . strtoupper(bin2hex(random_bytes(6)));
+    $retry = 0;
+    while ($retry < 5 && $db->has('bookings', ['invoice_id' => $invoiceId])) { $invoiceId = 'TRIP' . strtoupper(bin2hex(random_bytes(6))); $retry++; }
+
+    // Human-readable summary of the lines for the booking record + ticket.
+    $items = json_decode((string)($trip['items_data'] ?? '[]'), true) ?: [];
+    $summaryLines = [];
+    foreach ($items as $it) {
+        $summaryLines[] = ['service'=>(string)($it['service']??''), 'title'=>(string)($it['title']??''),
+                           'qty'=>(int)($it['qty']??1), 'price'=>(float)($it['price']??0)];
+    }
+
+    // The booking row. module_type='trip', module='' → settle path confirms (no
+    // supplier). user_id + agency_id = owner so it loads in the agent pay screen and
+    // the bookings list. price_markup = what the agent pays us (the quoted total).
+    $now = date('Y-m-d H:i:s');
+    try {
+        $db->insert('bookings', [
+            'invoice_id'      => $invoiceId,
+            'user_id'         => $owner,
+            'agency_id'       => $owner,
+            'booked_by_staff_id' => (string)$ctx['actor'],
+            'agent_client_id' => (int)($trip['client_id'] ?? 0) ?: null,
+            'booking_channel' => 'agent',
+            'module_type'     => 'trip',
+            'module'          => '',
+            'price_original'  => $total,
+            'price_markup'    => (string)$total,
+            'currency_markup' => $currency,
+            'payment_status'  => 'unpaid',
+            'booking_status'  => 'pending',
+            'first_name'      => (string)($trip['client_name'] ?? ''),
+            'email'           => (string)($trip['client_email'] ?? ''),
+            'booking_data'    => json_encode(['trip_ref'=>$ref, 'trip_title'=>(string)$trip['title'], 'lines'=>$summaryLines]),
+            'created_at'      => $now,
+        ]);
+    } catch (\Throwable $e) {
+        error_log('agent trip convert insert '.$ref.': '.$e->getMessage());
+        _agent_trips_deny('Could not create the booking from this proposal.');
+    }
+
+    // Link the trip → booking and flip to 'booked' (payment happens on the pay screen).
+    try {
+        $db->update('agent_trip_plans',
+            ['status'=>'booked', 'booking_invoice_id'=>$invoiceId, 'updated_at'=>$now],
+            ['ref'=>$ref, 'owner_user_id'=>$owner]);
+    } catch (\Throwable $e) { error_log('agent trip convert link '.$ref.': '.$e->getMessage()); }
+
+    if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'trip.convert', $ref.' → '.$invoiceId); }
+    $_SESSION['message'] = ['type'=>'success','text'=>'Booking created from the proposal. Pay from your wallet to confirm.'];
+    header('Location: ' . root . 'agent/booking/' . $invoiceId . '/pay');
+    exit;
+});
+
 // ---- POST /agent/trips/delete ----------------------------------------------
 $router->post('/agent/trips/delete', function () use ($SECURE, $db) {
     [$ctx, $owner] = _agent_trips_ctx($db);
@@ -243,7 +338,66 @@ $router->get('/trip/(TRP[A-Z0-9]+)', function ($ref) use ($SECURE, $db) {
     $items = $trip ? (json_decode((string)($trip['items_data'] ?? '[]'), true) ?: []) : [];
     $totals = $trip ? (json_decode((string)($trip['totals_data'] ?? '{}'), true) ?: ['total'=>0]) : ['total'=>0];
 
+    // Whether the client may still act (not already decided/booked, not expired).
+    $canRespond = $trip && in_array((string)$trip['status'], ['sent','quoted'], true);
+
     // Standalone branded page (no portal chrome).
     require_once views."agent/trip-proposal.php";
     exit;
+});
+
+// ---- POST /trip/{ref}/respond  (PUBLIC: client accepts or declines) --------
+// Token-gated like the GET. The client cannot pay here — accepting records intent
+// and notifies the agency, who then converts it to a wallet-payable booking. This
+// is the honest flow for FREE-TEXT trip lines (no live inventory to charge).
+$router->post('/trip/(TRP[A-Z0-9]+)/respond', function ($ref) use ($SECURE, $db) {
+    // CSRF: the public proposal GET mints a session token in the form (mirrors the
+    // staff-accept public POST). The secret client_token is the auth; CSRF stops a
+    // cross-site forged POST. Both are required.
+    CSRF::guard();
+    $token  = (string)($_POST['token'] ?? '');
+    $choice = (string)($_POST['choice'] ?? '');
+    $back   = root . 'trip/' . $ref . '?token=' . urlencode($token);
+    if ($token === '' || !in_array($choice, ['accept','decline'], true)) {
+        $_SESSION['message'] = ['type'=>'error','text'=>'Invalid request.']; header('Location: '.$back); exit;
+    }
+    // Resolve strictly by ref+token (the client's only credential). Must be live.
+    $trip = $db->get('agent_trip_plans', '*', ['ref' => $ref, 'client_token' => $token]);
+    if (!$trip) { $_SESSION['message']=['type'=>'error','text'=>'This proposal link is not valid.']; header('Location: '.$back); exit; }
+    if (!empty($trip['expires_at']) && ($exp = strtotime((string)$trip['expires_at'])) !== false && $exp < time()) {
+        $_SESSION['message']=['type'=>'error','text'=>'This proposal has expired. Please ask your agent to resend it.']; header('Location: '.$back); exit;
+    }
+    // Only an un-decided proposal can be acted on (idempotent: a second accept/
+    // decline after a decision is a no-op with a clear message).
+    if (!in_array((string)$trip['status'], ['sent','quoted'], true)) {
+        $_SESSION['message']=['type'=>'info','text'=>'This proposal has already been '.(string)$trip['status'].'.']; header('Location: '.$back); exit;
+    }
+    $owner = (string)$trip['owner_user_id'];
+    $newStatus = $choice === 'accept' ? 'accepted' : 'declined';
+    try {
+        $db->update('agent_trip_plans',
+            ['status'=>$newStatus, 'decided_at'=>date('Y-m-d H:i:s'),
+             'accepted_at'=>($choice==='accept'?date('Y-m-d H:i:s'):null), 'updated_at'=>date('Y-m-d H:i:s')],
+            ['ref'=>$ref, 'client_token'=>$token]);
+        // Notify the AGENCY (reuses GAP-4 notify_user; owner-scoped feed + bell).
+        if (function_exists('notify_user')) {
+            notify_user($db, $owner, [
+                'type' => 'trip_'.$newStatus, 'icon' => $choice==='accept'?'thumb_up':'thumb_down',
+                'title' => 'Proposal '.$newStatus.' — '.(string)$trip['title'],
+                'body'  => ((string)($trip['client_name'] ?: 'Your client')).' '.$newStatus.' the proposal'
+                    .($choice==='accept' ? '. Convert it to a booking to collect payment.' : '.'),
+                'url'   => root . 'agent/trips/' . $ref,
+                'ref_type' => 'trip', 'ref_id' => $ref,
+                'dedupe_key' => 'trip_decided_' . $ref,  // one notification per decision
+            ]);
+        }
+        if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, '(client)', 'trip.'.$newStatus, $ref); }
+        $_SESSION['message'] = ['type'=>'success','text'=>$choice==='accept'
+            ? 'Thank you — your agent has been notified and will finalise your booking.'
+            : 'Thanks for letting us know. Your agent has been notified.'];
+    } catch (\Throwable $e) {
+        error_log('trip respond '.$ref.': '.$e->getMessage());
+        $_SESSION['message'] = ['type'=>'error','text'=>'Could not record your response. Please try again.'];
+    }
+    header('Location: '.$back); exit;
 });

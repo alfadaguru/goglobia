@@ -56,6 +56,42 @@ $itemsJson = htmlspecialchars(json_encode($items ?: []), ENT_QUOTES);
         <?php if (!empty($canEdit)): ?><button class="mt-3 px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700">Save itinerary</button><?php endif; ?>
     </form>
 
+    <!-- GAP-1: Client decision + convert-to-booking. Surfaces the next action once
+         the client has responded on the public proposal page. -->
+    <?php $tStatus = (string)($trip['status'] ?? ''); ?>
+    <?php if ($tStatus === 'accepted'): ?>
+    <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-5 mb-4">
+        <div class="flex items-start gap-3">
+            <span class="material-symbols-outlined text-emerald-600">verified</span>
+            <div class="flex-1">
+                <h2 class="font-semibold text-emerald-900">Your client accepted this proposal</h2>
+                <p class="text-sm text-emerald-800 mt-0.5 mb-3">Convert it to a booking at the quoted total, then pay from your wallet to confirm. You'll fulfil each line through the normal service flows.</p>
+                <?php if (agent_can($db,'bookings','add')): ?>
+                <form method="post" action="<?= root ?>agent/trips/<?= $ref ?>/convert" onsubmit="return confirm('Create a booking for this trip at the quoted total?');">
+                    <?= CSRF::tokenField() ?>
+                    <button class="px-5 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">Convert to booking &amp; pay</button>
+                </form>
+                <?php else: ?>
+                <p class="text-[12px] text-emerald-700">An owner or a team member with booking permission can convert this.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+    <?php elseif ($tStatus === 'declined'): ?>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 mb-4 text-sm text-slate-600">
+        <span class="material-symbols-outlined align-middle text-[18px]">do_not_disturb_on</span>
+        Your client declined this proposal. You can edit the lines and re-send it.
+    </div>
+    <?php elseif ($tStatus === 'booked'): ?>
+    <div class="rounded-xl border border-violet-200 bg-violet-50 p-4 mb-4 text-sm">
+        <span class="material-symbols-outlined align-middle text-[18px] text-violet-600">confirmation_number</span>
+        This trip was converted to a booking.
+        <?php if (!empty($trip['booking_invoice_id'])): ?>
+        <a href="<?= root ?>agent/booking/<?= htmlspecialchars((string)$trip['booking_invoice_id']) ?>/pay" class="text-violet-700 font-semibold hover:underline ml-1">Open booking <?= htmlspecialchars((string)$trip['booking_invoice_id']) ?></a>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
     <!-- Proposal / share -->
     <?php if (!empty($canSend)): ?>
     <div class="rounded-xl border border-slate-200 bg-white p-5">

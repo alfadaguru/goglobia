@@ -152,6 +152,25 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 KEY `idx_status` (`status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
+            // GAP-1: trip proposal → accept → booking. Add columns for the client
+            // decision + the link to the booking a trip becomes. Idempotent (the
+            // CREATE IF NOT EXISTS above won't add them to an existing table).
+            foreach ([
+                ['accepted_at',       "ALTER TABLE `agent_trip_plans` ADD COLUMN `accepted_at` datetime DEFAULT NULL"],
+                ['decided_at',        "ALTER TABLE `agent_trip_plans` ADD COLUMN `decided_at` datetime DEFAULT NULL"],
+                ['booking_invoice_id',"ALTER TABLE `agent_trip_plans` ADD COLUMN `booking_invoice_id` varchar(255) DEFAULT NULL"],
+            ] as [$__c, $__sql]) {
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `agent_trip_plans` LIKE '$__c'")->fetch()) { $db->query($__sql); }
+                } catch (\Throwable $e) { error_log("ensureAgentPortalSchema agent_trip_plans.$__c: " . $e->getMessage()); }
+            }
+            // Widen the status enum to carry the decline outcome (accepted/booked
+            // already exist). MODIFY is idempotent — re-applying the same enum is a
+            // no-op. Wrapped so a restricted DB user without ALTER just logs.
+            try {
+                $db->query("ALTER TABLE `agent_trip_plans` MODIFY COLUMN `status` enum('draft','quoted','sent','accepted','declined','booked','archived') NOT NULL DEFAULT 'draft'");
+            } catch (\Throwable $e) { error_log('ensureAgentPortalSchema agent_trip_plans.status enum: ' . $e->getMessage()); }
+
             // --- agent_audit: per-agency action log --------------------------
             $db->query("CREATE TABLE IF NOT EXISTS `agent_audit` (
                 `id` bigint(20) NOT NULL AUTO_INCREMENT,
