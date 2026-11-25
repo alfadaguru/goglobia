@@ -463,6 +463,40 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($S
             . ($issued ? ' issued' : (!empty($rec['refunded']) ? ' issue-failed+auto-refunded' : ' issue-failed+pending')));
     }
 
+    // GAP-4 (comms): notify the AGENCY OWNER in-app of their OWN booking outcome.
+    // Previously only the CUSTOMER was emailed; the agent had no record in their bell.
+    // Reuses notify_user (self-healing, idempotent per dedupe_key, best-effort). One
+    // notification per outcome state so a retry can't double-post. Owner-scoped so
+    // both owner + staff see agency activity in the owner's feed.
+    if (function_exists('notify_user')) {
+        $__amt = strtoupper($currency) . ' ' . number_format((float)$agentCost, 2);
+        if ($issued) {
+            notify_user($db, $owner, [
+                'type' => 'booking_paid', 'icon' => 'check_circle',
+                'title' => 'Booking issued — ' . $invoiceId,
+                'body'  => ucfirst($service) . ' paid from wallet (' . $__amt . ') and ticket issued.',
+                'url'   => root . 'agent/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$invoiceId,
+                'dedupe_key' => 'agent_booking_issued_' . $invoiceId,
+            ]);
+        } elseif (!empty($rec['refunded'])) {
+            notify_user($db, $owner, [
+                'type' => 'booking_issue_failed', 'icon' => 'error',
+                'title' => 'Booking auto-refunded — ' . $invoiceId,
+                'body'  => ucfirst($service) . ' could not be issued; ' . $__amt . ' was refunded to your wallet.',
+                'url'   => root . 'agent/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$invoiceId,
+                'dedupe_key' => 'agent_booking_autorefund_' . $invoiceId,
+            ]);
+        } else {
+            notify_user($db, $owner, [
+                'type' => 'booking_pending', 'icon' => 'hourglass_top',
+                'title' => 'Booking paid, awaiting ticket — ' . $invoiceId,
+                'body'  => ucfirst($service) . ' paid (' . $__amt . ') but issuing is still pending. Retry issue from Bookings.',
+                'url'   => root . 'agent/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$invoiceId,
+                'dedupe_key' => 'agent_booking_pending_' . $invoiceId,
+            ]);
+        }
+    }
+
     // Honest message: issued, or auto-refunded, or paid+pending.
     $_SESSION['message'] = [
         'type' => (!$issued && empty($rec['refunded'])) ? 'error' : ($issued ? 'success' : 'warning'),
@@ -650,6 +684,20 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
         if (function_exists('agent_audit_log')) {
             agent_audit_log($db, $owner, $actor, 'booking.' . $action, (string)$invoiceId . ($refunded ? ' refunded-to-wallet' : ''));
         }
+        // GAP-4 (comms): notify the agency of the cancel/refund outcome.
+        if (function_exists('notify_user')) {
+            notify_user($db, $owner, [
+                'type' => $refunded ? 'booking_refunded' : 'booking_cancelled',
+                'icon' => $refunded ? 'currency_exchange' : 'cancel',
+                'title' => ($refunded ? 'Booking refunded — ' : 'Booking cancelled — ') . $invoiceId,
+                'body'  => $refunded
+                    ? 'The booking was cancelled and the amount charged was refunded to your wallet.'
+                    : 'The booking was cancelled. No wallet refund was due.',
+                'url'   => root . 'agent/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$invoiceId,
+                // State-based key: cancel and refund are distinct outcomes, each once.
+                'dedupe_key' => ($refunded ? 'agent_booking_refunded_' : 'agent_booking_cancelled_') . $invoiceId,
+            ]);
+        }
         $msg = 'Booking cancelled.';
         if ($action === 'refund') { $msg = $refunded ? 'Booking cancelled and refunded to your wallet.' : 'Booking cancelled. No wallet refund was due.'; }
         echo json_encode(['status'=>true,'message'=>$msg,'refunded'=>$refunded]);
@@ -702,6 +750,27 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
             agent_audit_log($db, $owner, $actor, 'booking.change',
                 (string)$invoiceId.' '.($money['direction'] ?? 'none').' '.(string)($money['amount'] ?? 0));
         }
+        // GAP-4 (comms): notify on a successful change. A booking can be amended more
+        // than once, so the dedupe_key includes the direction+amount of THIS change
+        // (a true re-submit of the same adjustment is idempotent; a new amendment posts
+        // a fresh notification). Only notify when the money actually applied.
+        if (!empty($money['ok']) && function_exists('notify_user')) {
+            $__dir = (string)($money['direction'] ?? 'none');
+            $__amt = round((float)($money['amount'] ?? 0), 2);
+            $__due = round((float)($money['payment_due'] ?? 0), 2);
+            $__ref = round((float)($money['refunded'] ?? 0), 2);
+            $__body = $__due > 0
+                ? ('A fare difference leaves ' . number_format($__due, 2) . ' due — pay it from Bookings.')
+                : ($__ref > 0 ? ('A credit of ' . number_format($__ref, 2) . ' was returned to your wallet.')
+                              : 'The booking amendment was applied.');
+            notify_user($db, $owner, [
+                'type' => 'booking_changed', 'icon' => 'edit_calendar',
+                'title' => 'Booking changed — ' . $invoiceId,
+                'body'  => $__body,
+                'url'   => root . 'agent/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$invoiceId,
+                'dedupe_key' => 'agent_booking_change_' . $invoiceId . '_' . $__dir . '_' . $__amt,
+            ]);
+        }
         echo json_encode([
             'status'      => !empty($money['ok']),
             'direction'   => $money['direction'] ?? 'none',
@@ -732,6 +801,15 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
             echo json_encode(['status'=>false,'message'=>'Could not mark no-show.']); exit;
         }
         if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, $actor, 'booking.no_show', (string)$invoiceId); }
+        if (function_exists('notify_user')) {
+            notify_user($db, $owner, [
+                'type' => 'booking_no_show', 'icon' => 'person_off',
+                'title' => 'Booking marked no-show — ' . $invoiceId,
+                'body'  => 'You can start a rebook from the change action on this booking.',
+                'url'   => root . 'agent/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$invoiceId,
+                'dedupe_key' => 'agent_booking_noshow_' . $invoiceId,
+            ]);
+        }
         echo json_encode(['status'=>true,'message'=>'Booking marked no-show. You can start a rebook from the change action.']);
         exit;
     }

@@ -133,3 +133,55 @@ $router->get('/agent/onboarding', function () use ($SECURE, $db) {
     require_once views."agent/onboarding.php";
     require_once views."agent/layout-bottom.php";
 });
+
+// ============================================================================
+// GAP-4 (comms): AGENCY notification bell — owner-scoped feed so BOTH the owner
+// and any staff viewing the portal see the agency's booking-event notifications
+// (booking paid/issue-failed/cancelled/refunded/changed/no-show, written by
+// agentBookingCentreRoutes via notify_user($db,$owner,...)). Reuses the shared
+// notifications_centre store (notifications_unread_count / _list / _mark_read)
+// against the OWNER's user_id — deliberately distinct from the customer bell at
+// /notifications/* which is actor/session-scoped. No store logic duplicated.
+// ============================================================================
+
+// Poll endpoint for the bell badge (JSON, portal-gated).
+$router->get('/agent/notifications/unread-count', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    AGENT_OR_STAFF_AUTH($db);
+    $ctx = agent_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) { echo json_encode(['unread' => 0]); exit; }
+    $owner  = (string) $ctx['owner'];
+    $unread = function_exists('notifications_unread_count') ? notifications_unread_count($db, $owner) : 0;
+    echo json_encode(['unread' => $unread]);
+    exit;
+});
+
+// List the agency feed for the dropdown (JSON, portal-gated).
+$router->get('/agent/notifications/list', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    AGENT_OR_STAFF_AUTH($db);
+    $ctx = agent_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) { echo json_encode(['rows' => [], 'unread' => 0]); exit; }
+    $owner = (string) $ctx['owner'];
+    $data  = function_exists('notifications_list') ? notifications_list($db, $owner, 15, 0) : ['rows' => [], 'unread' => 0];
+    echo json_encode(['rows' => $data['rows'] ?? [], 'unread' => (int) ($data['unread'] ?? 0)]);
+    exit;
+});
+
+// Mark one (id>0) or all (id=0) of the AGENCY feed read (JSON, CSRF-guarded).
+$router->post('/agent/notifications/read', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    AGENT_OR_STAFF_AUTH($db);
+    $ctx = agent_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) { http_response_code(403); echo json_encode(['ok' => false]); exit; }
+    $input = json_decode((string) file_get_contents('php://input'), true) ?: $_POST;
+    if (!class_exists('CSRF') || !CSRF::validateToken($input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+        http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Invalid security token']); exit;
+    }
+    $owner = (string) $ctx['owner'];
+    $id    = (int) ($input['id'] ?? 0);
+    if (function_exists('notifications_mark_read')) { notifications_mark_read($db, $owner, $id); }
+    $unread = function_exists('notifications_unread_count') ? notifications_unread_count($db, $owner) : 0;
+    echo json_encode(['ok' => true, 'unread' => $unread]);
+    exit;
+});
