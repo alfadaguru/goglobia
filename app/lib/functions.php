@@ -2287,22 +2287,42 @@ function ensureAirlineNameFixes($db): void
 
     // VERIFIED current carriers only. Do NOT add a code here unless its present-day
     // airline is confirmed — a wrong "fix" is worse than a stale name.
+    // Each entry: the IATA code reused by a current Nigerian carrier whose stale
+    // global-seed name (a defunct/foreign prior holder) was surfacing instead.
     $fixes = [
-        'UN' => 'United Nigeria Airlines', // was "Transaero Airlines" (defunct 2015)
-        'QI' => 'Ibom Air',                // was "Cimber Air"
+        'UN' => 'United Nigeria Airlines', // was "Transaero Airlines" (defunct 2015, Russia)
+        'QI' => 'Ibom Air',                // was "Cimber Air" (defunct, Denmark)
         'P4' => 'Air Peace',               // was missing from the table
         'VK' => 'ValueJet',                // Nigerian LCC
+        // Added 2026-11-25 — reported live via Tiqwa (EE-1481/EE-1423, VM1641, R42014)
+        // and verified against FlightRadar24 / Wikipedia / ch-aviation / Airhex:
+        'EE' => 'Enugu Air',               // was "Aero Airlines" (defunct, Estonia). NB: the
+                                           // REAL Nigerian "Aero (Contractors)" is code AJ — untouched.
+        'VM' => 'Max Air',                 // was "Viaggio Air" (Bulgaria). Max Air NG, ICAO NGL.
+        'R4' => 'Rano Air',                // was missing. Rano Air NG, ICAO RAN, AOC 2023.
+        'W3' => 'Arik Air',                // correct row exists (Arik Air, NG) but a DUPLICATE
+                                           // W3 row ("World Scale Airlines", US) made the batch
+                                           // resolver's last-row-wins pick the wrong name.
     ];
 
     foreach ($fixes as $code => $name) {
         try {
-            $row = $db->get('flights_airlines', ['code', 'name'], ['code' => $code]);
-            if (!$row) {
+            // Fetch ALL rows for this code (the global seed has DUPLICATE codes — e.g.
+            // W3 = Arik Air AND World Scale Airlines; N2 = Kabo Air AND Dagestan). The
+            // batch resolver (/flights-airlines) does code=>name in id order so the LAST
+            // row wins; a single-row check would miss the duplicate that actually wins.
+            $rows = $db->select('flights_airlines', ['id', 'name'], ['code' => $code]) ?: [];
+            if (empty($rows)) {
                 // Missing entirely — insert it so name resolution has a value.
                 $db->insert('flights_airlines', ['code' => $code, 'name' => $name]);
-            } elseif ((string) ($row['name'] ?? '') !== $name) {
-                // Present but stale — correct it.
-                $db->update('flights_airlines', ['name' => $name], ['code' => $code]);
+                continue;
+            }
+            // Correct EVERY row carrying this code that has the wrong name, so no stale
+            // duplicate can win. Idempotent: only writes rows that are actually wrong.
+            foreach ($rows as $r) {
+                if ((string) ($r['name'] ?? '') !== $name) {
+                    $db->update('flights_airlines', ['name' => $name], ['id' => $r['id']]);
+                }
             }
         } catch (Throwable $e) {
             error_log('ensureAirlineNameFixes(' . $code . '): ' . $e->getMessage());
