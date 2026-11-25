@@ -427,8 +427,98 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 form.submit();
                 return;
             }
+            // INLINE PAYSTACK (redesign 3/3): if the chosen gateway is Paystack, open
+            // the InlineJS popup RIGHT HERE instead of redirecting through the
+            // /payment/{hash} -> /payment/gateway pages (one-click, instant). Any other
+            // gateway falls through to the existing processPayment() redirect (unchanged).
+            try {
+                var __sel = document.getElementById('payment_gateway');
+                var __opt = __sel ? __sel.options[__sel.selectedIndex] : null;
+                var __gwName = (__opt ? (__opt.getAttribute('data-name') || '') : '').toLowerCase();
+                if (__gwName === 'paystack' && typeof payInlinePaystack === 'function') {
+                    // CSRF from the page meta tag (same source processPayment() uses) —
+                    // the module-scoped `csrf` var lives inside a separate IIFE and is
+                    // NOT in scope here, so reading it would yield an empty token and the
+                    // /payment/process CSRF guard would 302 us back to the invoice.
+                    var __meta = document.querySelector('meta[name="csrf-token"]');
+                    var __csrf = (__meta && __meta.content) ? __meta.content : '';
+                    payInlinePaystack(invoiceId, __sel.value, __csrf, { btn: btn, icon: icon, text: text });
+                    return;
+                }
+            } catch (e) { console.warn('[PAYLOG] inline-paystack dispatch failed, falling back', e); }
+
             console.log('[PAYLOG] handleMakePayment: no external url/form -> processPayment() (internal /payment/process)');
             processPayment();
+        }
+
+        // Inline Paystack: POST /payment/process?inline=1 to get an access_code, load
+        // Paystack InlineJS v2, and open the popup in-page. onSuccess navigates to the
+        // same verify callback the redirect flow uses (handle_payment_callback
+        // re-verifies with Paystack — "always verify before giving value"). On
+        // popup-block / InlineJS failure we fall back to the hosted authorization_url.
+        function __loadPaystackInline(cb) {
+            if (window.PaystackPop) { cb(); return; }
+            var s = document.createElement('script');
+            s.src = 'https://js.paystack.co/v2/inline.js';
+            s.onload = function () { cb(); };
+            s.onerror = function () { cb(new Error('Could not load Paystack')); };
+            document.head.appendChild(s);
+        }
+        function __resetPayBtn(ui) {
+            if (!ui || !ui.btn) return;
+            ui.btn.disabled = false; ui.btn.style.opacity = '1';
+            if (ui.icon) { ui.icon.classList.remove('animate-spin'); ui.icon.textContent = 'lock'; }
+            if (ui.text) ui.text.textContent = 'Make Payment';
+        }
+        async function payInlinePaystack(invoiceId, gatewayId, csrf, ui) {
+            try {
+                const form = new URLSearchParams();
+                form.set('invoice_id', invoiceId);
+                form.set('gateway_id', gatewayId);
+                form.set('inline', '1');
+                form.set('csrf_token', csrf || '');
+                const res = await fetch('<?= root ?>payment/process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': csrf || '' },
+                    body: form.toString()
+                });
+                const data = await res.json().catch(() => null);
+                if (!data || !data.status || !data.access_code) {
+                    // Guard/currency/already-paid block, or init failure → reload so the
+                    // server-set notice shows, or fall back to the hosted page if present.
+                    if (data && data.authorization_url) { window.location.href = data.authorization_url; return; }
+                    console.warn('[PAYLOG] inline paystack: no access_code', data);
+                    window.location.href = '<?= root ?>invoice/<?= $booking['module_type'] ?? 'flights' ?>/' + invoiceId;
+                    return;
+                }
+                __loadPaystackInline(function (err) {
+                    if (err || !window.PaystackPop) {
+                        // InlineJS unavailable → hosted page (always works).
+                        if (data.authorization_url) { window.location.href = data.authorization_url; return; }
+                        __resetPayBtn(ui);
+                        alert('Could not open the payment window. Please try again.');
+                        return;
+                    }
+                    try {
+                        var popup = new window.PaystackPop();
+                        popup.resumeTransaction(data.access_code, {
+                            onSuccess: function () { window.location.href = data.callback_url; },
+                            onCancel:  function () { __resetPayBtn(ui); },
+                            onError:   function () {
+                                if (data.authorization_url) { window.location.href = data.authorization_url; return; }
+                                __resetPayBtn(ui);
+                            }
+                        });
+                    } catch (e) {
+                        if (data.authorization_url) { window.location.href = data.authorization_url; return; }
+                        __resetPayBtn(ui);
+                    }
+                });
+            } catch (e) {
+                console.error('[PAYLOG] inline paystack error', e);
+                __resetPayBtn(ui);
+                window.location.href = '<?= root ?>invoice/<?= $booking['module_type'] ?? 'flights' ?>/' + invoiceId;
+            }
         }
 
         function handlePaymentGatewayChange() {

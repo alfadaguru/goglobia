@@ -529,7 +529,77 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
         exit;
     }
 
-    // Redirect to secure payment page with hash
+    // INLINE PAYSTACK (redesign 3/3): when the client asks for inline mode AND the
+    // gateway is Paystack, skip the /payment/{hash} -> /payment/gateway page hops and
+    // return the Paystack access_code as JSON so the caller can open the InlineJS popup
+    // right on the invoice/booking page (one-click, no redirect). ALL the money-safety
+    // guards above (already-paid, unbookable, actor, currency, flight fare-freshness,
+    // token mint, txn log) have already run — this only changes HOW we hand off to
+    // Paystack, not WHETHER we're allowed to. Any other gateway, or no inline flag,
+    // falls through to the existing redirect (unchanged) so nothing else is affected.
+    $__wantsInline = (($_POST['inline'] ?? $_GET['inline'] ?? '') === '1')
+        || (stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false);
+    $__gwName = strtolower((string) ($gateway['name'] ?? ''));
+    if ($__wantsInline && $__gwName === 'paystack') {
+        header('Content-Type: application/json');
+        $__inlineFail = function (string $msg) use ($invoiceId) {
+            paylog('process:INLINE-FAIL', ['invoice_id' => $invoiceId, 'msg' => $msg]);
+            echo json_encode(['status' => false, 'message' => $msg]);
+            exit;
+        };
+        // Reuse the SAME init the paystack gateway view uses: resolve creds + amount,
+        // call transaction/initialize, return access_code. Credentials map: c1=secret,
+        // c2=public (per the paystack gateway view).
+        $__secret = (string) ($gateway['c1'] ?? '');
+        $__public = (string) ($gateway['c2'] ?? '');
+        if ($__secret === '') { $__inlineFail('Paystack is not configured.'); }
+
+        $__email    = (string) ($booking['email'] ?? ($_SESSION['user_email'] ?? 'customer@goglobia.com'));
+        $__currency = strtoupper((string) ($booking['currency_markup'] ?? 'NGN'));
+        // Amount in minor units — computed EXACTLY as the paystack gateway view does
+        // (paystack.php:79: round(price_markup * 100)). Paystack only settles NGN/USD,
+        // both 100-subunit, so *100 is correct here (this branch is Paystack-only; the
+        // zero-decimal currencies that break *100 are never routed to Paystack).
+        $__amountMinor = (int) round((float) ($booking['price_markup'] ?? $booking['price_original'] ?? 0) * 100);
+        $__reference = 'PSK-' . $booking['invoice_id'] . '-' . time();
+        $__cbUrl = root . 'invoice/' . $booking['invoice_id']
+            . '?token=' . urlencode((string) $token)
+            . '&payment_status=success&gateway=paystack&trxref=' . $__reference
+            . '&transaction_id=' . $__reference;
+
+        $__ch = curl_init('https://api.paystack.co/transaction/initialize');
+        curl_setopt_array($__ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode([
+                'email' => $__email, 'amount' => $__amountMinor, 'currency' => $__currency,
+                'reference' => $__reference, 'callback_url' => $__cbUrl,
+            ]),
+            CURLOPT_HTTPHEADER     => ["Authorization: Bearer {$__secret}", 'Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+        ]);
+        $__resp = curl_exec($__ch);
+        $__err  = curl_error($__ch);
+        curl_close($__ch);
+        if ($__err) { $__inlineFail('Could not reach Paystack. Please try again.'); }
+        $__r = json_decode((string) $__resp, true);
+        if (!($__r && !empty($__r['status']) && isset($__r['data']['access_code']))) {
+            $__inlineFail('Payment could not be started: ' . ($__r['message'] ?? 'Paystack error'));
+        }
+        paylog('process:INLINE-OK (access_code returned for in-page popup)', ['invoice_id' => $invoiceId, 'ref' => $__reference]);
+        echo json_encode([
+            'status'         => true,
+            'access_code'    => (string) $__r['data']['access_code'],
+            'public_key'     => $__public,
+            'reference'      => $__reference,
+            'callback_url'   => $__cbUrl,
+            'authorization_url' => (string) ($__r['data']['authorization_url'] ?? ''),
+        ]);
+        exit;
+    }
+
+    // Redirect to secure payment page with hash (default, unchanged).
     paylog('process:REDIRECT -> /payment/{hash}', ['invoice_id' => $invoiceId, 'hash' => $logResult['hash']]);
     header('Location: ' . root . 'payment/' . $logResult['hash']);
     exit;
