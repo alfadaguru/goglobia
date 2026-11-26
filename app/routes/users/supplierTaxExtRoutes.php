@@ -112,6 +112,17 @@ $router->post('/supplier/tax/exemption/save', function () use ($SECURE, $db) {
             'end_date'   => (string) ($_POST['end_date'] ?? ''),
         ])
         : ['ok' => false, 'message' => 'No organisation on file yet.'];
+    // When the exemption was tied to an existing CUSTOMER (picked via the typeahead), also
+    // flag that customer tax_exempt so the reservation engine (tax_ext_customer_exemption)
+    // zeroes their tax — this is the connection the report (11.25 #3) found missing. The
+    // customer must belong to this org (IDOR guard). Free-text refs (no customer_id) skip this.
+    $__exCustId = (int) ($_POST['customer_id'] ?? 0);
+    if (!empty($res['ok']) && $__exCustId > 0 && (int) $oo['org'] > 0) {
+        try {
+            $owns = $db->has('stays_contacts', ['id' => $__exCustId, 'org_id' => (int) $oo['org']]);
+            if ($owns) { $db->update('stays_contacts', ['tax_exempt' => 1], ['id' => $__exCustId, 'org_id' => (int) $oo['org']]); }
+        } catch (\Throwable $e) { error_log('exemption save flag customer: ' . $e->getMessage()); }
+    }
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? ($res['ok'] ? 'Exemption added.' : 'Could not add exemption.')];
     if (!empty($res['ok']) && empty($res['message'])) { $_SESSION['message']['text'] = 'Exemption added.'; }
     header('Location: ' . $back); exit;

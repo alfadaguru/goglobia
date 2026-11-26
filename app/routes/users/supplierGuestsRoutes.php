@@ -136,16 +136,20 @@ $router->post('/supplier/guests/quick-create', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard(); // X-CSRF-TOKEN header (fetch) or csrf_token field; JSON 403 on fail
     $c = _guests_ctx($db);
-    // GATE: creating a guest here is a FRONT-DESK act — it is the "Add guest" popup on the
-    // reservation/group booking form, which itself is gated on supplier_can('reservations',
-    // 'edit', $hotelId). So gate quick-create on the SAME front-desk permission, NOT on
-    // supplier_can_orgwide('guests',…). The org-wide gate hard-denies every 'selected'-scope
-    // (property-restricted) staffer regardless of granted permission, which made a granted
-    // front-desk create permission silently fail with "Not authorised" (Report 11.20 #1).
-    // Creating a single contact to attach to a booking the staffer is making at their own
-    // property is not org-spanning data, so it correctly rides the reservations permission.
-    // (View/list/profile of guests spans every property and stays on supplier_can_orgwide.)
-    if ($c === null || (int) $c['org'] <= 0 || !supplier_can($db, 'reservations', 'edit')) {
+    // GATE: creating a guest is authorised by EITHER front-desk OR guest-management
+    // permission — because the "Add guest" popup is reachable from two legitimate places:
+    //   • the reservation/group booking form (a FRONT-DESK act → reservations:edit), and
+    //   • guest management (a GUEST-SERVICES act → guests:edit).
+    // Report 11.25 #1: a staffer granted the "Guests" area (guests:edit) but NOT
+    // "Reservations" edit was denied here with "Not authorised", because this gate only
+    // accepted reservations:edit — so the permission an admin naturally grants to let
+    // someone manage/create guests did nothing. Accept either. (We do NOT use the org-wide
+    // gate, which hard-denies every 'selected'-scope staffer regardless of granted
+    // permission — Report 11.20 #1. Creating a single contact to attach to a booking at the
+    // staffer's own property is not org-spanning data, so it rides the per-area permission.
+    // View/list/profile of ALL guests DOES span properties and stays on supplier_can_orgwide.)
+    $__canCreateGuest = supplier_can($db, 'reservations', 'edit') || supplier_can($db, 'guests', 'edit');
+    if ($c === null || (int) $c['org'] <= 0 || !$__canCreateGuest) {
         echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit;
     }
     $orgId = (int) $c['org'];

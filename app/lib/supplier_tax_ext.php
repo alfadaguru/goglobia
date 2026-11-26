@@ -362,6 +362,53 @@ if (!function_exists('tax_ext_exemption_match')) {
     }
 }
 
+if (!function_exists('tax_ext_customer_exemption')) {
+    /**
+     * Resolve whether a CUSTOMER (stays_contacts row) is tax-exempt right now, tying the
+     * exemption registry to reservations (Report 11.25 #3 — the registry was never consulted
+     * by the booking engine, and could not be attached to an existing customer).
+     *
+     * A customer is exempt when EITHER:
+     *   (a) their stays_contacts.tax_exempt flag is set (the per-customer NGO flag the
+     *       exemption form now also sets when you attach a customer), OR
+     *   (b) an active tax_exemptions row matches their phone_key or lowercased display_name
+     *       for $profileId today (the richer registry entry, with reason + validity window).
+     *
+     * Returns ['exempt'=>bool, 'reason'=>string] — reason is the registry reason when (b),
+     * else 'Tax-exempt customer' when (a). Read-only; fail-closed to not-exempt on any error.
+     */
+    function tax_ext_customer_exemption($db, int $orgId, int $custId, int $profileId = 0): array
+    {
+        $none = ['exempt' => false, 'reason' => ''];
+        if ($orgId <= 0 || $custId <= 0) { return $none; }
+        try {
+            $c = $db->get('stays_contacts', ['tax_exempt', 'phone_key', 'phone', 'display_name'],
+                ['id' => $custId, 'org_id' => $orgId]);
+        } catch (\Throwable $e) {
+            error_log('tax_ext_customer_exemption (load): ' . $e->getMessage());
+            return $none;
+        }
+        if (!$c) { return $none; }
+        // (a) the per-customer flag.
+        if (!empty($c['tax_exempt'])) {
+            // Enrich the reason from a matching registry row when one exists, else a default.
+            foreach ([(string) ($c['phone_key'] ?? ''), (string) ($c['phone'] ?? ''), strtolower(trim((string) ($c['display_name'] ?? '')))] as $cand) {
+                if ($cand === '') { continue; }
+                $m = tax_ext_exemption_match($db, $orgId, $profileId, $cand);
+                if ($m) { return ['exempt' => true, 'reason' => (string) ($m['reason'] ?? 'Tax-exempt customer')]; }
+            }
+            return ['exempt' => true, 'reason' => 'Tax-exempt customer'];
+        }
+        // (b) a registry entry keyed on the customer's phone / name.
+        foreach ([(string) ($c['phone_key'] ?? ''), (string) ($c['phone'] ?? ''), strtolower(trim((string) ($c['display_name'] ?? '')))] as $cand) {
+            if ($cand === '') { continue; }
+            $m = tax_ext_exemption_match($db, $orgId, $profileId, $cand);
+            if ($m) { return ['exempt' => true, 'reason' => (string) ($m['reason'] ?? 'Tax exemption on file')]; }
+        }
+        return $none;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TAX REPORT — the number you file. Derived from the GL, not re-computed.
 // ---------------------------------------------------------------------------

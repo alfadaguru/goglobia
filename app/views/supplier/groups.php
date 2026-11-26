@@ -84,7 +84,10 @@ foreach ($rooms as $r) {
       }
     }
   ?>
-  <div class="card p-5">
+  <!-- overflow-visible: the customer + per-room guest search dropdowns are absolutely
+       positioned inside this card; the global `.card{overflow:hidden}` otherwise clips
+       their results "under the container" (Report 11.25 #2). -->
+  <div class="card p-5" style="overflow:visible">
     <h2 class="text-sm font-semibold text-gray-900 mb-1">New group</h2>
     <p class="text-xs text-gray-500 mb-4">Pick the customer, then add each room with its specific room number and the guest staying in it. Book everyone in one go, or hold the rooms to book later.</p>
 

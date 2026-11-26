@@ -88,6 +88,9 @@ $router->get('/supplier/customers/search', function () use ($SECURE, $db) {
             'email' => (string) ($r['email'] ?? ''),
             'phone' => (string) ($r['phone'] ?? ''),
             'type'  => (string) ($r['type'] ?? 'individual'),
+            // Surfaced so the booking form can badge a tax-exempt customer at pick time
+            // (Report 11.25 #3 — the desk couldn't tell a customer was exempt).
+            'tax_exempt' => !empty($r['tax_exempt']) ? 1 : 0,
         ];
     }
     echo json_encode(['ok' => true, 'results' => $out]); exit;

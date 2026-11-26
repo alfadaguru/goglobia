@@ -122,7 +122,8 @@ $kindLabel = fn($k) => htmlspecialchars((string) ($kinds[$k] ?? ucfirst((string)
   </div>
 
   <!-- Exemptions (#38) -->
-  <div class="card p-4 space-y-3">
+  <!-- overflow-visible so the customer typeahead dropdown isn't clipped by `.card{overflow:hidden}`. -->
+  <div class="card p-4 space-y-3" style="overflow:visible">
     <h2 class="text-sm font-semibold text-gray-900">Tax exemptions</h2>
     <p class="text-xs text-gray-400">Exempt a specific guest, company or booking reference from a tax (or all taxes). Checked at quote time; keeps the line auditable.</p>
     <div class="overflow-x-auto">
@@ -168,7 +169,20 @@ $kindLabel = fn($k) => htmlspecialchars((string) ($kinds[$k] ?? ucfirst((string)
 
     <form action="<?= $base ?>/exemption/save" method="POST" class="border-t border-gray-100 pt-3 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
       <?= CSRF::tokenField() ?>
-      <div class="form-control sm:col-span-2"><label class="block text-xs text-gray-600 mb-1">Reference (guest / company / booking)</label><input type="text" name="ref" class="input text-sm" required></div>
+      <!-- Reference: search an EXISTING customer (reuses /supplier/customers/search) so the
+           exemption is TIED to a real customer and auto-applies to their reservations
+           (Report 11.25 #3). Picking a customer fills the hidden customer_id + sets ref to
+           their phone (the stable match key) + prefills the label; the save route then flags
+           that customer tax_exempt. You can still type a free-text ref for a company/booking
+           that isn't a stored customer. -->
+      <div class="form-control sm:col-span-2 relative" id="exRefWrap">
+        <label class="block text-xs text-gray-600 mb-1">Reference (search a customer, or type a company / booking)</label>
+        <input type="text" id="exRefSearch" autocomplete="off" class="input text-sm" placeholder="Search a customer by name or phone…" required>
+        <input type="hidden" name="ref" id="exRef">
+        <input type="hidden" name="customer_id" id="exCustomerId" value="">
+        <div id="exRefResults" class="hidden absolute z-30 mt-1 w-full max-h-56 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg text-sm"></div>
+        <p id="exRefPicked" class="hidden text-[11px] text-emerald-700 mt-1"></p>
+      </div>
       <div class="form-control sm:col-span-2"><label class="block text-xs text-gray-600 mb-1">Label</label><input type="text" name="label" class="input text-sm" placeholder="e.g. Diplomatic mission"></div>
       <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Scope</label>
         <select name="profile_id" class="input text-sm">
@@ -181,6 +195,65 @@ $kindLabel = fn($k) => htmlspecialchars((string) ($kinds[$k] ?? ucfirst((string)
       <div class="form-control"><label class="block text-xs text-gray-600 mb-1">To</label><input type="date" name="end_date" class="input text-sm"></div>
       <div class="sm:col-span-2"><button type="submit" class="btn emerald text-sm w-full sm:w-auto">Add exemption</button></div>
     </form>
+
+    <!-- Customer typeahead for the exemption Reference: ties the exemption to a stored
+         customer so it auto-applies to their reservations (Report 11.25 #3). -->
+    <script>
+    (function () {
+      var ROOT = (window.__APP_ROOT__ || '<?= root ?>');
+      var box = document.getElementById('exRefSearch');
+      var refH = document.getElementById('exRef');
+      var custH = document.getElementById('exCustomerId');
+      var results = document.getElementById('exRefResults');
+      var picked = document.getElementById('exRefPicked');
+      var labelInput = document.querySelector('input[name="label"]');
+      if (!box || !refH || !results) return;
+      var t = null;
+
+      function hide() { results.classList.add('hidden'); results.innerHTML = ''; }
+      function setFreeText() {
+        // No customer chosen → the typed text is the literal ref (company/booking).
+        refH.value = box.value.trim();
+        custH.value = '';
+        picked.classList.add('hidden'); picked.textContent = '';
+      }
+      box.addEventListener('input', function () {
+        setFreeText(); // keep ref in sync with whatever is typed until a pick happens
+        var q = box.value.trim();
+        if (t) clearTimeout(t);
+        if (q.length < 2) { hide(); return; }
+        t = setTimeout(function () {
+          fetch(ROOT + 'supplier/customers/search?q=' + encodeURIComponent(q), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              var rows = (d && d.results) ? d.results : [];
+              if (!rows.length) { hide(); return; }
+              results.innerHTML = rows.map(function (c) {
+                var sub = [c.phone, c.email].filter(Boolean).join(' · ');
+                return '<button type="button" class="block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0" ' +
+                  'data-id="' + c.id + '" data-ref="' + encodeURIComponent(c.phone || c.name) + '" data-name="' + encodeURIComponent(c.name) + '">' +
+                  '<span class="font-medium text-gray-800">' + (c.name || '(no name)') + '</span>' +
+                  (sub ? '<span class="block text-[11px] text-gray-500">' + sub + '</span>' : '') + '</button>';
+              }).join('');
+              results.classList.remove('hidden');
+            }).catch(hide);
+        }, 220);
+      });
+      results.addEventListener('click', function (e) {
+        var btn = e.target.closest('button[data-id]'); if (!btn) return;
+        var name = decodeURIComponent(btn.getAttribute('data-name') || '');
+        var ref = decodeURIComponent(btn.getAttribute('data-ref') || '');
+        box.value = name;
+        refH.value = ref;                 // stable key (phone) the reservation engine matches on
+        custH.value = btn.getAttribute('data-id');
+        if (labelInput && !labelInput.value) labelInput.value = name;
+        picked.textContent = '✓ Linked to customer "' + name + '" — this customer will be tax-exempt on their reservations.';
+        picked.classList.remove('hidden');
+        hide();
+      });
+      document.addEventListener('click', function (e) { if (!e.target.closest('#exRefWrap')) hide(); });
+    })();
+    </script>
   </div>
 
   <!-- E-invoicing / fiscal device (#38) — honest status, not connected -->

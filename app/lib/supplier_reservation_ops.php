@@ -291,6 +291,23 @@ if (!function_exists('resv_create_walkin')) {
                 'email'       => (string) ($in['email'] ?? ''), 'phone' => (string) ($in['phone'] ?? ''),
             ]);
         }
+
+        // TAX EXEMPTION (Report 11.25 #3): now that the payer customer is known, apply any
+        // tax exemption tied to THAT customer — the per-customer flag or a matching registry
+        // entry. An exempt customer zeroes the tax and the booking records why (audit trail).
+        // Tax was computed above from the rate; we recompute the total here so an exempt
+        // customer is never charged tax. Non-exempt → unchanged.
+        $taxExemptReason = '';
+        if ($custId > 0 && $taxAmount > 0 && $orgForContacts > 0 && function_exists('tax_ext_customer_exemption')) {
+            $ex = tax_ext_customer_exemption($db, $orgForContacts, $custId, 0);
+            if (!empty($ex['exempt'])) {
+                $taxAmount = 0.0;
+                $finalTotal = round($markup, 2);
+                $taxExemptReason = (string) ($ex['reason'] ?: 'Tax-exempt customer');
+                $bookingData['tax_exempt'] = true;
+                $bookingData['tax_exempt_reason'] = $taxExemptReason;
+            }
+        }
         // Store the GUEST (the stayer) as a first-class record — ALWAYS, even with no
         // email (phone-primary identity). Links back to the payer via customer_id.
         if ($orgForContacts > 0 && function_exists('guests_resolve_for_booking')) {

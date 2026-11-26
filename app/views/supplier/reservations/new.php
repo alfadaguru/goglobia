@@ -69,7 +69,12 @@
       <div class="lg:col-span-2 space-y-5">
 
         <!-- WHO: customer (payer) -->
-        <div class="card p-5 space-y-4">
+        <!-- overflow-visible (inline, to beat the global `.card{overflow:hidden}`): the
+             customer + guest search dropdowns are absolutely-positioned inside this card,
+             so a clipping card hid their lower results "under the container" (Report 11.25
+             #2). This card holds only form fields + those dropdowns, so visible overflow is
+             safe. -->
+        <div class="card p-5 space-y-4" style="overflow:visible">
           <h2 class="text-sm font-semibold text-gray-900">Customer &amp; guest</h2>
 
           <div class="form-control">
@@ -80,6 +85,11 @@
                 <span class="material-symbols-outlined text-base">account_circle</span>
                 <span id="custPickedLabel" class="font-medium"></span>
                 <span id="custPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span>
+                <!-- shown when the picked customer is tax-exempt (Report 11.25 #3): the desk
+                     can now see the exemption, and the server zeroes the tax on this booking. -->
+                <span id="custPickedExempt" class="hidden items-center gap-1 rounded-full bg-amber-100 text-amber-800 text-[11px] font-semibold px-2 py-0.5">
+                  <span class="material-symbols-outlined text-xs">verified</span>Tax exempt
+                </span>
               </span>
               <button type="button" id="custClear" class="text-emerald-700 hover:text-emerald-900" title="Clear"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
@@ -471,6 +481,10 @@
     if (!search) { return; }
     function selectCustomer(c) {
       hidden.value = c.id; pickedLabel.textContent = c.name; pickedType.textContent = c.type || '';
+      // Tax-exempt badge on the picked chip (Report 11.25 #3) — the server authoritatively
+      // zeroes the tax for an exempt customer; this just surfaces it to the desk.
+      var exBadge = $('custPickedExempt');
+      if (exBadge) { if (c.tax_exempt == 1) { exBadge.classList.remove('hidden'); exBadge.classList.add('inline-flex'); } else { exBadge.classList.add('hidden'); exBadge.classList.remove('inline-flex'); } }
       picked.classList.remove('hidden'); picked.classList.add('flex'); searchWrap.classList.add('hidden'); results.classList.add('hidden');
       // Offer the payer as the guest too (common walk-in case: payer == stayer), but ONLY
       // when no guest is set yet — the guest block reflects it as its own chip via the shared
@@ -493,7 +507,8 @@
             if (!rows.length) { results.innerHTML = '<div class="px-3 py-2 text-sm text-gray-400">No match. Use “Create”.</div>'; results.classList.remove('hidden'); return; }
             rows.forEach(function (c) {
               var el = document.createElement('button'); el.type = 'button'; el.className = 'block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0';
-              el.innerHTML = '<div class="text-sm font-medium text-gray-900">' + esc(c.name) + ' <span class="text-xs uppercase tracking-wide text-gray-400">' + esc(c.type) + '</span></div><div class="text-xs text-gray-500">' + esc([c.email, c.phone].filter(Boolean).join(' · ')) + '</div>';
+              var exTag = (c.tax_exempt == 1) ? ' <span class="text-[10px] font-semibold text-amber-700 bg-amber-100 rounded px-1">TAX EXEMPT</span>' : '';
+              el.innerHTML = '<div class="text-sm font-medium text-gray-900">' + esc(c.name) + ' <span class="text-xs uppercase tracking-wide text-gray-400">' + esc(c.type) + '</span>' + exTag + '</div><div class="text-xs text-gray-500">' + esc([c.email, c.phone].filter(Boolean).join(' · ')) + '</div>';
               el.addEventListener('click', function () { selectCustomer(c); }); results.appendChild(el);
             });
             results.classList.remove('hidden');
