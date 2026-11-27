@@ -86,7 +86,9 @@ $router->post('/supplier/rbac/departments/save', function () use ($SECURE, $db) 
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
 
     $id = (int) ($_POST['id'] ?? 0);
-    if (!supplier_can_orgwide($db, 'rbac', $id ? 'edit' : 'add')) {
+    // rbac has no 'add' action in the catalogue → the create branch was ALWAYS-DENY for
+    // staff. Gate create + edit on rbac:edit (the only grantable write). (Audit 2026-11-27.)
+    if (!supplier_can_orgwide($db, 'rbac', 'edit')) {
         _supplier_rbac_deny('supplier/rbac?tab=departments');
     }
     $name   = trim($_POST['name'] ?? '');

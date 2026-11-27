@@ -3,7 +3,11 @@
 // MODULE 19 (Unified guest communication) — DEEPENING routes.
 // Canned TEMPLATES, AUTOMATED-message rules, RESPONSE TRACKING, and an
 // honest DB-GATED outbound SEND. Owner/staff gated; property-scoped via
-// supplier_can('reservations', …). All POSTs: auth + CSRF + supplier_can.
+// supplier_can('guestservice', …) — the SAME area as the guest-message log
+// (/supplier/guest-messages), so one "Service & messages" grant covers the whole
+// guest-communication surface. (Was gated on 'channels' = OTA distribution, a
+// grant→gate mismatch that silently denied guestservice-granted staff; per-role
+// audit 2026-11-27.) All POSTs: auth + CSRF + supplier_can.
 
 @$SECURE or die('Access Denied!');
 
@@ -12,7 +16,7 @@ $router->get('/supplier/guest-comms', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can_orgwide($db, 'channels', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'guestservice', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $templates   = function_exists('msgtpl_list')  ? msgtpl_list($db, $stayIds)  : [];
@@ -26,7 +30,7 @@ $router->get('/supplier/guest-comms', function () use ($SECURE, $db) {
     $ready = [];
     foreach (['email', 'sms', 'whatsapp'] as $c) { $ready[$c] = function_exists('guestmsg_channel_ready') ? guestmsg_channel_ready($db, $c) : false; }
 
-    $canEdit  = supplier_can_orgwide($db, 'channels', 'edit');
+    $canEdit  = supplier_can($db, 'guestservice', 'edit');
     $triggers = function_exists('msgauto_triggers') ? msgauto_triggers() : [];
     $channels = function_exists('msgtpl_channels')  ? msgtpl_channels()  : [];
     $title = 'Guest communication'; $description = ''; $header = true; $footer = true;
@@ -40,7 +44,7 @@ $router->post('/supplier/guest-comms/template/add', function () use ($SECURE, $d
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/guest-comms';
-    if (!supplier_can($db, 'channels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'guestservice', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('msgtpl_add') ? msgtpl_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Template saved.' : 'Could not save (name + body + property required).'];
     header('Location: ' . $back); exit;
@@ -51,7 +55,7 @@ $router->post('/supplier/guest-comms/template/delete', function () use ($SECURE,
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/guest-comms';
-    if (!supplier_can($db, 'channels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'guestservice', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('msgtpl_delete') && msgtpl_delete($db, (int) ($_POST['id'] ?? 0), $stayId);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Template removed.' : 'Could not remove.'];
     header('Location: ' . $back); exit;
@@ -62,7 +66,7 @@ $router->post('/supplier/guest-comms/send', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/guest-comms';
-    if (!supplier_can($db, 'channels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'guestservice', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     // Optional template expansion (property-scoped) with placeholder substitution.
     $tplId = (int) ($_POST['template_id'] ?? 0);
@@ -99,7 +103,7 @@ $router->post('/supplier/guest-comms/replied', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/guest-comms';
-    if (!supplier_can($db, 'channels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'guestservice', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $mid = (int) ($_POST['message_id'] ?? 0);
     // Ownership: the message must belong to this stay.
     $ok = false;
@@ -117,7 +121,7 @@ $router->post('/supplier/guest-comms/automation/add', function () use ($SECURE, 
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/guest-comms';
-    if (!supplier_can($db, 'channels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'guestservice', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $id = function_exists('msgauto_add') ? msgauto_add($db, $stayId, $_POST) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Automation rule saved.' : 'Could not save (trigger + template required; template must belong to the property).'];
     header('Location: ' . $back); exit;
@@ -128,7 +132,7 @@ $router->post('/supplier/guest-comms/automation/toggle', function () use ($SECUR
     SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
     $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/guest-comms';
-    if (!supplier_can($db, 'channels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'guestservice', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $active = !empty($_POST['active']);
     $ok = function_exists('msgauto_toggle') && msgauto_toggle($db, (int) ($_POST['id'] ?? 0), $stayId, $active);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Rule updated.' : 'Could not update.'];

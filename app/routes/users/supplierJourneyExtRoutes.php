@@ -166,7 +166,14 @@ $router->post('/supplier/journey/request/status', function () use ($SECURE, $db)
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $back = root . 'supplier/journey';
-    if (!supplier_can_orgwide($db, 'journey', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    // Actioning a guest request is a PER-PROPERTY write (the request belongs to one owned
+    // stay, IDOR-checked via $ownedIds below) — like the sibling /directory writes which use
+    // per-property supplier_can(...,$stayId). The org-wide gate HARD-DENIES every
+    // 'selected'-scope staffer regardless of granted journey:edit, so a front-desk staffer
+    // restricted to the very property couldn't action its requests. Gate on the journey:edit
+    // permission (no stayId → the role-matrix check, not org-wide); the $ownedIds IDOR check
+    // below still enforces that the request's stay is the owner's. (Per-role audit 2026-11-27.)
+    if (!supplier_can($db, 'journey', 'edit')) { _supplier_stays_deny('Not authorised.'); }
 
     // The request's stay must be one the owner owns (lib does the final IDOR check).
     $ownedIds = supplier_owned_stay_ids($db, $owner);

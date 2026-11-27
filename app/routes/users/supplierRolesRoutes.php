@@ -100,7 +100,11 @@ $supplierRoleForm = function ($id = 0) use ($SECURE, $db) {
     SUPPLIER_AUTH();
     $owner = _supplier_roles_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rbac', $id ? 'edit' : 'add')) { _supplier_roles_deny(); }
+    // This file is OWNER-ONLY (SUPPLIER_AUTH above bounces staff), and owners bypass the
+    // permission matrix — so this gate is belt-and-suspenders. Still, gate on rbac:edit (not
+    // the old 'add'/'delete'), because the catalogue only offers rbac view+edit: were this
+    // file ever opened to staff, an 'add'/'delete' action could never be granted. (Audit 2026-11-27.)
+    if (!supplier_can($db, 'rbac', 'edit')) { _supplier_roles_deny(); }
 
     $role = null;
     if ($id) {
@@ -163,7 +167,11 @@ $router->post('/supplier/roles/save', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
 
     $id   = (int) ($_POST['id'] ?? 0);
-    if (!supplier_can($db, 'rbac', $id ? 'edit' : 'add')) { _supplier_roles_deny(); }
+    // This file is OWNER-ONLY (SUPPLIER_AUTH above bounces staff), and owners bypass the
+    // permission matrix — so this gate is belt-and-suspenders. Still, gate on rbac:edit (not
+    // the old 'add'/'delete'), because the catalogue only offers rbac view+edit: were this
+    // file ever opened to staff, an 'add'/'delete' action could never be granted. (Audit 2026-11-27.)
+    if (!supplier_can($db, 'rbac', 'edit')) { _supplier_roles_deny(); }
 
     $name = trim($_POST['name'] ?? '');
     if ($name === '') {
@@ -275,7 +283,9 @@ $router->post('/supplier/roles/delete', function () use ($SECURE, $db) {
     CSRF::guard();
     $owner = _supplier_roles_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rbac', 'delete')) { _supplier_roles_deny(); }
+    // rbac:delete is not a grantable action (catalogue = view,edit); gate on rbac:edit,
+    // consistent with role create/edit. (Owner-only file; defensive — see note above.)
+    if (!supplier_can($db, 'rbac', 'edit')) { _supplier_roles_deny(); }
 
     $id = (int) ($_POST['id'] ?? 0);
     if (!$id || !_supplier_role_owned($db, $id, $owner)) { _supplier_roles_deny('That role is not yours.'); }

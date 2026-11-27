@@ -53,7 +53,11 @@ $router->post('/supplier/pos/outlet', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/pos';
-    if (!supplier_can($db, 'pos', 'add', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    // 'pos' only grants view+edit (no 'add' in the catalogue), so gating outlet-create on
+    // pos:add made it ALWAYS-DENY for staff — only the owner could create an outlet. Create
+    // is an edit-grade act here; gate on pos:edit, consistent with the other POS writes
+    // (menu-item/order/settle/void all use pos:edit). (Per-role audit 2026-11-27.)
+    if (!supplier_can($db, 'pos', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $name = trim((string) ($_POST['name'] ?? ''));
     $type = (string) ($_POST['type'] ?? 'restaurant');
     if (!isset(pos_outlet_types()[$type])) { $type = 'restaurant'; }
