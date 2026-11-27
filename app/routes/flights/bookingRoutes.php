@@ -751,6 +751,18 @@ $router->post('/api/flight/booking/revalidate', function () use ($SECURE, $db) {
         $supplier   = strtolower(trim($flightData['supplier'] ?? ''));
         $bookingData = $flightData['booking_data'] ?? [];
 
+        // SUPPLIER-HIDING DECODE: the draft's supplier is the OPAQUE token minted for
+        // the browser, not the real module name. Decode it BEFORE building the
+        // revalidate file path — otherwise modules/flights/<token>/revalidate.php never
+        // exists, the call returns skipped:true, and the client's
+        // (requiresRevalidation && skipped) check then WRONGLY blocks the booking as
+        // "fare no longer available" (this silently broke Tiqwa book-on-hold + pay).
+        // supplier_from_url_token() returns '' for a plaintext name, so real names pass.
+        if (function_exists('supplier_from_url_token')) {
+            $__realSup = supplier_from_url_token($supplier);
+            if ($__realSup !== '') { $supplier = strtolower($__realSup); }
+        }
+
         $revalidateFile     = __DIR__ . '/../../../modules/flights/' . $supplier . '/revalidate.php';
         $requiresRevalidate = !empty($supplier) && file_exists($revalidateFile);
 
