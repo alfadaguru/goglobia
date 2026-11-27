@@ -2,7 +2,7 @@
 // FILE: app/routes/users/supplierKitchenExtRoutes.php
 // KITCHEN / RECIPE / FOOD-COST (#31) deepening routes — ingredient catalogue, BOM,
 // requisitions, wastage, actual-vs-theoretical variance, and menu profitability.
-// Owner/staff gated; property-scoped via supplier_can('reservations', …) — the same
+// Owner/staff gated; property-scoped via supplier_can('kitchen', …) — the same
 // gate the base recipe card (supplierAncillaryRoutes.php) already uses, since this is
 // the same F&B operational data domain.
 //

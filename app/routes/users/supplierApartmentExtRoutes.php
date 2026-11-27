@@ -4,7 +4,8 @@
 // (extra-guest/pet fees, occupancy), self-check-in instructions, turnover tasks,
 // and damage reporting + (DB-GATED) damage charge to the guest folio/GL.
 // Base register (stays + physical rooms + online check-in) stays in supplierStaysRoutes.php.
-// Owner/staff gated; property-scoped via supplier_can('rooms'|'reservations', …).
+// Owner/staff gated; property-scoped via supplier_can('apartments', …) (the damage/charge
+// money route additionally requires reservations:edit).
 // Every per-unit / per-record POST resolves the owning stay FROM THE RECORD (never trust
 // a client stay_id) and re-checks supplier_can on that resolved stay — IDOR guard.
 // MONEY: only the damage-charge route posts money, via apartment_damage_charge, which

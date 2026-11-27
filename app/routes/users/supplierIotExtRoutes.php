@@ -3,7 +3,7 @@
 // MODULE 53 — Smart building & IoT. Internal device registry, manual meter readings,
 // and internal automation rules (threshold -> notify / open maintenance work order /
 // record setpoint note). Live telemetry is an HONEST STUB (iot_live_status reports
-// not-connected). Owner/staff gated; property-scoped via supplier_can('rooms', …)
+// not-connected). Owner/staff gated; property-scoped via supplier_can('iot', …)
 // to match the maintenance/engineering screens. Lib: supplier_iot_ext.php.
 // Every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can(...,$stayId).
 

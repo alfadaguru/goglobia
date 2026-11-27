@@ -1,7 +1,7 @@
 <?php
 // FILE: app/routes/users/supplierContactsRoutes.php
 // FRONT-DESK OVERHAUL — Phase 1: THE CUSTOMER BOOK routes.
-// Staff-usable (supplier_can('reservations',...)) org-scoped CRM of first-class
+// Staff-usable (supplier_can_orgwide('customers',...)) org-scoped CRM of first-class
 // contacts (individual/company/ngo/agent) searchable by phone/name/email/type.
 // Mirrors the _guests_ctx guard pattern (owner OR staff -> parent owner -> org),
 // NOT the owner-only corporate gate. Writes are CSRF-guarded. Backend = supplier_contacts.php.

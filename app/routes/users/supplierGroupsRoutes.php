@@ -1,6 +1,6 @@
 <?php
 // FILE: app/routes/users/supplierGroupsRoutes.php
-// Group & block reservations (inc S38). Property-scoped via supplier_can('reservations',
+// Group & block reservations (inc S38). Property-scoped via supplier_can('groups',
 // …, $stayId). Reuses stays owner/deny helpers. A ?stay_id selects the property (the
 // per-property drill-in sidebar links here with it set).
 

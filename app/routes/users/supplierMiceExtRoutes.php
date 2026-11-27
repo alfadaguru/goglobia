@@ -2,7 +2,7 @@
 // FILE: app/routes/users/supplierMiceExtRoutes.php
 // Events / MICE — EXTENSION routes (docs 01b module 16). Quotations, catering menus,
 // equipment, staffing, contracts, the BEO sheet and the event calendar. All scoped by
-// supplier_can('reservations', …, $stayId); every POST = SUPPLIER_OR_STAFF_AUTH + CSRF.
+// supplier_can('events', …, $stayId); every POST = SUPPLIER_OR_STAFF_AUTH + CSRF.
 // Money is only ever moved by the lib via the event folio (mice_folio_add) — no price is
 // ever read from the client.
 
@@ -11,7 +11,7 @@
 // --- shared guard helper for the POST routes in this file ---------------------------
 if (!function_exists('_mice_ext_post_ctx')) {
     /**
-     * Auth + CSRF + owner + supplier_can('reservations','edit',$stayId). Returns
+     * Auth + CSRF + owner + supplier_can('events','edit',$stayId). Returns
      * [$stayId, $back] or exits/redirects. $eventId optional (re-verified by the lib).
      */
     function _mice_ext_post_ctx($db): array

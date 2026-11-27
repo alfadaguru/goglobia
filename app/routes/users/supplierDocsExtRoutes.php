@@ -4,7 +4,7 @@
 // lifecycle (scope/status/file-ref/review), compliance checklists, expiry
 // reminders, data-retention rules, and a compliance report — on top of the base
 // safety & compliance repository (supplier_safety.php document_add/list).
-// Owner/staff gated. Gate matches the base safety screens: supplier_can('rooms',…).
+// Owner/staff gated. Gate matches the base safety screens: supplier_can('compliance',…).
 // Lib: app/lib/supplier_docs_ext.php.
 
 @$SECURE or die('Access Denied!');

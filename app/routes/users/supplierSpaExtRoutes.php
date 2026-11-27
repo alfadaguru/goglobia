@@ -3,7 +3,7 @@
 // Spa, wellness & recreation DEEPENING (#32): therapist/resource roster · appointment
 // calendar with double-book conflict detection · memberships (session passes) ·
 // charge-to-room (via the shared folio engine). Owner/staff gated; property-scoped via
-// supplier_can('reservations', …). Every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard +
+// supplier_can('spa', …). Every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard +
 // supplier_can(...,$stayId). Reuses the folio engine for money — never trusts a client
 // price (price is snapshotted from the service row server-side). New files only.
 //

@@ -11,7 +11,7 @@
 //   OWNER POST /supplier/ai-ext/save-brief    — persist the rule-based ops summary (DB-GATED).
 //   OWNER POST /supplier/ai-ext/concierge     — (JSON) attempt a concierge draft; returns
 //             connected=false honestly when no provider is configured.
-// Every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can('reservations',…). No
+// Every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can('ai',…). No
 // money/GL/availability writes. The only write is the text-only saved brief.
 
 @$SECURE or die('Access Denied!');

@@ -5,7 +5,7 @@
 // procedures, fire/safety inspections, and damage claims (incl. a DB-GATED
 // "bill to guest folio" action that reuses folio_add_item).
 //
-// Owner/staff gated via supplier_can('rooms', …, $stayId) — same gate the base
+// Owner/staff gated via supplier_can('safety', …, $stayId) — same gate the base
 // safety screen uses. Reuses the stays owner/deny helpers (loaded by
 // supplierStaysRoutes.php earlier in _routes.php) and the sfx_* helpers in
 // app/lib/supplier_safety_ext.php.

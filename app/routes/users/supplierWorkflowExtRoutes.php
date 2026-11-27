@@ -6,7 +6,8 @@
 // Base event bus (emit_event/audit_log) stays in supplier_events.php — untouched.
 //
 // AUTH: owner/staff gated. Tasks are ORG-scoped operational data, so view/write are
-// gated on supplier_can('reservations', 'view'|'edit') (the owner-wide operational
+// gated on supplier_can('workflow', 'view'|'edit') (rule authoring also requires
+// finance:edit) (the owner-wide operational
 // permission; owner is unrestricted). Per-task POSTs resolve the owning org FROM THE
 // TASK (never trust client org/owner) and re-check the acting owner — IDOR guard.
 // Approvals additionally require the 'finance' edit permission (sign-off authority).

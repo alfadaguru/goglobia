@@ -1,7 +1,7 @@
 <?php
 // FILE: app/routes/users/supplierGuestServiceRoutes.php
 // Guest service tickets / complaints (#21) + guest communication log (#19).
-// Owner/staff gated; property-scoped via supplier_can('reservations', …).
+// Owner/staff gated; property-scoped via supplier_can('guestservice', …).
 
 @$SECURE or die('Access Denied!');
 

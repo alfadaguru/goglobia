@@ -1,6 +1,6 @@
 <?php
 // FILE: app/routes/users/supplierPosRoutes.php
-// F&B / POS routes (Phase 1 inc S24). Owner/staff scoped via supplier_can('rooms',
+// F&B / POS routes (Phase 1 inc S24). Owner/staff scoped via supplier_can('pos',
 // …, $stayId) — POS is part of property operations. Reuses the stays owner/deny
 // helpers. All writes CSRF-guarded + ownership re-checked per property.
 

@@ -1,6 +1,6 @@
 <?php
 // FILE: app/routes/users/supplierEventsRoutes.php
-// Events / MICE routes (Phase 1 inc S33). supplier_can('reservations', …, $stayId)-
+// Events / MICE routes (Phase 1 inc S33). supplier_can('events', …, $stayId)-
 // scoped. Reuses stays owner/deny helpers. Completion posts to the GL via the lib.
 
 @$SECURE or die('Access Denied!');

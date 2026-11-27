@@ -2,7 +2,7 @@
 // FILE: app/routes/users/supplierAssetsExtRoutes.php
 // Fixed assets & equipment — DEEPENED actions (#28): tagging, warranty, depreciation,
 // transfers, repair/service history, disposal, and an asset report.
-// Owner/staff gated; property-scoped via supplier_can('rooms', …) (operational data),
+// Owner/staff gated; property-scoped via supplier_can('assets', …) (operational data),
 // matching the base supplier/assets screens in supplierFacilitiesRoutes.php.
 // All state-changing routes: SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can(...,$stayId).
 

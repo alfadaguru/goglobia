@@ -4,7 +4,7 @@
 //   PUBLIC guest capture — GET/POST /stay-review/{token} (no login; token binds the
 //     invoice, and the submit re-validates the booking is post-stay + unreviewed).
 //   OWNER moderation — GET /supplier/reviews + POST /supplier/reviews/status
-//     (supplier_can('reservations', …)); publishing/hiding re-rolls stays.rating.
+//     (supplier_can('reviews', …)); publishing/hiding re-rolls stays.rating.
 
 @$SECURE or die('Access Denied!');
 

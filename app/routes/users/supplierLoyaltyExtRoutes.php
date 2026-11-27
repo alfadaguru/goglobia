@@ -5,7 +5,7 @@
 // base (supplier_loyalty.php) + ext lib (supplier_loyalty_ext.php). Org-wide, so it is a
 // top-level CRM screen like /supplier/guests. Reuses the stays owner/deny helpers.
 //
-// AUTH on every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can('reservations',…)
+// AUTH on every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can_orgwide('loyalty',…)
 // (the same gate the base loyalty uses — no new permission key to seed; owner always
 // allowed). Config/benefit edits are OWNER-only. Money (member-rate / redeem to folio)
 // is derived server-side and posted via the base folio spine — client amounts are never

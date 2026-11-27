@@ -1,6 +1,7 @@
 <?php
 // FILE: app/routes/users/supplierGuestsRoutes.php
-// Guest CRM routes (Phase 1 inc S29). supplier_can('reservations', …)-scoped.
+// Guest CRM routes (Phase 1 inc S29). supplier_can_orgwide('guests', …)-scoped (guest-create
+// also accepts reservations:edit — see the quick-create note below).
 // Profiles are read-only aggregates from bookings; only the note/VIP is writable.
 // Reuses the stays owner/deny helpers (loaded earlier in _routes.php).
 

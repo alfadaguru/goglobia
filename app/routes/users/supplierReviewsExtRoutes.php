@@ -8,8 +8,7 @@
 //            sentiment + department scorecard + recent surveys + internal QA).
 //   OWNER    POST /supplier/reputation/internal    — add an internal (private) QA rating.
 //   OWNER    POST /supplier/reputation/suggest     — AI/template reply suggestion (JSON).
-// Every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can('reservations',…)
-// (reviews are owned by the reservations capability in the base module). Property writes
+// Every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can('reputation',…). Property writes
 // re-check ownership (IDOR guard). No money/availability touched here.
 
 @$SECURE or die('Access Denied!');

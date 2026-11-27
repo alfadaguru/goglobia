@@ -4,7 +4,7 @@
 // agreements, job assignment, performance scoring, compliance docs/reminders, and vendor
 // invoices + ledger-posted payment — on top of the base procurement vendor directory.
 // ORG-scoped (vendors live at org level). Owner/staff gated: every write runs
-// SUPPLIER_OR_STAFF_AUTH($db) + CSRF::guard() + supplier_can($db,'rooms','edit'). Reuses
+// SUPPLIER_OR_STAFF_AUTH($db) + CSRF::guard() + supplier_can_orgwide($db,'vendors','edit'). Reuses
 // supplier_vendors_ext.php. Money (invoice payment) posts a balanced GL entry via gl_post.
 
 @$SECURE or die('Access Denied!');
@@ -22,7 +22,7 @@ if (!function_exists('_vext_org')) {
 }
 
 if (!function_exists('_vext_write_ctx')) {
-    /** Shared POST guard: auth + CSRF + org resolution + rooms:edit. Returns org id (>0). */
+    /** Shared POST guard: auth + CSRF + org resolution + vendors:edit (org-wide). Returns org id (>0). */
     function _vext_write_ctx($db): int
     {
         SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();

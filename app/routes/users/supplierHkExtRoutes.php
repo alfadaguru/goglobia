@@ -4,7 +4,7 @@
 // auto-generation, task lifecycle (assign/start/done/DND/refused), checklist,
 // supervisor inspection, and the productivity report.
 //
-// Owner/staff scoped via supplier_can('rooms', …, $stayId). Reuses the stays
+// Owner/staff scoped via supplier_can('housekeeping', …, $stayId). Reuses the stays
 // owner/deny helpers from supplierStaysRoutes.php (loaded earlier in _routes.php)
 // and the hk_* helpers in app/lib/supplier_hk_ext.php. No money/gateway here —
 // pure operational overlay (see the lib header).

@@ -4,7 +4,7 @@
 // issue/return/lost/damaged stock ledger, external vendor register, guest-laundry →
 // folio posting (DB-GATED money spine), and the laundry cost report. Sits alongside the
 // base /supplier/laundry (batch lifecycle) in supplierFacilitiesRoutes.php — NO overlap.
-// Owner/staff gated; property-scoped via supplier_can('rooms', …) like the rest of the
+// Owner/staff gated; property-scoped via supplier_can('laundry', …) like the rest of the
 // facilities registers (laundry is operational room data). Every POST: auth + CSRF +
 // supplier_can with the named stay (IDOR stop).
 

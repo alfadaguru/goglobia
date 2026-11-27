@@ -8,7 +8,7 @@
 //     POST /stay-journey/{token}/request         — raise a service/extra request
 //     POST /stay-journey/{token}/express-checkout— signal express checkout (desk finalises)
 //
-//   OWNER back-office — SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can('reservations',…):
+//   OWNER back-office — SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can('journey',…):
 //     GET  /supplier/journey                      — directory manager + request queue
 //     POST /supplier/journey/directory            — add/update a directory item
 //     POST /supplier/journey/directory/delete     — delete a directory item

@@ -3,7 +3,7 @@
 // MODULE 29 (Lost & found → 360) extension routes: detail/reservation, claim
 // verification, return/shipping, disposal policy + disposal action, audit trail.
 // Base register (add/status/list) stays in supplierFacilitiesRoutes.php — untouched.
-// Owner/staff gated; property-scoped via supplier_can('rooms', …) (operational data).
+// Owner/staff gated; property-scoped via supplier_can('lostfound', …) (operational data).
 // Per-item POSTs resolve the owning stay FROM THE ITEM (never trust client stay_id) and
 // re-check supplier_can on that resolved stay — IDOR guard. No money is posted anywhere.
 

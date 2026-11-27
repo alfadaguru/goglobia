@@ -7,7 +7,8 @@
 // /supplier/ancillary-services (flat service catalogue, supplierAncillaryRoutes.php) —
 // NO path overlap (this owns /supplier/resources).
 //
-// Owner/staff gated; property-scoped via supplier_can('reservations', …) exactly like
+// Owner/staff gated; property-scoped via supplier_can('resources', …) (the folio-post
+// money route additionally accepts reservations:edit) exactly like
 // the ancillary services it extends. Every POST: SUPPLIER_OR_STAFF_AUTH + CSRF::guard()
 // + supplier_can with the NAMED stay (IDOR stop). Price is snapshot server-side — the
 // client never supplies a charge.

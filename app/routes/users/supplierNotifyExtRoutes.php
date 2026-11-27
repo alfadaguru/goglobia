@@ -9,7 +9,7 @@
 //
 // AUTH: owner/staff gated. The inbox + preferences are PER-USER (every read/write is
 // scoped to the acting actor's own user_id — never another user's rows). Authoring alert
-// rules + webhook endpoints is an org-admin action, gated on supplier_can('finance','edit')
+// rules + webhook endpoints is an org-admin action, gated on supplier_can('alerts','edit')
 // (the privileged configuration scope, consistent with workflow rule authoring). NO money
 // is posted anywhere in this module.
 
@@ -66,7 +66,8 @@ $router->get('/supplier/alerts', function () use ($SECURE, $db) {
     $webhookStatus = function_exists('notify_webhook_status') ? notify_webhook_status() : ['connected' => false, 'message' => ''];
     $eventCatalogue = function_exists('platform_event_catalogue') ? platform_event_catalogue() : [];
 
-    // Only the org owner may author rules / webhooks (privileged config scope).
+    // Authoring alert rules / webhooks requires the alerts:edit grant (owner, or a staffer
+    // granted the Alerts area). Org-level config, so no per-property stayId.
     $canConfigure = supplier_can($db, 'alerts', 'edit');
 
     // Recipient picker (owner + active staff) for rule targeting.

@@ -5,7 +5,7 @@
 // communication + complaints history), and the consent-save POST. Reuses the base CRM
 // aggregate (guest_list/guest_history) + the stays owner/deny/can helpers verbatim.
 //
-// Auth: SUPPLIER_OR_STAFF_AUTH + supplier_can('reservations',...) exactly like the base
+// Auth: SUPPLIER_OR_STAFF_AUTH + supplier_can_orgwide('guestcrm',...) exactly like the base
 // routes. The only write (consent) is CSRF-guarded and requires an owner-scoped booking
 // for the target email (defense in depth, same as guest_profile_save). No money/gateway.
 

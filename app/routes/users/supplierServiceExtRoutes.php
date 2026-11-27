@@ -2,7 +2,7 @@
 // FILE: app/routes/users/supplierServiceExtRoutes.php
 // Guest service & complaint DEEPENING (#21): department routing · SLA · escalation ·
 // service recovery · completion confirmation · satisfaction feedback.
-// Owner/staff gated; property-scoped via supplier_can('reservations', …). All POSTs:
+// Owner/staff gated; property-scoped via supplier_can('guestservice', …). All POSTs:
 // SUPPLIER_OR_STAFF_AUTH + CSRF::guard + supplier_can(...,$stayId). Reuses the folio
 // engine for money (service recovery). New files only.
 

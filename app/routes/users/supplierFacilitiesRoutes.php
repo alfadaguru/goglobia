@@ -1,7 +1,7 @@
 <?php
 // FILE: app/routes/users/supplierFacilitiesRoutes.php
 // Lost & Found (#29) + Fixed Assets (#28) — per-property facility registers.
-// Owner/staff gated; property-scoped via supplier_can('rooms', …) (operational data).
+// Owner/staff gated; property-scoped via supplier_can('assets', …) (operational data).
 
 @$SECURE or die('Access Denied!');
 

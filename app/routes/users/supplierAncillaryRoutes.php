@@ -1,7 +1,7 @@
 <?php
 // FILE: app/routes/users/supplierAncillaryRoutes.php
 // Services (spa/wellness/generic #32/#33) + recipes/food-cost (#31). Owner/staff gated,
-// property-scoped via supplier_can('reservations', …).
+// property-scoped via supplier_can('services', …).
 
 @$SECURE or die('Access Denied!');
 

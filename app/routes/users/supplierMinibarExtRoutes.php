@@ -2,7 +2,7 @@
 // FILE: app/routes/users/supplierMinibarExtRoutes.php
 // MINIBAR (#26) deepening routes — room par levels, consumption→folio posting,
 // replenishment, physical counts, and the shrinkage report. Owner/staff gated;
-// property-scoped via supplier_can('rooms', …) (operational data, same gate the
+// property-scoped via supplier_can('minibar', …) (operational data, same gate the
 // base minibar catalogue uses). All money flows through folio_add_item inside
 // minibar_post_consumption — the client never supplies a price.
 
