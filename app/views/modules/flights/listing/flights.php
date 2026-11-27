@@ -1429,22 +1429,47 @@ try {
                 // console.log(`✅ Complete! UI cleaned up.`);
             },
 
-            // REAL fare-validity countdown (Adivaha). The supplier search trace is
-            // minted when the search fires and this results page loads immediately
-            // after, so page-load is a faithful anchor for the trace start. We hold
-            // back the configured safety BUFFER (default 3 min) so we never display
-            // more time than the ~15-min trace actually guarantees AND so there is
-            // runway for the payment round-trip — the trace can lapse a touch early,
-            // and the server deadline gate + revalidate fail closed at booking
-            // regardless. Carried forward to the booking page, which re-anchors to
-            // the real search time (trace_started_at) using the same buffer.
+            // Find the REAL trace start (epoch secs) — the moment Adivaha minted the
+            // search trace, stamped server-side onto each offer's booking_data as
+            // trace_started_at. We anchor the countdown to THIS, not page-load:
+            // Adivaha's search is ASYNC (poll loop can take 20-60s), so by the time
+            // results render the trace is already partly spent. Anchoring to page-load
+            // would overstate the remaining time and let the customer sail past the
+            // point where the booking page + server payment-deadline gate (both
+            // anchored to the real trace_started_at) will cut them off. Using the same
+            // anchor on all three surfaces makes the timer genuinely END-TO-END.
+            resolveTraceAnchor() {
+                // Scan the loaded results for the earliest real trace_started_at. A
+                // normalized flight spreads its first segment, so booking_data lives at
+                // flight.booking_data (=== segments[0].booking_data); check both to be
+                // robust. Only Adivaha offers carry trace_started_at (other suppliers
+                // don't drive this timer), so a missing value simply means "not Adivaha".
+                let earliest = 0;
+                (this.filteredFlights || []).forEach(f => {
+                    const bd = (f && f.booking_data) ? f.booking_data
+                             : (f && f.segments && f.segments[0] && f.segments[0].booking_data) ? f.segments[0].booking_data
+                             : null;
+                    const ts = bd ? parseInt(bd.trace_started_at, 10) : NaN;
+                    if (!isNaN(ts) && ts > 0 && (earliest === 0 || ts < earliest)) { earliest = ts; }
+                });
+                return earliest; // 0 if none found (falls back to now)
+            },
+
+            // REAL fare-validity countdown (Adivaha), anchored to the trace's actual
+            // birth (trace_started_at) so the results page, booking page and server
+            // payment-deadline gate all count down ONE shared window. The BUFFER
+            // (default 3 min) is held back so we never show more time than the ~15-min
+            // trace guarantees and there is runway for the payment round-trip.
             startFareTimer() {
                 if (!this.fareTimerEnabled || this.fareTimerMinutes < 1) { return; }
                 if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
                 this.fareTimerExpired = false;
                 let bufferSec = parseInt(this.fareTimerBufferSec, 10);
                 if (isNaN(bufferSec) || bufferSec < 0) { bufferSec = 180; }
-                this.fareTimerDeadline = Math.floor(Date.now() / 1000) + (this.fareTimerMinutes * 60) - bufferSec;
+                // Anchor to the real trace start; fall back to now only if absent.
+                const traceAnchor = this.resolveTraceAnchor();
+                const anchor = traceAnchor > 0 ? traceAnchor : Math.floor(Date.now() / 1000);
+                this.fareTimerDeadline = anchor + (this.fareTimerMinutes * 60) - bufferSec;
                 const tick = () => {
                     const remaining = this.fareTimerDeadline - Math.floor(Date.now() / 1000);
                     if (remaining <= 0) {

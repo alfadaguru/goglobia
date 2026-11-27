@@ -361,7 +361,7 @@ $router->post('flights/adivaha/search', function () use ($db) {
     // offer's per-leg summary(ies), plus the priced booking_data for that offer.
     // Returns ['legs' => [ [flightObj], ... ], 'price' => float, 'actual' => float,
     //          'offer_id' => string, 'meta' => array] or null.
-    $buildLegGroups = function (array $offer) use ($db, $module, $currency, $traceId, $type, $rawClass) {
+    $buildLegGroups = function (array $offer) use ($db, $module, $currency, $traceId, $traceStartedAt, $type, $rawClass) {
         $offerId = (string) ($offer['id'] ?? '');
         if ($offerId === '') return null;
 
