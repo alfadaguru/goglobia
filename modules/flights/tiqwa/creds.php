@@ -214,7 +214,15 @@ if (!function_exists('tiqwaLog')) {
 // reports — the API balance (for making calls) and the TICKET balance (for
 // issuing/paying for tickets) — because the Ticket balance must be funded for
 // POST /pay to succeed (see actions/issue.php).
+//
+// Guarded by isset($router): this file is also require'd from FUNCTION scope by
+// the book-on-hold lazy loader (flight_hold_load_adapter) purely to pull in the
+// shared helpers below (getTiqwaCredentials / tiqwaApiRequest / tiqwa_build_pax /
+// tiqwa_reserve via reserve.php). In that scope $router/$db don't exist, so the
+// route registration must be skipped — otherwise it fatals and the helpers after
+// it never load (which silently disabled the Hold button).
 // ===========================================================================
+if (isset($router) && is_object($router) && isset($db)) {
 $router->post('flights/tiqwa/creds', function () use ($db) {
 
     $start = microtime(true);
@@ -314,6 +322,7 @@ $router->post('flights/tiqwa/creds', function () use ($db) {
     $response['metadata']['response_time'] = round((microtime(true) - $start) * 1000, 2);
     echo json_encode($response);
 });
+} // end if (isset($router)) — route registered only during normal bootstrap
 
 // ---------------------------------------------------------------------------
 // SHARED PASSENGER BUILDER — used by BOTH the pay-then-issue path (actions/

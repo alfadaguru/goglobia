@@ -581,6 +581,13 @@ $router->post(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE
     $module = $db->get('modules', '*', ['id' => $moduleId]);
 
     if (isset($_POST['save_settings'])) {
+        // CSRF: this form posts a token (CSRF::tokenField in manage.php). Verify it —
+        // the handler writes money-relevant config (markup, tax, tolerance, hold).
+        if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
+            $_SESSION['message'] = ['type' => 'error', 'key' => 'invalid_request', 'text' => 'Invalid or expired request. Please try again.'];
+            header('Location: ' . root . admin . '/settings/modules/' . $moduleId);
+            exit;
+        }
         $devModeValue = null;
         if (array_key_exists('dev_mode', $_POST)) {
             $devModeValue = (string)$_POST['dev_mode'];
@@ -614,6 +621,27 @@ $router->post(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE
                 if ($mins < 1)   $mins = 1;
                 if ($mins > 120) $mins = 120;
                 $updateData['fare_timer_minutes'] = $mins;
+            }
+            // Safety buffer (seconds) subtracted from the fare window — runway for the
+            // payment round-trip so the deadline stops before the fare truly dies.
+            if (isset($_POST['fare_timer_buffer_sec'])) {
+                $buf = (int) $_POST['fare_timer_buffer_sec'];
+                if ($buf < 0)   $buf = 0;
+                if ($buf > 600) $buf = 600;
+                $updateData['fare_timer_buffer_sec'] = $buf;
+            }
+            // Per-module post-payment price-increase tolerance (percent). 0 = never
+            // absorb a loss; read by reconcilePostPaymentPrice() + /payment/process.
+            if (isset($_POST['fare_tolerance_pct'])) {
+                $tol = (float) $_POST['fare_tolerance_pct'];
+                if ($tol < 0)   $tol = 0.0;
+                if ($tol > 100) $tol = 100.0;
+                $updateData['fare_tolerance_pct'] = $tol;
+            }
+            // Book-on-Hold toggle (only submitted for hold-capable suppliers; the UI
+            // hides it otherwise). Checkbox-style select → explicit 0/1.
+            if (isset($_POST['hold_enabled'])) {
+                $updateData['hold_enabled'] = ((string) $_POST['hold_enabled'] === '1') ? 1 : 0;
             }
         }
 

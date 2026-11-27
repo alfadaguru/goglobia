@@ -32,6 +32,38 @@ if (!function_exists('flight_hold_adapters')) {
     }
 }
 
+if (!function_exists('flight_hold_load_adapter')) {
+    /**
+     * Lazy-load a supplier's reserve adapter file so its reserve function exists.
+     * The adapter lives under modules/flights/<supplier>/reserve.php and is NOT part
+     * of the main app bootstrap (it normally loads only via the /modules gateway), so
+     * flight_hold_supported() / flight_hold_reserve() — which run on the main app's
+     * booking page — must require it before any function_exists() check. Without this
+     * the Hold button silently never renders (tiqwa_reserve undefined → supported=false).
+     * Best-effort + idempotent; require_once guards double-loads.
+     */
+    function flight_hold_load_adapter(string $supplier): void
+    {
+        $supplier = strtolower(trim($supplier));
+        if ($supplier === '') { return; }
+        $adapters = flight_hold_adapters();
+        if (!isset($adapters[$supplier]) || function_exists($adapters[$supplier])) { return; }
+        // Resolve the FILESYSTEM base from this file's own location — NOT the app's
+        // `root` constant, which is a URL base ('/' in this install) and would make
+        // rtrim(root,'/') === '' → an absolute '/modules/...' path that never exists,
+        // silently loading nothing (the real cause of the Hold button never showing).
+        $base    = dirname(__DIR__, 2); // app/lib/flight_hold.php -> repo root
+        $creds   = $base . '/modules/flights/' . $supplier . '/creds.php';
+        $reserve = $base . '/modules/flights/' . $supplier . '/reserve.php';
+        try {
+            if (is_file($creds))   { require_once $creds; }
+            if (is_file($reserve)) { require_once $reserve; }
+        } catch (\Throwable $e) {
+            error_log('flight_hold_load_adapter(' . $supplier . '): ' . $e->getMessage());
+        }
+    }
+}
+
 if (!function_exists('flight_hold_supported')) {
     /**
      * Is Book-on-Hold available for this supplier? Requires BOTH a reserve adapter
@@ -45,7 +77,11 @@ if (!function_exists('flight_hold_supported')) {
         if ($supplier === '') { return false; }
 
         $adapters = flight_hold_adapters();
-        if (!isset($adapters[$supplier]) || !function_exists($adapters[$supplier])) {
+        if (!isset($adapters[$supplier])) { return false; }
+        // Lazy-load the adapter file so its reserve function is defined on the main
+        // app path (the booking page), where it is not otherwise bootstrapped.
+        flight_hold_load_adapter($supplier);
+        if (!function_exists($adapters[$supplier])) {
             return false;
         }
 
@@ -111,7 +147,11 @@ if (!function_exists('flight_hold_reserve')) {
 
         $adapters = flight_hold_adapters();
         $fn = $adapters[$supplier] ?? '';
-        if ($fn === '' || !function_exists($fn)) {
+        if ($fn === '') {
+            return $fail('Book-on-Hold is not available for this airline.');
+        }
+        flight_hold_load_adapter($supplier);
+        if (!function_exists($fn)) {
             return $fail('Book-on-Hold is not available for this airline.');
         }
         try {

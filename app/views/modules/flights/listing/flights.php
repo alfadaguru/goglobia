@@ -142,11 +142,13 @@ if ($displayCurrencyRate > 0) {
 // So the countdown is enabled only when an Adivaha flight module is active + toggled.
 $resultsFareTimerEnabled = false;
 $resultsFareTimerMinutes = 15;
+$resultsFareTimerBufferSec = 180;
 try {
-    $ftRows = $db->select('modules', ['name', 'fare_timer_enabled', 'fare_timer_minutes'], [
+    $ftRows = $db->select('modules', ['name', 'fare_timer_enabled', 'fare_timer_minutes', 'fare_timer_buffer_sec'], [
         'type' => 'flights', 'status' => '1',
     ]);
     $minMinutes = null;
+    $maxBuffer  = null;
     foreach (($ftRows ?: []) as $ftRow) {
         // Only hard-expiry suppliers drive the strict results countdown. Adivaha is
         // the one with a real search-trace TTL; others (tiqwa, own-inventory) are soft.
@@ -158,10 +160,18 @@ try {
             if ($m < 1) $m = 1;
             if ($m > 15) $m = 15; // Adivaha's trace truly dies ~15 min — never promise longer
             if ($minMinutes === null || $m < $minMinutes) $minMinutes = $m;
+            // Use the LARGEST buffer among active hard-expiry suppliers (most conservative).
+            $b = (int) ($ftRow['fare_timer_buffer_sec'] ?? 180);
+            if ($b < 0)   $b = 0;
+            if ($b > 600) $b = 600;
+            if ($maxBuffer === null || $b > $maxBuffer) $maxBuffer = $b;
         }
     }
     if ($resultsFareTimerEnabled && $minMinutes !== null) {
         $resultsFareTimerMinutes = $minMinutes;
+    }
+    if ($resultsFareTimerEnabled && $maxBuffer !== null) {
+        $resultsFareTimerBufferSec = $maxBuffer;
     }
 } catch (\Throwable $e) {
     // fare_timer_* columns may not exist yet on an un-migrated DB — stay off.
@@ -1026,6 +1036,7 @@ try {
             // results page has no server-side booking draft to anchor to.
             fareTimerEnabled: <?= $resultsFareTimerEnabled ? 'true' : 'false' ?>,
             fareTimerMinutes: <?= (int) $resultsFareTimerMinutes ?>,
+            fareTimerBufferSec: <?= (int) $resultsFareTimerBufferSec ?>,
             fareTimerDeadline: 0,      // UNIX seconds; set when results complete
             fareTimerLabel: '',        // "mm:ss"
             fareTimerExpired: false,
@@ -1421,16 +1432,19 @@ try {
             // REAL fare-validity countdown (Adivaha). The supplier search trace is
             // minted when the search fires and this results page loads immediately
             // after, so page-load is a faithful anchor for the trace start. We hold
-            // back a small safety margin (30s) so we never display more time than the
-            // ~15-min trace actually guarantees — the trace can lapse a touch early,
-            // and the server revalidate fails closed at booking regardless. Carried
-            // forward to the booking page, which re-anchors to the same window.
+            // back the configured safety BUFFER (default 3 min) so we never display
+            // more time than the ~15-min trace actually guarantees AND so there is
+            // runway for the payment round-trip — the trace can lapse a touch early,
+            // and the server deadline gate + revalidate fail closed at booking
+            // regardless. Carried forward to the booking page, which re-anchors to
+            // the real search time (trace_started_at) using the same buffer.
             startFareTimer() {
                 if (!this.fareTimerEnabled || this.fareTimerMinutes < 1) { return; }
                 if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
                 this.fareTimerExpired = false;
-                const SAFETY_MARGIN_SEC = 30; // show slightly less than the real TTL
-                this.fareTimerDeadline = Math.floor(Date.now() / 1000) + (this.fareTimerMinutes * 60) - SAFETY_MARGIN_SEC;
+                let bufferSec = parseInt(this.fareTimerBufferSec, 10);
+                if (isNaN(bufferSec) || bufferSec < 0) { bufferSec = 180; }
+                this.fareTimerDeadline = Math.floor(Date.now() / 1000) + (this.fareTimerMinutes * 60) - bufferSec;
                 const tick = () => {
                     const remaining = this.fareTimerDeadline - Math.floor(Date.now() / 1000);
                     if (remaining <= 0) {

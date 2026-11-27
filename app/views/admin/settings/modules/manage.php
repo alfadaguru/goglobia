@@ -389,15 +389,73 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
                         </div>
                         <div class="form-control">
                             <label for="fare_timer_minutes" class="form-label">
-                                Fare hold minutes
+                                Fare validity minutes (real supplier TTL)
                             </label>
                             <input type="number" id="fare_timer_minutes" name="fare_timer_minutes" class="input"
                                    min="1" max="120" step="1"
                                    value="<?= (int) ($module['fare_timer_minutes'] ?? 15) ?>">
                             <p class="text-xs text-slate-500 mt-1">
-                                How long the fare is held before the customer must search again (default 15).
+                                The REAL window the supplier keeps a searched fare valid (Adivaha's
+                                trace dies ~15 min after search — do not set above 15 for Adivaha).
                             </p>
                         </div>
+                        <div class="form-control">
+                            <label for="fare_timer_buffer_sec" class="form-label">
+                                Safety buffer (seconds)
+                            </label>
+                            <input type="number" id="fare_timer_buffer_sec" name="fare_timer_buffer_sec" class="input"
+                                   min="0" max="600" step="10"
+                                   value="<?= (int) ($module['fare_timer_buffer_sec'] ?? 180) ?>">
+                            <p class="text-xs text-slate-500 mt-1">
+                                Runway subtracted from the window so the countdown stops BEFORE the
+                                fare really dies, leaving time for the payment round-trip (default 180
+                                = 3 min). So a 15-min fare shows/enforces 12 min. Payment is blocked
+                                server-side once this deadline passes — your card is never charged on a
+                                dead fare.
+                            </p>
+                        </div>
+                        <div class="form-control">
+                            <label for="fare_tolerance_pct" class="form-label">
+                                Price-change tolerance (%)
+                            </label>
+                            <input type="number" id="fare_tolerance_pct" name="fare_tolerance_pct" class="input"
+                                   min="0" max="100" step="0.1"
+                                   value="<?= htmlspecialchars((string) ($module['fare_tolerance_pct'] ?? '0')) ?>">
+                            <p class="text-xs text-slate-500 mt-1">
+                                Max fare increase (after payment) we will still ticket at, before
+                                auto-refunding. <strong>0 = never absorb a loss</strong> (recommended
+                                for locked suppliers like Tiqwa). Adivaha = 2 to match its own
+                                accept-token band (so you don't refund fares the supplier would honour).
+                            </p>
+                        </div>
+                        <?php
+                            // Book-on-Hold: only expose the toggle for suppliers that can
+                            // actually reserve-without-pay (so admins never enable a Hold
+                            // the supplier can't honour). flight_hold_adapters() is the
+                            // source of truth for hold-capable modules.
+                            $__holdCapable = false;
+                            if (function_exists('flight_hold_adapters')) {
+                                $__adapters = flight_hold_adapters();
+                                $__mName = strtolower((string) ($module['name'] ?? ''));
+                                $__holdCapable = isset($__adapters[$__mName]) && function_exists($__adapters[$__mName]);
+                            }
+                        ?>
+                        <?php if ($__holdCapable): ?>
+                        <div class="form-control">
+                            <label for="hold_enabled" class="form-label">
+                                Book-on-Hold (lock price, pay later)
+                            </label>
+                            <select id="hold_enabled" name="hold_enabled" class="select input">
+                                <option value="0" <?= ((string) ($module['hold_enabled'] ?? '0')) === '0' ? 'selected' : '' ?>>Disabled</option>
+                                <option value="1" <?= ((string) ($module['hold_enabled'] ?? '0')) === '1' ? 'selected' : '' ?>>Enabled</option>
+                            </select>
+                            <p class="text-xs text-slate-500 mt-1">
+                                When enabled, the fare is reserved and <strong>price-locked at the
+                                supplier BEFORE payment</strong> — so the fare cannot move after the
+                                customer pays. Only shown for suppliers that support a real hold.
+                            </p>
+                        </div>
+                        <?php endif; ?>
                         <?php endif; ?>
                     </div>
                 </div>

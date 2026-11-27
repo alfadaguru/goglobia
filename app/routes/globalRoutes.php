@@ -419,6 +419,58 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
         }
     }
 
+    // (d-bis) INDEPENDENT FLIGHT DEADLINE GATE (2026-11-27) — the money-safe guard
+    // that does NOT depend on the supplier answering. Adivaha's search trace dies
+    // ~15 min after the SEARCH; we stamped that search epoch onto the booking as
+    // booking_data.flight_data.booking_data.trace_started_at. If the booking is now
+    // older than (fare_timer_minutes*60 − fare_timer_buffer_sec), the trace is at or
+    // past its safe window, so we BLOCK the charge here — fail CLOSED, no supplier
+    // round-trip, no timeout risk. This is what closes the "revalidate timed out →
+    // charged a dead fare" gap. Only runs for flight suppliers that have the timer
+    // enabled (Adivaha); own-inventory and no-timer modules are untouched.
+    if (strtolower((string) ($booking['module_type'] ?? '')) === 'flights') {
+        try {
+            $__dgSupplier = strtolower(trim((string) ($booking['module'] ?? '')));
+            if ($__dgSupplier !== '' && $__dgSupplier !== 'flights') {
+                $__dgRow = $db->get('modules', ['fare_timer_enabled', 'fare_timer_minutes', 'fare_timer_buffer_sec'], [
+                    'name' => $__dgSupplier, 'type' => 'flights',
+                ]);
+                if ($__dgRow && ((string) ($__dgRow['fare_timer_enabled'] ?? '0')) === '1') {
+                    $__dgMin = (int) ($__dgRow['fare_timer_minutes'] ?? 15);
+                    if ($__dgMin < 1)  $__dgMin = 1;
+                    if ($__dgMin > 15) $__dgMin = 15;
+                    $__dgBuf = (int) ($__dgRow['fare_timer_buffer_sec'] ?? 180);
+                    if ($__dgBuf < 0)   $__dgBuf = 0;
+                    if ($__dgBuf > 600) $__dgBuf = 600;
+
+                    // Anchor: the real search time stamped at search; fall back to the
+                    // booking's created_at (never newer, so this is conservative).
+                    $__dgBd = json_decode((string) ($booking['booking_data'] ?? '[]'), true) ?: [];
+                    $__dgFd = is_array($__dgBd['flight_data'] ?? null) ? $__dgBd['flight_data'] : [];
+                    $__dgInner = is_array($__dgFd['booking_data'] ?? null) ? $__dgFd['booking_data'] : [];
+                    if (empty($__dgInner['trace_started_at']) && !empty($__dgFd['segments'][0]['booking_data']['trace_started_at'])) {
+                        $__dgInner = $__dgFd['segments'][0]['booking_data'];
+                    }
+                    $__dgAnchor = !empty($__dgInner['trace_started_at'])
+                        ? (int) $__dgInner['trace_started_at']
+                        : (strtotime((string) ($booking['created_at'] ?? 'now')) ?: time());
+
+                    $__dgAgeSec = time() - $__dgAnchor;
+                    $__dgLimit  = ($__dgMin * 60) - $__dgBuf;   // e.g. 15*60 − 180 = 720s (12 min)
+                    if ($__dgLimit < 30) { $__dgLimit = 30; }   // always allow a minimal window
+                    if ($__dgAgeSec > $__dgLimit) {
+                        error_log('/payment/process FLIGHT DEADLINE GATE — blocked stale trace | invoice=' . $invoiceId . ' supplier=' . $__dgSupplier . ' age=' . $__dgAgeSec . 's limit=' . $__dgLimit . 's');
+                        $__payBlock('This fare has expired (flight fares are held for about ' . $__dgMin . ' minutes after you search). Please search again to see current prices — your card has not been charged.');
+                    }
+                }
+            }
+        } catch (\Throwable $__dge) {
+            // A gate error must not wedge checkout; the supplier revalidate below is
+            // the backstop. Log and fall through.
+            error_log('/payment/process flight-deadline-gate error ' . $invoiceId . ': ' . $__dge->getMessage());
+        }
+    }
+
     // (e) BUG 1a FIX (2026-11-10): FLIGHT fare freshness at pay-time — on the LIVE
     // web path. A supplier search trace (e.g. Adivaha) hard-expires ~15 min after
     // search with NO token refresh; if the customer reaches pay late, the /book at
@@ -455,15 +507,28 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
                         error_log('/payment/process FLIGHT OFFER EXPIRED — blocked (search stale) | invoice=' . $invoiceId . ' supplier=' . $__frSupplier);
                         $__payBlock('This fare has expired (flight fares are held for about 15 minutes). Please search again to see current prices — your card has not been charged.');
                     }
-                    // Price rose beyond tolerance → block for review (never silent re-charge).
+                    // Price rose beyond the PER-MODULE tolerance → block for review
+                    // (never silent re-charge). Uses modules.fare_tolerance_pct so
+                    // Adivaha=2% (its own accept_token band) and Tiqwa=0% apply here
+                    // exactly as they do at issue-time reconciliation.
                     if (is_array($__rv) && !empty($__rv['status']) && !empty($__rvData['price_changed'])) {
                         $__frNew = (float) ($__rvData['new_price'] ?? 0);
-                        if ($__frOld > 0 && $__frNew > 0 && (($__frNew - $__frOld) / $__frOld) * 100.0 > 2.0) {
-                            error_log('/payment/process FLIGHT FARE CHANGED — blocked for review | invoice=' . $invoiceId . ' old=' . $__frOld . ' new=' . $__frNew . ' ' . $__frCur);
+                        $__frTol = function_exists('reconcileModuleTolerancePct')
+                            ? reconcileModuleTolerancePct($db, $booking)
+                            : 2.0;
+                        if ($__frOld > 0 && $__frNew > 0 && (($__frNew - $__frOld) / $__frOld) * 100.0 > $__frTol) {
+                            error_log('/payment/process FLIGHT FARE CHANGED — blocked for review | invoice=' . $invoiceId . ' old=' . $__frOld . ' new=' . $__frNew . ' ' . $__frCur . ' tol=' . $__frTol . '%');
                             $__payBlock('The fare for this flight has changed since you booked. Please review the updated price and book again — your card has not been charged.');
                         }
                     }
-                    // else: transient error or valid offer → FAIL-OPEN (fall through, charge).
+                    // else: transient error or valid offer → fall through.
+                    // NOTE on fail-open here: the INDEPENDENT deadline gate (d-bis)
+                    // already ran and fail-CLOSED on staleness, so reaching this point
+                    // means the trace is still inside its safe window. A transient
+                    // supplier blip at that moment almost certainly means the fare is
+                    // still valid, so we do NOT block a legitimate customer for a
+                    // network hiccup — the money-safety fail-closed decision is carried
+                    // by the deadline gate, not by punishing supplier flakiness.
                 }
             }
         } catch (\Throwable $__e) {

@@ -106,22 +106,36 @@ if ($subtotalBase == 0) {
 // TAX CALCULATIONS - SUPPLIER-SPECIFIC
 // ============================================================================
 $supplierName = $flightData['supplier'] ?? 'flights';
-$requiresRevalidation = file_exists(__DIR__ . '/../../../../../modules/flights/' . strtolower($supplierName) . '/revalidate.php');
-$isAncillariesEnabled = isAncillariesEnabled($db, $supplierName);
-$isEmdEnabled = isEmdEnabled($db, $supplierName);
+// SUPPLIER-HIDING: the card/search carries an OPAQUE token in place of the real
+// supplier name (customers must NEVER see suppliers). $supplierName stays the TOKEN
+// for anything client-facing (it is emitted into the page JS). For SERVER-SIDE,
+// supplier-aware lookups we need the REAL module name, so we decode into a separate
+// $realSupplier used ONLY server-side (hold / ancillaries / EMD / tax / revalidate).
+// supplier_from_url_token() returns '' for a non-token, so a real name passes through.
+$realSupplier = $supplierName;
+if (function_exists('supplier_from_url_token')) {
+    $__realSup = supplier_from_url_token($supplierName);
+    if (is_string($__realSup) && $__realSup !== '') {
+        $realSupplier = $__realSup;
+    }
+}
+$requiresRevalidation = file_exists(__DIR__ . '/../../../../../modules/flights/' . strtolower($realSupplier) . '/revalidate.php');
+$isAncillariesEnabled = isAncillariesEnabled($db, $realSupplier);
+$isEmdEnabled = isEmdEnabled($db, $realSupplier);
 // Book-on-Hold: only when this supplier can reserve-without-pay AND the admin
-// enabled it. Drives whether the "Hold this fare" button renders at all.
-$holdSupported = function_exists('flight_hold_supported') && flight_hold_supported($db, $supplierName);
+// enabled it. Drives whether the "Hold this fare" button renders at all. Uses the
+// REAL supplier (decoded) so modules.hold_enabled is matched by its true name.
+$holdSupported = function_exists('flight_hold_supported') && flight_hold_supported($db, $realSupplier);
 
 // Get tax settings for the specific supplier module
 $moduleData = $db->get('modules', ['tax', 'tax_type'], [
-    'name' => $supplierName,
+    'name' => $realSupplier,
     'type' => 'flights',
     'status' => '1'
 ]);
 
 // Fallback to generic flights module if supplier module not found or has no tax
-if (!$moduleData || (empty($moduleData['tax']) && $supplierName !== 'flights')) {
+if (!$moduleData || (empty($moduleData['tax']) && $realSupplier !== 'flights')) {
     $moduleData = $db->get('modules', ['tax', 'tax_type'], [
         'name' => 'flights',
         'type' => 'flights',
@@ -133,13 +147,13 @@ $taxType = $moduleData['tax_type'] ?? 'percentage';
 
 // 1. Calculate in BASE Currency (for database/submission)
 if ($taxType === 'fixed') {
-    $taxCalculationBase = calculateTax($subtotalBase, $supplierName, $db, $baseCurrencyCode, $baseCurrencyCode);
+    $taxCalculationBase = calculateTax($subtotalBase, $realSupplier, $db, $baseCurrencyCode, $baseCurrencyCode);
 } else {
-    $taxCalculationBase = calculateTax($subtotalBase, $supplierName, $db);
+    $taxCalculationBase = calculateTax($subtotalBase, $realSupplier, $db);
 }
 
 // Fallback if supplier tax failed
-if (empty($taxCalculationBase['tax_amount']) && $supplierName !== 'flights') {
+if (empty($taxCalculationBase['tax_amount']) && $realSupplier !== 'flights') {
     $taxCalculationBase = calculateTax($subtotalBase, 'flights', $db);
 }
 
@@ -149,14 +163,14 @@ $totalWithTaxBase = $subtotalBase + $taxAmountBase;
 // 2. Calculate in DISPLAY Currency (for UI)
 if ($taxType === 'fixed') {
     // Fixed tax: Calculate on Base Amount, but Convert to Display Amount
-    $taxCalculationDisplay = calculateTax($subtotalBase, $supplierName, $db, $baseCurrencyCode, $displayCurrencyCode);
+    $taxCalculationDisplay = calculateTax($subtotalBase, $realSupplier, $db, $baseCurrencyCode, $displayCurrencyCode);
 } else {
     // Percentage tax: Calculate directly on Display Amount
-    $taxCalculationDisplay = calculateTax($subtotalDisplay, $supplierName, $db);
+    $taxCalculationDisplay = calculateTax($subtotalDisplay, $realSupplier, $db);
 }
 
 // Fallback if supplier tax failed
-if (empty($taxCalculationDisplay['tax_amount']) && $supplierName !== 'flights') {
+if (empty($taxCalculationDisplay['tax_amount']) && $realSupplier !== 'flights') {
     if ($taxType === 'fixed') {
         $taxCalculationDisplay = calculateTax($subtotalBase, 'flights', $db, $baseCurrencyCode, $displayCurrencyCode);
     } else {
@@ -239,13 +253,15 @@ $bookingCreatedAt = $_SESSION['booking_created_at'] ?? date('Y-m-d H:i:s');
 // ---------------------------------------------------------------------------
 $fareTimerEnabled = false;
 $fareTimerMinutes = 15;
+$fareTimerBufferSec = 180;    // runway for the payment round-trip (admin-settable)
 $fareTimerDeadlineTs = 0;
 try {
     // Only Adivaha drives the strict booking-page countdown (real trace TTL).
-    $__supLc = strtolower((string) $supplierName);
+    // Use the DECODED real supplier — the masked token never equals 'adivaha'.
+    $__supLc = strtolower((string) $realSupplier);
     if ($__supLc === 'adivaha') {
-        $ftRow = $db->get('modules', ['fare_timer_enabled', 'fare_timer_minutes'], [
-            'name' => $supplierName, 'type' => 'flights',
+        $ftRow = $db->get('modules', ['fare_timer_enabled', 'fare_timer_minutes', 'fare_timer_buffer_sec'], [
+            'name' => $realSupplier, 'type' => 'flights',
         ]);
         if ($ftRow) {
             $fareTimerEnabled = ((string) ($ftRow['fare_timer_enabled'] ?? '0')) === '1';
@@ -253,6 +269,10 @@ try {
             if ($m < 1) $m = 1;
             if ($m > 15) $m = 15; // never promise longer than Adivaha's real 15-min trace
             $fareTimerMinutes = $m;
+            $b = (int) ($ftRow['fare_timer_buffer_sec'] ?? 180);
+            if ($b < 0)   $b = 0;
+            if ($b > 600) $b = 600;
+            $fareTimerBufferSec = $b;
         }
     }
 } catch (\Throwable $e) {
@@ -260,9 +280,23 @@ try {
     $fareTimerEnabled = false;
 }
 if ($fareTimerEnabled) {
+    // ANCHOR TO THE REAL SEARCH TIME. Adivaha's trace dies ~15 min after the SEARCH,
+    // not after the customer opens this page, so draft-creation is the wrong anchor
+    // (the trace may already be partly spent). We stamped trace_started_at onto the
+    // offer's booking_data at search time; use it, falling back to draft creation.
+    $__traceStartedAt = 0;
+    $__bd = $flightData['booking_data'] ?? [];
+    if (empty($__bd) && !empty($flightData['segments'][0]['booking_data'])) {
+        $__bd = $flightData['segments'][0]['booking_data'];
+    }
+    if (!empty($__bd['trace_started_at'])) {
+        $__traceStartedAt = (int) $__bd['trace_started_at'];
+    }
     $createdTs = strtotime($bookingCreatedAt) ?: time();
-    // 30s safety margin — never show more time than the ~15-min trace guarantees.
-    $fareTimerDeadlineTs = $createdTs + ($fareTimerMinutes * 60) - 30;
+    $anchorTs  = $__traceStartedAt > 0 ? $__traceStartedAt : $createdTs;
+    // Deadline = search time + (real TTL − buffer). The buffer leaves runway for the
+    // payment round-trip so the trace is still ALIVE when issue.php calls /book.
+    $fareTimerDeadlineTs = $anchorTs + ($fareTimerMinutes * 60) - $fareTimerBufferSec;
 }
 
 if ($isUserLoggedIn) {

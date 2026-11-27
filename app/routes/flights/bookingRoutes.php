@@ -461,10 +461,23 @@ $router->post('/api/flight/booking/hold', function () use ($SECURE, $db) {
             throw new Exception('This booking cannot be put on hold.');
         }
 
-        // Resolve supplier from booking_data.
+        // Resolve the REAL supplier. SUPPLIER-HIDING masks the name as an opaque
+        // token in the search/booking_data, so booking_data.supplier is the token
+        // (or null). The authoritative real name is the bookings.module column; fall
+        // back to the nested flight_data.booking_data.supplier, then to decoding the
+        // token. Never key hold on the token — modules.hold_enabled is by real name.
         $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
         if (!is_array($bd)) { $bd = []; }
-        $supplier = strtolower(trim((string) ($bd['supplier'] ?? '')));
+        $supplier = strtolower(trim((string) ($booking['module'] ?? '')));
+        if ($supplier === '' || $supplier === 'flights') {
+            $__inner = $bd['flight_data']['booking_data']['supplier'] ?? ($bd['supplier'] ?? '');
+            $supplier = strtolower(trim((string) $__inner));
+        }
+        if (($supplier === '' || $supplier === 'flights') && function_exists('supplier_from_url_token')) {
+            $__tok = (string) ($bd['flight_data']['supplier'] ?? $bd['supplier'] ?? '');
+            $__dec = supplier_from_url_token($__tok);
+            if ($__dec !== '') { $supplier = strtolower($__dec); }
+        }
 
         if (!function_exists('flight_hold_supported') || !flight_hold_supported($db, $supplier)) {
             throw new Exception('Book-on-Hold is not available for this airline.');

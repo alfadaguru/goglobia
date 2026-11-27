@@ -2244,8 +2244,15 @@ function ensureBookingHoldSchema($db): void
  * supplier's offers are only held for a limited window (e.g. Adivaha ~15 min),
  * after which the fare must be re-searched. Admin can enable a visible countdown
  * on the booking page per provider and set its minutes. Idempotent self-heal.
- *   fare_timer_enabled  tinyint(1)  default 0  — show the countdown for this module
- *   fare_timer_minutes  int         default 15 — countdown length in minutes
+ *   fare_timer_enabled   tinyint(1)  default 0   — show the countdown for this module
+ *   fare_timer_minutes   int         default 15  — the REAL supplier trace TTL (minutes)
+ *   fare_timer_buffer_sec int        default 180 — safety runway subtracted from the TTL
+ *                                     so the customer's clock (and the server deadline
+ *                                     gate) stop BEFORE the supplier trace actually dies,
+ *                                     leaving time for the payment round-trip (3 min).
+ *   fare_tolerance_pct   decimal     default 0   — max post-payment price-increase we
+ *                                     will ticket at (per module). 0 = never absorb a
+ *                                     loss; Adivaha=2 to match its own accept_token band.
  */
 function ensureFlightFareTimerSchema($db): void
 {
@@ -2254,17 +2261,34 @@ function ensureFlightFareTimerSchema($db): void
     $checked = true;
 
     $cols = [
-        ['fare_timer_enabled', "ALTER TABLE `modules` ADD COLUMN `fare_timer_enabled` TINYINT(1) NOT NULL DEFAULT 0"],
-        ['fare_timer_minutes', "ALTER TABLE `modules` ADD COLUMN `fare_timer_minutes` INT NOT NULL DEFAULT 15"],
+        ['fare_timer_enabled',   "ALTER TABLE `modules` ADD COLUMN `fare_timer_enabled` TINYINT(1) NOT NULL DEFAULT 0"],
+        ['fare_timer_minutes',   "ALTER TABLE `modules` ADD COLUMN `fare_timer_minutes` INT NOT NULL DEFAULT 15"],
+        ['fare_timer_buffer_sec', "ALTER TABLE `modules` ADD COLUMN `fare_timer_buffer_sec` INT NOT NULL DEFAULT 180"],
+        ['fare_tolerance_pct',   "ALTER TABLE `modules` ADD COLUMN `fare_tolerance_pct` DECIMAL(5,2) NOT NULL DEFAULT 0"],
     ];
+    $added = [];
     foreach ($cols as [$col, $alter]) {
         try {
             $exists = $db->query("SHOW COLUMNS FROM `modules` LIKE " . $db->pdo->quote($col))->fetchAll();
             if (count($exists) === 0) {
                 $db->pdo->exec($alter);
+                $added[$col] = true;
             }
         } catch (Throwable $e) {
             error_log('ensureFlightFareTimerSchema: ' . $e->getMessage());
+        }
+    }
+
+    // Seed the per-supplier tolerance ONCE, only on first creation of the column, so
+    // we never fight a value an admin later sets. Adivaha's own API offers an
+    // accept_token re-book only within ~2% (openapi-flight.yaml), so 2% there avoids
+    // refunding fares the supplier would still honour; every other flight module
+    // defaults to 0 (zero-loss policy) and can be raised per-module in admin.
+    if (!empty($added['fare_tolerance_pct'])) {
+        try {
+            $db->pdo->exec("UPDATE `modules` SET `fare_tolerance_pct` = 2.00 WHERE `type` = 'flights' AND LOWER(`name`) = 'adivaha'");
+        } catch (Throwable $e) {
+            error_log('ensureFlightFareTimerSchema seed: ' . $e->getMessage());
         }
     }
 }
@@ -17420,13 +17444,32 @@ if (!function_exists('staysClampCheckoutToMaxNights')) {
 // @return array ['ok'=>bool, 'reason'=>string, 'paid'=>float, 'supplier'=>float, 'delta_pct'=>float]
 // ============================================================================
 if (!function_exists('reconcilePostPaymentPrice')) {
-    function reconcilePostPaymentPrice($db, $booking, $supplierTotal, $supplierCurrency = null, $tolerancePct = 2.0)
+    function reconcilePostPaymentPrice($db, $booking, $supplierTotal, $supplierCurrency = null, $tolerancePct = null)
     {
+        // Owner policy (2026-11-27): PER-MODULE price tolerance. We NEVER ticket at a
+        // fare higher than the customer paid beyond that module's tolerance, so the
+        // business absorbs no loss. The tolerance is read from the booking's module
+        // row (modules.fare_tolerance_pct) when the caller passes null:
+        //   • Tiqwa   = 0  → zero tolerance (it is price-locked via book-on-hold;
+        //                     nothing should move after the lock).
+        //   • Adivaha = 2  → matches Adivaha's OWN API tolerance (openapi-flight.yaml:
+        //                     409 price_changed + accept_token is only offered within
+        //                     2%), so we don't refund fares the supplier would honour.
+        // Beyond the module tolerance the ticket is held + the customer auto-refunded
+        // ("fare changed, please search again"). A tiny epsilon absorbs pure
+        // floating-point/rounding noise ONLY (not a real move) so an equal fare issues.
         $paid         = (float) ($booking['price_markup'] ?? 0);
         $paidCurrency = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
         $supplier     = (float) $supplierTotal;
         $supCurrency  = strtoupper(trim((string) ($supplierCurrency ?? $paidCurrency)));
         $invoiceId    = (string) ($booking['invoice_id'] ?? '');
+
+        // Resolve the per-module tolerance when the caller didn't force one.
+        if ($tolerancePct === null) {
+            $tolerancePct = reconcileModuleTolerancePct($db, $booking);
+        }
+        $tolerancePct = (float) $tolerancePct;
+        if ($tolerancePct < 0) { $tolerancePct = 0.0; }
 
         // Guard: we can only compare like-for-like. A currency mismatch or a
         // non-positive paid amount cannot be safely reconciled → do not auto-book.
@@ -17442,20 +17485,25 @@ if (!function_exists('reconcilePostPaymentPrice')) {
 
         $deltaPct = (($supplier - $paid) / $paid) * 100.0;
 
+        // Epsilon absorbs float/rounding noise so an equal fare still books at 0%
+        // tolerance; it is NOT a price cushion (0.0001% ≈ 1 kobo on a ₦1,000,000 fare).
+        $effectiveTolerance = max((float) $tolerancePct, 0.0001);
+
         // Supplier cheaper (delta negative) or within tolerance → OK to book.
-        if ($deltaPct <= $tolerancePct) {
+        if ($deltaPct <= $effectiveTolerance) {
             $note = '';
-            if ($deltaPct < -$tolerancePct) {
+            if ($deltaPct < -0.01) {
                 $note = 'Supplier price is lower than paid by ' . round(abs($deltaPct), 2) . '% (customer not harmed).';
             }
             return ['ok' => true, 'reason' => $note, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
         }
 
         // Supplier more expensive beyond tolerance → ABORT + flag, keep payment.
+        $toleranceLabel = ($tolerancePct <= 0.0) ? 'zero-tolerance policy' : ('tolerance ' . $tolerancePct . '%');
         return _reconcile_block(
             $db,
             $invoiceId,
-            'Supplier price rose ' . round($deltaPct, 2) . '% above the amount paid (tolerance ' . $tolerancePct . '%). Auto-issue held for review.',
+            'Supplier price rose ' . round($deltaPct, 2) . '% above the amount paid (' . $toleranceLabel . '). Auto-issue held for review.',
             $paid,
             $supplier,
             $deltaPct
@@ -17489,5 +17537,32 @@ if (!function_exists('_reconcile_block')) {
         }
         error_log('PRICE RECONCILE BLOCK (' . $invoiceId . '): ' . $reason . " | paid={$paid} supplier={$supplier}");
         return ['ok' => false, 'reason' => $reason, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
+    }
+}
+
+// Resolve the price-change tolerance (percent) for a booking from its module row.
+// The supplier name lives in bookings.module (e.g. 'tiqwa', 'adivaha') and the
+// service family in bookings.module_type (e.g. 'flights'). Returns the module's
+// fare_tolerance_pct; if the column/row is missing or unreadable we fall back to
+// 0.0 (the safe default: never absorb a loss unless a module opts in explicitly).
+if (!function_exists('reconcileModuleTolerancePct')) {
+    function reconcileModuleTolerancePct($db, $booking): float
+    {
+        $supplier = strtolower(trim((string) ($booking['module'] ?? '')));
+        $type     = strtolower(trim((string) ($booking['module_type'] ?? '')));
+        if ($supplier === '' || !$db) { return 0.0; }
+        try {
+            $where = ['name' => $supplier];
+            if ($type !== '') { $where['type'] = $type; }
+            $row = $db->get('modules', ['fare_tolerance_pct'], $where);
+            if ($row && $row['fare_tolerance_pct'] !== null && $row['fare_tolerance_pct'] !== '') {
+                $t = (float) $row['fare_tolerance_pct'];
+                return $t < 0 ? 0.0 : $t;
+            }
+        } catch (\Throwable $e) {
+            // Column may not exist yet on an un-migrated DB — safe default.
+            error_log('reconcileModuleTolerancePct: ' . $e->getMessage());
+        }
+        return 0.0;
     }
 }

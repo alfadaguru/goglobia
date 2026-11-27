@@ -28094,6 +28094,8 @@ CREATE TABLE `modules` (
   `ai_enabled` tinyint(1) NOT NULL DEFAULT 0,
   `fare_timer_enabled` tinyint(1) NOT NULL DEFAULT 0,
   `fare_timer_minutes` int(11) NOT NULL DEFAULT 15,
+  `fare_timer_buffer_sec` int(11) NOT NULL DEFAULT 180,
+  `fare_tolerance_pct` decimal(5,2) NOT NULL DEFAULT 0.00,
   `hold_enabled` tinyint(1) NOT NULL DEFAULT 0,
   `booking_class` enum('real','affiliate','own','stub','') NOT NULL DEFAULT '',
   `supplier_contact_mode` varchar(16) DEFAULT 'company',

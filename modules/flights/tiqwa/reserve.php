@@ -46,10 +46,29 @@ if (!function_exists('tiqwa_reserve')) {
                     'message' => 'Already reserved'];
         }
 
-        // The offer id/token the customer selected.
+        // The offer id/token the customer selected. The web funnel nests the offer id
+        // under flight_data.booking_data (and sometimes in a segment), exactly like the
+        // issue path — resolve it the SAME way so reserve and issue never diverge
+        // (top-level keys are empty for a normal web booking).
+        $fd = is_array($booking_data['flight_data'] ?? null) ? $booking_data['flight_data'] : [];
         $flightId = trim((string) (
             $booking_data['flight_id'] ?? $booking_data['offer_id'] ?? $booking_data['booking_token'] ?? ''
         ));
+        if ($flightId === '' && isset($fd['booking_data'])) {
+            $fdbd = (array) $fd['booking_data'];
+            $flightId = trim((string) ($fdbd['flight_id'] ?? $fdbd['offer_id'] ?? $fdbd['booking_token'] ?? ''));
+        }
+        if ($flightId === '') {
+            $segs = is_array($fd['segments'] ?? null) ? $fd['segments'] : (is_array($booking_data['segments'] ?? null) ? $booking_data['segments'] : []);
+            foreach ([$segs[0][0] ?? null, $segs[0] ?? null] as $first) {
+                if (is_object($first)) $first = (array) $first;
+                if (is_array($first) && isset($first['booking_data'])) {
+                    $sbd = (array) $first['booking_data'];
+                    $flightId = trim((string) ($sbd['flight_id'] ?? $sbd['offer_id'] ?? $sbd['booking_token'] ?? ''));
+                    if ($flightId !== '') break;
+                }
+            }
+        }
         if ($flightId === '') { return $fail('No Tiqwa flight reference on this booking'); }
 
         $pax = tiqwa_build_pax($db, $booking);

@@ -296,6 +296,12 @@ $router->post('flights/adivaha/search', function () use ($db) {
 
     $traceId = (string) $startRes['data']['trace_id'];
 
+    // Stamp the moment the trace was created. Adivaha's trace is valid ~15 min from
+    // THIS point (not from when the customer later opens the booking page), so we
+    // carry this epoch into every offer's booking_data and anchor the fare countdown
+    // + the server-side pre-payment deadline gate to it — the only honest anchor.
+    $traceStartedAt = time();
+
     // ---- Step 2: poll GET /flights/search-poll until done (safety deadline) --
     // Trace is valid ~15 min; we bound polling well under the request timeout.
     $pollUrl = $base . '/flights/search-poll?trace_id=' . urlencode($traceId)
@@ -614,6 +620,7 @@ $router->post('flights/adivaha/search', function () use ($db) {
                 'options'           => '',
                 'booking_data'      => [
                     'trace_id'      => $traceId,
+                    'trace_started_at' => $traceStartedAt,
                     'booking_token' => $offerId,
                     'offer_id'      => $offerId,
                     'supplier'      => 'adivaha',
