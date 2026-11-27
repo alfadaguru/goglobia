@@ -1458,10 +1458,10 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 :class="{ 'opacity-50 cursor-not-allowed': fareExpired || (priceChange && priceChange.direction === 'up') }"
                                 @click="holdMode = true; submitBooking()">
                                 <span class="material-symbols-outlined">schedule</span>
-                                <span><?= T::hold_this_fare ?? 'Hold this fare — pay later' ?></span>
+                                <span><?= defined('T::hold_this_fare') ? T::hold_this_fare : 'Hold this fare — pay later' ?></span>
                             </button>
                             <p class="text-xs text-gray-500 text-center mt-1">
-                                <?= T::hold_this_fare_hint ?? 'Reserve now with no payment. Pay before the airline deadline to confirm.' ?>
+                                <?= defined('T::hold_this_fare_hint') ? T::hold_this_fare_hint : 'Reserve now with no payment. Pay before the airline deadline to confirm.' ?>
                             </p>
                             <?php endif; ?>
 
