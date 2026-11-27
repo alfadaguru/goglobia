@@ -402,11 +402,12 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             // a fixed setTimeout(...,2000) — 2s of pure dead time the customer sees
             // as "keeps loading" even on the happy path — and left the button in an
             // irreversible spinner. Act IMMEDIATELY instead.
-            btn.disabled = true;
-            btn.style.opacity = '0.7';
-            icon.classList.add('animate-spin');
-            icon.textContent = 'progress_activity';
-            text.textContent = 'Processing...';
+            // Null-guard the button/icon/text refs: on a reloaded paid/cancelled invoice
+            // the pay button may be absent, and accessing .style/.classList on null threw
+            // "Cannot read properties of null (reading 'style')" mid-flow.
+            if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
+            if (icon) { icon.classList.add('animate-spin'); icon.textContent = 'progress_activity'; }
+            if (text) { text.textContent = 'Processing...'; }
 
             if (externalPaymentUrl) {
                 console.log('[PAYLOG] handleMakePayment: redirecting to externalPaymentUrl', externalPaymentUrl);
