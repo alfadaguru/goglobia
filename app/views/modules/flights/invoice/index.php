@@ -572,6 +572,7 @@ function processPayment() {
 
 document.addEventListener('DOMContentLoaded', function() {
     const successMessage = document.getElementById('successMessage');
+    if (!successMessage) { return; } // no success banner on held/unpaid/cancelled invoices
     const dismissedKey = `success_dismissed_<?= $invoiceId ?>`;
     if (localStorage.getItem(dismissedKey)) { successMessage.style.display = 'none'; return; }
     setTimeout(function() { successMessage.style.display = 'none'; localStorage.setItem(dismissedKey, 'true'); }, 5000);

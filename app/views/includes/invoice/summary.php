@@ -546,13 +546,15 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             // Hide all special cards by default
             if (bankTransferDetails) bankTransferDetails.style.display = 'none';
             if (walletBalanceCard) walletBalanceCard.style.display = 'none';
-            makePaymentBtn.style.display = 'flex';
+            // Guard: on a held/paid/cancelled invoice the pay button may not be
+            // rendered, so touching .style unguarded throws "reading 'style'".
+            if (makePaymentBtn) makePaymentBtn.style.display = 'flex';
 
             // Handle different gateway types
             if (gatewayType === 'pay_later') {
-                makePaymentBtn.style.display = 'none';
+                if (makePaymentBtn) makePaymentBtn.style.display = 'none';
             } else if (gatewayType === 'bank_transfer') {
-                makePaymentBtn.style.display = 'none';
+                if (makePaymentBtn) makePaymentBtn.style.display = 'none';
                 showBankTransferDetails(gatewayId);
             } else if (gatewayType === 'internal_wallet') {
                 // Differentiate between Balance Wallet and Credits
