@@ -748,18 +748,21 @@ $router->post('/api/flight/booking/revalidate', function () use ($SECURE, $db) {
 
         $draftData  = json_decode($draft['data'], true) ?? [];
         $flightData = $draftData['flight_data'] ?? [];
-        $supplier   = strtolower(trim($flightData['supplier'] ?? ''));
+        $supplierRaw = trim((string) ($flightData['supplier'] ?? ''));
         $bookingData = $flightData['booking_data'] ?? [];
 
         // SUPPLIER-HIDING DECODE: the draft's supplier is the OPAQUE token minted for
-        // the browser, not the real module name. Decode it BEFORE building the
-        // revalidate file path — otherwise modules/flights/<token>/revalidate.php never
-        // exists, the call returns skipped:true, and the client's
-        // (requiresRevalidation && skipped) check then WRONGLY blocks the booking as
-        // "fare no longer available" (this silently broke Tiqwa book-on-hold + pay).
-        // supplier_from_url_token() returns '' for a plaintext name, so real names pass.
+        // the browser, not the real module name. Decode it (from the ORIGINAL-CASE
+        // value — the token is base64url+HMAC and case-sensitive, so decoding a
+        // lowercased copy fails) BEFORE building the revalidate file path. Otherwise
+        // modules/flights/<token>/revalidate.php never exists, the call returns
+        // skipped:true, and the client's (requiresRevalidation && skipped) check then
+        // WRONGLY blocks the booking as "fare no longer available" (this silently
+        // broke Tiqwa book-on-hold + pay). supplier_from_url_token() returns '' for a
+        // plaintext name, so a real name is left untouched.
+        $supplier = strtolower($supplierRaw);
         if (function_exists('supplier_from_url_token')) {
-            $__realSup = supplier_from_url_token($supplier);
+            $__realSup = supplier_from_url_token($supplierRaw);
             if ($__realSup !== '') { $supplier = strtolower($__realSup); }
         }
 
