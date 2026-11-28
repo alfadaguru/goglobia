@@ -102,6 +102,10 @@ $router->post('/insurance/claim/submit', function () use ($SECURE, $db) {
             'error_response'  => null,
         ]);
 
+        // Stamp agency attribution at CREATION when an agent/staff is acting, so a
+        // STAFF booking (user_id != owner) is visible to the agency.
+        if (function_exists('agent_stamp_booking_attribution')) { agent_stamp_booking_attribution($db, (string) $invoiceId); }
+
         // --- Register the claim with AirHelp (safe no-op if unconfigured) ---
         $result = airhelp_register_claim($db, $invoiceId);
 
@@ -321,6 +325,10 @@ $router->post('/api/insurance/booking/submit', function () use ($SECURE, $db) {
             'error_response'  => null,
         ]);
         $bookingId = $db->id();
+
+        // Stamp agency attribution at CREATION when an agent/staff is acting, so a
+        // STAFF booking (user_id != owner) is visible + settlable by the agency.
+        if (function_exists('agent_stamp_booking_attribution')) { agent_stamp_booking_attribution($db, (string) $invoiceId); }
 
         // AGENT API — wallet settlement (no-op unless an agent-API request).
         if (function_exists('agent_api_settle_booking')) {

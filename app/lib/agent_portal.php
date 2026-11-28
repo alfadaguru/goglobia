@@ -445,6 +445,40 @@ if (!function_exists('agent_acting_context')) {
     }
 }
 
+if (!function_exists('agent_stamp_booking_attribution')) {
+    /**
+     * Stamp agency attribution on a freshly-created booking IF the current session
+     * is acting in an agency context (owner OR active staff). Call this right after
+     * a service inserts its bookings row, by invoice_id.
+     *
+     * WHY: booking drafts stamp bookings.user_id = the session user. For the agency
+     * OWNER that equals the owner id, so /agent/bookings (scoped agency_id OR
+     * user_id=owner) finds it. For STAFF (role 'customer', user_id != owner) it does
+     * NOT — so a staff booking was invisible to the agency and unsettlable via the
+     * agent pay screen until this. Stamping agency_id='owner' + booking_channel='agent'
+     * + booked_by_staff_id='actor' at creation makes every agency-scoped query (list,
+     * pay loader, reports) find it, WITHOUT contaminating a staffer's personal
+     * customer bookings (those are made outside agency context → no stamp).
+     *
+     * Best-effort + idempotent (re-stamping the same values is a no-op). Never throws
+     * into the booking flow. A plain customer booking (no agent context) is untouched.
+     */
+    function agent_stamp_booking_attribution($db, string $invoiceId): void
+    {
+        if ($invoiceId === '') { return; }
+        $ctx = function_exists('agent_acting_context') ? agent_acting_context($db) : null;
+        // Only stamp for a real agent/staff context (not admins, not plain customers).
+        if (!is_array($ctx) || !empty($ctx['is_admin']) || empty($ctx['owner'])) { return; }
+        try {
+            $db->update('bookings', [
+                'agency_id'          => (string) $ctx['owner'],
+                'booking_channel'    => 'agent',
+                'booked_by_staff_id' => (string) ($ctx['actor'] ?? $ctx['owner']),
+            ], ['invoice_id' => $invoiceId]);
+        } catch (\Throwable $e) { error_log('agent_stamp_booking_attribution ' . $invoiceId . ': ' . $e->getMessage()); }
+    }
+}
+
 if (!function_exists('agent_staff_context')) {
     /**
      * Resolve a logged-in user who is active STAFF of an agency. Fail-closed:

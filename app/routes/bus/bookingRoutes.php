@@ -338,6 +338,10 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
 
         $bookingId = $db->id();
 
+        // Stamp agency attribution at CREATION when an agent/staff is acting, so a
+        // STAFF booking (user_id != owner) is visible + settlable by the agency.
+        if (function_exists('agent_stamp_booking_attribution')) { agent_stamp_booking_attribution($db, (string) $invoiceId); }
+
         // Record promo code usage (idempotent per invoice; bumps used_count +
         // writes the per-user ledger row that enforces per_user_limit).
         if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {

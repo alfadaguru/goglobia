@@ -378,6 +378,10 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
             throw new Exception('Failed to create booking');
         }
 
+        // Stamp agency attribution at CREATION when an agent/staff is acting, so a
+        // STAFF booking (user_id != owner) is visible + settlable by the agency.
+        if (function_exists('agent_stamp_booking_attribution')) { agent_stamp_booking_attribution($db, (string) $invoiceId); }
+
         // Record promo code usage if applicable (idempotent per invoice; bumps
         // used_count + writes the per-user ledger for per_user_limit enforcement).
         if ($promoData && $couponDiscount > 0) {

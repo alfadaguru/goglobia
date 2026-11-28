@@ -1633,6 +1633,10 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
                 try {
                     $__actx = agent_acting_context($db);
                     if ($__actx !== null && empty($__actx['is_admin'])) {
+                        // Stamp agency attribution at CREATION so STAFF bookings (user_id
+                        // != owner) are visible + settlable by the agency — not just the
+                        // owner's own. Then route to the wallet-pay page.
+                        if (function_exists('agent_stamp_booking_attribution')) { agent_stamp_booking_attribution($db, (string)$invoiceId); }
                         $agentRedirect = root . 'agent/booking/' . rawurlencode($invoiceId) . '/pay';
                     }
                 } catch (\Throwable $e) { error_log('flight submit agent redirect: ' . $e->getMessage()); }
