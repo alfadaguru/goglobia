@@ -698,6 +698,29 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
                 'dedupe_key' => ($refunded ? 'agent_booking_refunded_' : 'agent_booking_cancelled_') . $invoiceId,
             ]);
         }
+        // Gap #4 (client comms): also tell the TRAVELLER their booking was
+        // cancelled. Previously only the agency was notified — the client learned
+        // of a cancellation only if the agent told them. NOTIFY::cancellation sends
+        // the agency-branded email to the booking contact. Best-effort; a missing
+        // email just no-ops. Only for a paid/confirmed booking that reached the
+        // customer (an unpaid draft cancel is internal, nothing to retract).
+        if (class_exists('NOTIFY') && !empty($b['email'])
+            && in_array(strtolower((string)($b['booking_status'] ?? '')), ['confirmed','issued','completed'], true)) {
+            try {
+                NOTIFY::cancellation($moduleType ?: $module, [
+                    'first_name' => (string)($b['first_name'] ?? ''),
+                    'last_name'  => (string)($b['last_name'] ?? ''),
+                    'email'      => (string)$b['email'],
+                    'phone'      => (string)($b['phone'] ?? ''),
+                    'phone_country_code' => (string)($b['phone_country_code'] ?? ''),
+                ], [
+                    'invoice_id'  => (string)$invoiceId,
+                    'amount'      => $b['price_markup'] ?? '',
+                    'currency'    => $b['currency_markup'] ?? ($b['currency'] ?? ''),
+                    'module_type' => ucfirst((string)$moduleType),
+                ]);
+            } catch (\Throwable $e) { error_log('agent cancel client-notify '.$invoiceId.': '.$e->getMessage()); }
+        }
         $msg = 'Booking cancelled.';
         if ($action === 'refund') { $msg = $refunded ? 'Booking cancelled and refunded to your wallet.' : 'Booking cancelled. No wallet refund was due.'; }
         echo json_encode(['status'=>true,'message'=>$msg,'refunded'=>$refunded]);
@@ -770,6 +793,24 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
                 'url'   => root . 'agent/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$invoiceId,
                 'dedupe_key' => 'agent_booking_change_' . $invoiceId . '_' . $__dir . '_' . $__amt,
             ]);
+
+            // Gap #4 (client comms): send the TRAVELLER the updated voucher when the
+            // amendment is complete — i.e. nothing further is due (a fare INCREASE
+            // leaves an amount due that the agent must still collect/pay, so we don't
+            // send a "confirmed" ticket yet; the resend action covers that once paid).
+            // Only for a confirmed/issued booking with a contact email. Best-effort.
+            if ($__due <= 0 && class_exists('NOTIFY') && !empty($b['email'])
+                && in_array(strtolower((string)($b['booking_status'] ?? '')), ['confirmed','issued','completed'], true)) {
+                try {
+                    $__pdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF((string)$invoiceId, 'ticket') : null;
+                    NOTIFY::resend($moduleType ?: $module, $b, [
+                        'invoice_id'  => (string)$invoiceId,
+                        'amount'      => $b['price_markup'] ?? '',
+                        'currency'    => $b['currency_markup'] ?? ($b['currency'] ?? ''),
+                        'module_type' => ucfirst((string)$moduleType),
+                    ], $__pdf);
+                } catch (\Throwable $e) { error_log('agent change client-notify '.$invoiceId.': '.$e->getMessage()); }
+            }
         }
         echo json_encode([
             'status'      => !empty($money['ok']),
