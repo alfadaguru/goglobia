@@ -2265,6 +2265,13 @@ function ensureFlightFareTimerSchema($db): void
         ['fare_timer_minutes',   "ALTER TABLE `modules` ADD COLUMN `fare_timer_minutes` INT NOT NULL DEFAULT 15"],
         ['fare_timer_buffer_sec', "ALTER TABLE `modules` ADD COLUMN `fare_timer_buffer_sec` INT NOT NULL DEFAULT 180"],
         ['fare_tolerance_pct',   "ALTER TABLE `modules` ADD COLUMN `fare_tolerance_pct` DECIMAL(5,2) NOT NULL DEFAULT 0"],
+        // Generic pre-payment deadline (minutes) for ANY supplier-sourced module whose
+        // offer can go stale (ferries/rail/cars/tours). 0 = OFF (default — never blocks).
+        // When an admin sets it, /payment/process blocks payment once the booking draft
+        // is older than this many minutes (card never charged). Honest draft-age guard:
+        // it is admin-tuned per what the admin knows of each supplier's real offer TTL,
+        // since these modules (unlike flights) do NOT stamp a supplier search timestamp.
+        ['pay_deadline_minutes', "ALTER TABLE `modules` ADD COLUMN `pay_deadline_minutes` INT NOT NULL DEFAULT 0"],
     ];
     $added = [];
     foreach ($cols as [$col, $alter]) {

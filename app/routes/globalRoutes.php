@@ -537,6 +537,39 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
         }
     }
 
+    // (f) GENERIC PRE-PAYMENT DEADLINE GATE (2026-11-28) — for supplier-sourced
+    // NON-FLIGHT services whose offer can go stale (ferries/rail/cars/tours). These
+    // modules do NOT stamp a supplier search timestamp (only flights do, via
+    // trace_started_at), so the only honest anchor is the booking draft's created_at.
+    // This gate is OPT-IN per module: modules.pay_deadline_minutes (default 0 = OFF,
+    // never blocks). When an admin sets it to what they know of that supplier's real
+    // offer TTL, we block payment once the draft is older than that many minutes —
+    // card NEVER charged — instead of charging then failing at the supplier's issue
+    // (the "charged-then-failed" window for rail/cartrawler that cannot safely
+    // re-quote). Flights are intentionally EXCLUDED here: they have their own
+    // trace_started_at deadline gate + supplier revalidate above.
+    $__pdType = strtolower((string) ($booking['module_type'] ?? ''));
+    if ($__pdType !== '' && $__pdType !== 'flights') {
+        try {
+            $__pdMod = strtolower(trim((string) ($booking['module'] ?? '')));
+            if ($__pdMod !== '') {
+                $__pdRow = $db->get('modules', ['pay_deadline_minutes'], ['name' => $__pdMod, 'type' => $__pdType]);
+                $__pdMin = (int) ($__pdRow['pay_deadline_minutes'] ?? 0);
+                if ($__pdMin > 0) {
+                    $__pdAnchor = strtotime((string) ($booking['created_at'] ?? 'now')) ?: time();
+                    $__pdAgeSec = time() - $__pdAnchor;
+                    if ($__pdAgeSec > ($__pdMin * 60)) {
+                        error_log('/payment/process DEADLINE GATE — blocked stale ' . $__pdType . '/' . $__pdMod . ' draft | invoice=' . $invoiceId . ' age=' . $__pdAgeSec . 's limit=' . ($__pdMin * 60) . 's');
+                        $__payBlock('This offer has expired (prices are held for about ' . $__pdMin . ' minutes). Please search again for the latest price — your card has not been charged.');
+                    }
+                }
+            }
+        } catch (\Throwable $__pde) {
+            // A gate error must never wedge a legitimate payment — log and fall through.
+            error_log('/payment/process generic-deadline-gate error ' . $invoiceId . ': ' . $__pde->getMessage());
+        }
+    }
+
     // Mozio hosted_checkout: never charge a site gateway (would double-bill).
     if (strtolower((string)($booking['module_type'] ?? '')) === 'cars' && strtolower((string)($booking['module'] ?? '')) === 'mozio') {
         require_once 'modules/cars/mozio/lib.php';
