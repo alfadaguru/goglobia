@@ -105,6 +105,28 @@ $ccy  = htmlspecialchars((string)($defaultCurrency ?? 'NGN'));
         <?php endif; ?>
     </div>
 
+    <!-- Gap #2 fix: Fund by card — works in ANY currency (the DVA above is NGN-only,
+         so this is the ONLY funding rail for a non-NGN agency). Posts to the shared
+         /wallet/topup gateway flow (now agent-aware: credits the OWNER's wallet). -->
+    <?php if (!empty($canFund)): ?>
+    <div class="rounded-xl border border-slate-200 bg-white p-5 mb-6">
+        <h2 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span class="material-symbols-outlined text-violet-600">credit_card</span> Fund by card
+        </h2>
+        <p class="text-sm text-slate-500 mb-3">Top up instantly by card in <strong><?= htmlspecialchars((string)$displayCur) ?></strong>. Charged now; your agency wallet is credited on success.</p>
+        <form method="post" action="<?= root ?>wallet/topup" class="flex flex-wrap items-end gap-3">
+            <?= CSRF::tokenField() ?>
+            <div>
+                <label class="block text-[11px] uppercase text-slate-400 mb-1">Amount (<?= htmlspecialchars((string)$displayCur) ?>)</label>
+                <input type="number" name="amount" min="1" step="0.01" required placeholder="0.00" class="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            </div>
+            <button type="submit" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-900">
+                <span class="material-symbols-outlined text-[18px]">payments</span> Top up by card
+            </button>
+        </form>
+    </div>
+    <?php endif; ?>
+
     <!-- Statement -->
     <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
         <div class="px-5 py-3 border-b border-slate-100"><h2 class="font-semibold text-slate-800">Statement</h2></div>

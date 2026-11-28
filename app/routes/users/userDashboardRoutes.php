@@ -219,18 +219,26 @@ $router->post('/wallet/topup', function () use ($SECURE, $db) {
     $user = $db->get('users', ['user_id','role','first_name','last_name','email','phone','phone_country_code','currency'], ['user_id' => $userId]);
     if (!$user) { header('Location: ' . root . 'login'); exit; }
 
-    // Agents fund the wallet via the deposit flow; this self-service gateway
-    // top-up is for customers (the payment rule keeps agents wallet-only anyway).
-    if (strtolower((string) ($user['role'] ?? '')) === 'agent') {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Agents top up via the deposit page.'];
-        header('Location: ' . root . 'dashboard');
-        exit;
+    // AGENT/STAFF funding (gap #2 fix): an agency (esp. non-NGN, where the DVA rail
+    // is unavailable) must be able to fund its wallet by card. Charging a gateway to
+    // TOP UP the wallet is NOT a booking payment, so the wallet-only booking rule
+    // doesn't forbid it. The money must land in the AGENCY OWNER's wallet, and the
+    // actor is sent back to the agent wallet. Staff with agency context fund the
+    // agency; a plain customer funds their own wallet (unchanged below).
+    $__agentCtx = function_exists('agent_acting_context') ? agent_acting_context($db) : null;
+    $isAgentTopup = is_array($__agentCtx) && empty($__agentCtx['is_admin']) && !empty($__agentCtx['owner']);
+    $backUrl = $isAgentTopup ? (root . 'agent/wallet') : (root . 'dashboard');
+    if ($isAgentTopup) {
+        // Credit the OWNER's wallet + use the owner's identity on the top-up booking.
+        $userId = (string) $__agentCtx['owner'];
+        $ownerRow = $db->get('users', ['user_id','first_name','last_name','email','phone','phone_country_code','currency'], ['user_id' => $userId]);
+        if ($ownerRow) { $user = $ownerRow; }
     }
 
     $amount = round((float) ($_POST['amount'] ?? 0), 2);
     if ($amount <= 0) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Enter a valid top-up amount.'];
-        header('Location: ' . root . 'dashboard');
+        header('Location: ' . $backUrl);
         exit;
     }
 
@@ -261,7 +269,7 @@ $router->post('/wallet/topup', function () use ($SECURE, $db) {
     }
     if (!$gateway) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'No payment method is available for ' . $currency . ' top-ups right now.'];
-        header('Location: ' . root . 'dashboard');
+        header('Location: ' . $backUrl);
         exit;
     }
 
@@ -318,7 +326,7 @@ $router->post('/wallet/topup', function () use ($SECURE, $db) {
     } // end: create only when not reusing a fresh unpaid top-up
     if (!$ok) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not start the top-up. Please try again.'];
-        header('Location: ' . root . 'dashboard');
+        header('Location: ' . $backUrl);
         exit;
     }
 
@@ -335,7 +343,7 @@ $router->post('/wallet/topup', function () use ($SECURE, $db) {
     if (empty($logResult['success']) || empty($logResult['hash'])) {
         // Fall back to the invoice-style payment page by invoice id.
         $_SESSION['message'] = ['type' => 'error', 'text' => $logResult['message'] ?? 'Could not start the top-up.'];
-        header('Location: ' . root . 'dashboard');
+        header('Location: ' . $backUrl);
         exit;
     }
     header('Location: ' . root . 'payment/' . $logResult['hash']);
