@@ -217,6 +217,24 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
         if (isset($_POST['credit_usage_reminder_percent']) && $_POST['credit_usage_reminder_percent'] !== '') {
             $data['credit_usage_reminder_percent'] = max(0, min(100, intval($_POST['credit_usage_reminder_percent'])));
         }
+        // Credit LINE (users.credit_limits) — gap #3: previously had NO write path, so
+        // the agent credit line could only be set by a manual DB edit. The admin enters
+        // it in the SESSION display currency (same unit the credit card shows); convert
+        // back to the BASE currency it is STORED in (mirror of the read at user.php:745),
+        // so the stored value is currency-correct. Blank/absent leaves it unchanged.
+        if (isset($_POST['credit_limits']) && $_POST['credit_limits'] !== '') {
+            $__cl = max(0.0, (float) $_POST['credit_limits']);
+            $__baseRow = $db->get('currencies', ['rate'], ['default' => 1]);
+            $__baseRate = (float) ($__baseRow['rate'] ?? 1);
+            $__sessCur  = strtoupper(trim((string) ($_SESSION['app_currency'] ?? ''))) ?: '';
+            $__sessRate = $__baseRate;
+            if ($__sessCur !== '') {
+                $__sc = $db->get('currencies', ['rate'], ['name' => $__sessCur]);
+                if ($__sc) { $__sessRate = (float) ($__sc['rate'] ?? $__baseRate); }
+            }
+            // Reverse the display conversion: stored_base = entered_session / sessRate * baseRate.
+            $data['credit_limits'] = ($__sessRate > 0) ? round($__cl / $__sessRate * $__baseRate, 2) : $__cl;
+        }
 
         // Validation
         if (empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {

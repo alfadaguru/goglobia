@@ -788,6 +788,20 @@ if (isset($_SESSION['error'])) {
 
                         <hr class="border my-3 border-slate-200">
 
+                        <?php // Gap #3: set the agent's CREDIT LINE (users.credit_limits). Entered
+                              // in the session display currency; saved base-currency-correct by
+                              // /admin/users/save. This is the overdraft an agent may book beyond
+                              // their wallet balance. ?>
+                        <div>
+                            <label for="credit_limits" class="text-white/80 text-xs font-medium text-left">Credit line (<?= htmlspecialchars($sess_curr) ?>)</label>
+                            <p class="text-white text-[12px] mb-2">How much the agent may book beyond their wallet balance. 0 = no credit.</p>
+                            <input type="number" name="credit_limits" id="credit_limits" min="0" step="0.01"
+                                   value="<?= number_format($cred_val, 2, '.', '') ?>"
+                                   class="w-full rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/40">
+                        </div>
+
+                        <hr class="border my-3 border-slate-200">
+
                         <div class="backdrop-blur-sm rounded-lg flex items-center justify-start">
                             <div class="gap-1 w-full space-y-3">
                                 <div>
