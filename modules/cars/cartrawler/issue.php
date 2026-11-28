@@ -270,13 +270,22 @@ try {
         ? "\n          <StateProv StateCode=\"" . htmlspecialchars(strtoupper(substr($state, 0, 3))) . "\">" . htmlspecialchars($state) . "</StateProv>"
         : '';
 
-    // TODO (price reconciliation — §8.1(2), docs/MODULES.md §13.9):
-    //   Books the stored <Reference> from the earlier OTA_VehAvailRateRS without a
-    //   re-quote. A re-quote here (OTA_VehAvailRateRQ) would return the live total
-    //   to pass to reconcilePostPaymentPrice() before OTA_VehRes. NOT wired: this
-    //   module's own comments note that re-quoting/altering the reference at issue
-    //   time fails the CarTrawler quote, so a safe re-price needs CarTrawler
-    //   guidance on the correct re-validate call. Documented gap, not a fake call.
+    // PRICE RECONCILIATION — verified decision (2026-11-28), NOT a to-do:
+    //   This books the stored <Reference> from the earlier OTA_VehAvailRateRS. We do
+    //   NOT re-quote (OTA_VehAvailRateRQ) here: CarTrawler guidance + this module's own
+    //   note is that re-quoting/altering the reference at issue time FAILS the quote,
+    //   so a forced re-price would BREAK every booking — it is not safe to wire.
+    //   A read-only reconcile (reading OTA_VehRes's own VehSegmentCore->TotalCharge
+    //   ['EstimatedTotalAmount']) was evaluated and rejected too: the only stored
+    //   anchor to compare against is the search-time MARKED-UP display price in
+    //   booking_data.car_data (sessionCurrency), while the response total is the
+    //   SUPPLIER NET in CarTrawler's own currency — different basis AND currency, so a
+    //   naive compare would false-flag legitimate bookings. There is no stored
+    //   same-currency, same-basis net to reconcile against.
+    //   PROTECTION INSTEAD: the generic pre-payment deadline gate in /payment/process
+    //   (modules.pay_deadline_minutes, admin opt-in per CarTrawler's reference TTL)
+    //   blocks payment on a STALE reference BEFORE charging — which is the real
+    //   charged-then-failed risk here. See app/routes/globalRoutes.php gate (f).
     //
     // Build OTA_VehResRQ XML
     $xmlRequest = '<?xml version="1.0" encoding="UTF-8"?>
