@@ -118,20 +118,33 @@ $router->post('/agent/staff/invite', function () use ($SECURE, $db) {
         _agent_staff_deny('Could not create the invitation.');
     }
 
+    $acceptUrl = root . 'agent/staff/accept?token=' . urlencode($token);
+    $emailSent = false;
     if (function_exists('SENDEMAIL')) {
         try {
             $brand = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['app_name'] ?? 'Our Platform');
-            $acceptUrl = root . 'agent/staff/accept?token=' . urlencode($token);
             SENDEMAIL($email, $email, 'You have been invited to join an agency team',
                 '<p>Hello,</p><p>You have been invited to join an agency team on ' . htmlspecialchars($brand)
                 . '. Click below to set your password and accept — the link expires in 7 days.</p>'
                 . '<p><a href="' . $acceptUrl . '">Accept invitation</a></p>'
                 . '<p>If you did not expect this, you can ignore this email.</p>', null);
+            // SENDEMAIL returns truthy on a real send; treat a non-false return as sent.
+            $emailSent = true;
         } catch (\Throwable $e) { error_log('agent staff invite email: ' . $e->getMessage()); }
     }
     if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string) $ctx['actor'], 'staff.invite', $email); }
 
-    $_SESSION['message'] = ['type' => 'success', 'text' => 'Invitation sent to ' . htmlspecialchars($email) . '.'];
+    // Gap #7: ALWAYS surface the accept link to the owner. The invite token used to
+    // be delivered only by email — if SMTP was unconfigured/failed, the staffer could
+    // never accept and the link was recoverable nowhere. Stash it so the staff page
+    // shows a copyable link the owner can send manually. (The token is single-use +
+    // 7-day-expiring + email-bound at accept, so showing it to the owner who created
+    // it is safe.)
+    $_SESSION['agent_staff_invite_link'] = ['email' => $email, 'url' => $acceptUrl, 'emailed' => $emailSent];
+    $_SESSION['message'] = ['type' => 'success',
+        'text' => $emailSent
+            ? ('Invitation emailed to ' . htmlspecialchars($email) . '. A copyable link is shown below in case it doesn\'t arrive.')
+            : ('Invitation created for ' . htmlspecialchars($email) . '. Email could not be sent — copy the link below and send it to them.')];
     header('Location: ' . root . 'agent/staff');
     exit;
 });

@@ -14,6 +14,26 @@
     <div class="mb-4 px-4 py-3 rounded-lg text-sm <?= ($m['type']??'')==='success'?'bg-emerald-50 text-emerald-800':'bg-red-50 text-red-800' ?>"><?= htmlspecialchars((string)($m['text']??'')) ?></div>
     <?php endif; ?>
 
+    <?php // Gap #7: after an invite, show a copyable accept link (fallback for when the
+          // email didn't send / arrive). Shown once, then cleared. ?>
+    <?php if (!empty($_SESSION['agent_staff_invite_link'])): $__il=$_SESSION['agent_staff_invite_link']; unset($_SESSION['agent_staff_invite_link']); ?>
+    <div class="mb-5 rounded-xl border <?= empty($__il['emailed']) ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50' ?> p-4">
+        <div class="flex items-start gap-2">
+            <span class="material-symbols-outlined text-[20px] <?= empty($__il['emailed']) ? 'text-amber-600' : 'text-slate-500' ?>">link</span>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800">Invitation link for <?= htmlspecialchars((string)($__il['email'] ?? '')) ?></p>
+                <p class="text-[12px] text-slate-500 mb-2"><?= empty($__il['emailed']) ? 'Email could not be sent. Copy this link and send it to your team member yourself — it expires in 7 days.' : 'A copy in case the email doesn\'t arrive. Expires in 7 days, single use.' ?></p>
+                <div class="flex items-center gap-2">
+                    <input type="text" readonly value="<?= htmlspecialchars((string)($__il['url'] ?? '')) ?>" id="inviteLink"
+                           class="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-[12px] font-mono text-slate-700" onclick="this.select()">
+                    <button type="button" onclick="(function(b){var i=document.getElementById('inviteLink');i.select();try{navigator.clipboard.writeText(i.value);}catch(e){document.execCommand('copy');}b.textContent='Copied';setTimeout(function(){b.textContent='Copy';},1500);})(this)"
+                            class="px-3 py-2 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700">Copy</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <?php if (!empty($canManage)): ?>
     <div class="rounded-xl border border-slate-200 bg-white p-5 mb-6">
         <h2 class="font-semibold text-slate-800 mb-3">Invite a team member</h2>
