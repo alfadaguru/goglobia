@@ -72,7 +72,14 @@ $router->get('/supplier/customers/search', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
     SUPPLIER_OR_STAFF_AUTH($db);
     $ctx = _contacts_ctx($db);
-    if ($ctx === null || !supplier_can_orgwide($db, 'customers', 'view')) {
+    // SEARCH-TO-ATTACH (front desk): a property-scoped ('selected') clerk MUST be able to find
+    // an existing customer to attach as the payer on a booking at their own property.
+    // supplier_can_orgwide() HARD-DENIES every 'selected'-scope staffer → this returned an
+    // EMPTY list for scoped front-desk staff (Report 11.25 follow-up: "can't see existing
+    // customers"). Gate on customers:view (permission-matrix, scope-agnostic); results are
+    // only names/phones to attach, scoped to the org. The customer LIST/directory keeps
+    // supplier_can_orgwide (it spans every property's customers).
+    if ($ctx === null || !supplier_can($db, 'customers', 'view')) {
         echo json_encode(['ok' => false, 'results' => []]); exit;
     }
     $orgId = (int) $ctx['org'];

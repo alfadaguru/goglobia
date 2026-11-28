@@ -110,7 +110,15 @@ $router->get('/supplier/guests/search', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
     SUPPLIER_OR_STAFF_AUTH($db);
     $c = _guests_ctx($db);
-    if ($c === null || !supplier_can_orgwide($db, 'guests', 'view')) { echo json_encode(['results' => []]); exit; }
+    // SEARCH-TO-ATTACH (front desk): a property-scoped ('selected') clerk MUST be able to
+    // find an existing guest to attach to a booking they're making at their own property.
+    // supplier_can_orgwide() HARD-DENIES every 'selected'-scope staffer, so this returned an
+    // EMPTY list for scoped front-desk staff — they couldn't see ANY existing guests (Report
+    // 11.25 follow-up: "can't see existing guests/customers"). Gate on guests:view (the
+    // permission-matrix check, scope-agnostic) instead — the result is only names/phones to
+    // attach, scoped to the staffer's own org, not bulk org-wide data. The LIST/profile
+    // pages that truly span properties keep supplier_can_orgwide.
+    if ($c === null || !supplier_can($db, 'guests', 'view')) { echo json_encode(['results' => []]); exit; }
     $q = trim((string) ($_GET['q'] ?? ''));
     if ($q === '' || (int) $c['org'] <= 0) { echo json_encode(['results' => []]); exit; }
     $rows = function_exists('guests_stored_list') ? guests_stored_list($db, (int) $c['org'], ['q' => $q, 'limit' => 20]) : [];
