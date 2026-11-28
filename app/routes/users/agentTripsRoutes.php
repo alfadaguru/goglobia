@@ -127,6 +127,28 @@ $router->get('/agent/trips/(TRP[A-Z0-9]+)', function ($ref) use ($SECURE, $db) {
     $shareUrl = !empty($trip['client_token']) ? (root . 'trip/' . $ref . '?token=' . urlencode((string)$trip['client_token'])) : '';
     $services = ['flights','stays','tours','cars','umrah','visa','bus','rail','ferries','esim','insurance'];
 
+    // Gap #5: fulfilment tracking — the per-service bookings linked to this trip, and
+    // a short list of the agency's recent UNLINKED bookings the agent can attach. The
+    // money-collection 'trip' booking (booking_invoice_id) is excluded from both.
+    $linkedBookings = [];
+    $linkCandidates = [];
+    try {
+        $__tripInv = (string)($trip['booking_invoice_id'] ?? '');
+        $linkedBookings = $db->select('bookings',
+            ['invoice_id','module_type','price_markup','currency_markup','payment_status','booking_status','created_at'],
+            ['trip_ref' => $ref, 'OR #scope' => ['agency_id' => $owner, 'user_id' => $owner], 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 100]) ?: [];
+        if ($canEdit) {
+            $cand = $db->select('bookings',
+                ['invoice_id','module_type','price_markup','currency_markup','payment_status','created_at'],
+                ['AND' => ['OR #scope' => ['agency_id' => $owner, 'user_id' => $owner], 'trip_ref' => null,
+                           'module_type[!]' => 'trip'],
+                 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 25]) ?: [];
+            // Don't offer the trip's own money-collection booking as a candidate.
+            foreach ($cand as $c) { if ((string)$c['invoice_id'] !== $__tripInv) { $linkCandidates[] = $c; } }
+        }
+    } catch (\Throwable $e) { error_log('agent trip fulfilment '.$ref.': '.$e->getMessage()); }
+    $csrf = CSRF::getToken();
+
     $title = 'Trip: ' . (string)$trip['title'];
     require_once views."agent/layout-top.php";
     require_once views."agent/trip-builder.php";
@@ -167,6 +189,53 @@ $router->post('/agent/trips/(TRP[A-Z0-9]+)/lines', function ($ref) use ($SECURE,
     } catch (\Throwable $e) { error_log('agent trips lines: ' . $e->getMessage()); _agent_trips_deny('Could not save the trip.'); }
     header('Location: ' . root . 'agent/trips/' . $ref);
     exit;
+});
+
+// ---- POST /agent/trips/{ref}/link-booking  (gap #5: fulfilment tracking) ----
+// Attach one of the agency's existing bookings to this trip (stamps bookings.trip_ref),
+// so the trip detail shows which real bookings fulfilled the quote. Scoped to the
+// agency on BOTH the trip and the booking. Owner/staff with trips edit.
+$router->post('/agent/trips/(TRP[A-Z0-9]+)/link-booking', function ($ref) use ($SECURE, $db) {
+    [$ctx, $owner] = _agent_trips_ctx($db);
+    CSRF::guard();
+    if (!agent_can($db, 'trips', 'edit') && !agent_can($db, 'trips', 'add')) { _agent_trips_deny(); }
+    $trip = $db->get('agent_trip_plans', ['id'], ['ref' => $ref, 'owner_user_id' => $owner]);
+    if (!$trip) { _agent_trips_deny('Trip plan not found.'); }
+    $inv = trim((string)($_POST['invoice_id'] ?? ''));
+    $back = root . 'agent/trips/' . $ref;
+    // The booking must belong to THIS agency (agency_id or user_id = owner) and not
+    // be the trip's own money-collection booking.
+    $b = $inv !== '' ? $db->get('bookings', ['invoice_id','agency_id','user_id','module_type'], ['invoice_id' => $inv]) : null;
+    if (!$b || ((string)($b['agency_id'] ?? '') !== $owner && (string)($b['user_id'] ?? '') !== $owner)) {
+        $_SESSION['message'] = ['type'=>'error','text'=>'That booking is not one of your agency bookings.'];
+        header('Location: '.$back); exit;
+    }
+    if (strtolower((string)($b['module_type'] ?? '')) === 'trip') {
+        $_SESSION['message'] = ['type'=>'error','text'=>'The trip booking itself cannot be linked as a fulfilment line.'];
+        header('Location: '.$back); exit;
+    }
+    try {
+        $db->update('bookings', ['trip_ref' => $ref], ['invoice_id' => $inv]);
+        if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'trip.link', $ref.' ← '.$inv); }
+        $_SESSION['message'] = ['type'=>'success','text'=>'Booking linked to the trip.'];
+    } catch (\Throwable $e) { error_log('agent trip link '.$ref.': '.$e->getMessage()); $_SESSION['message']=['type'=>'error','text'=>'Could not link the booking.']; }
+    header('Location: '.$back); exit;
+});
+
+$router->post('/agent/trips/(TRP[A-Z0-9]+)/unlink-booking', function ($ref) use ($SECURE, $db) {
+    [$ctx, $owner] = _agent_trips_ctx($db);
+    CSRF::guard();
+    if (!agent_can($db, 'trips', 'edit') && !agent_can($db, 'trips', 'add')) { _agent_trips_deny(); }
+    $inv = trim((string)($_POST['invoice_id'] ?? ''));
+    $back = root . 'agent/trips/' . $ref;
+    // Only clear the link on a booking that is actually linked to THIS trip + agency.
+    try {
+        $db->update('bookings', ['trip_ref' => null],
+            ['invoice_id' => $inv, 'trip_ref' => $ref, 'OR #scope' => ['agency_id' => $owner, 'user_id' => $owner]]);
+        if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'trip.unlink', $ref.' ✕ '.$inv); }
+        $_SESSION['message'] = ['type'=>'success','text'=>'Booking unlinked from the trip.'];
+    } catch (\Throwable $e) { error_log('agent trip unlink '.$ref.': '.$e->getMessage()); $_SESSION['message']=['type'=>'error','text'=>'Could not unlink the booking.']; }
+    header('Location: '.$back); exit;
 });
 
 // ---- POST /agent/trips/{ref}/send  (mint client token, mark sent) ----------

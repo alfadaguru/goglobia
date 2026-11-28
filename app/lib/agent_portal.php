@@ -299,6 +299,10 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 // AG-G4b: link an agency booking to its CRM client (resolved by
                 // traveller email at settle), so per-client markup + client reporting work.
                 ['agent_client_id',    "ALTER TABLE `bookings` ADD COLUMN `agent_client_id` INT(11) DEFAULT NULL"],
+                // Gap #5: link a per-service booking to the TRIP plan it fulfils (the
+                // trip ref, TRP…). Lets the agency track which real bookings fulfilled a
+                // trip quote — the audit trail the trip money-collection booking lacked.
+                ['trip_ref',           "ALTER TABLE `bookings` ADD COLUMN `trip_ref` VARCHAR(40) DEFAULT NULL"],
             ] as [$col, $sql]) {
                 try {
                     if (!$db->query("SHOW COLUMNS FROM `bookings` LIKE '$col'")->fetch()) {

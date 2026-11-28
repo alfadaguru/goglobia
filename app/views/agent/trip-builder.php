@@ -110,4 +110,64 @@ $itemsJson = htmlspecialchars(json_encode($items ?: []), ENT_QUOTES);
         </form>
     </div>
     <?php endif; ?>
+
+    <!-- Gap #5: Fulfilment — the real per-service bookings that fulfil this trip quote. -->
+    <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+        <h2 class="font-semibold text-slate-800 mb-1">Fulfilment</h2>
+        <p class="text-sm text-slate-500 mb-3">Link the actual service bookings you make to fulfil this trip, so you have a record of what's booked.</p>
+
+        <?php if (empty($linkedBookings)): ?>
+            <p class="text-sm text-slate-400 mb-3">No bookings linked yet.</p>
+        <?php else: ?>
+        <div class="overflow-x-auto mb-3">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-500 text-[11px] uppercase">
+                    <tr><th class="text-left px-3 py-2">Invoice</th><th class="text-left px-3 py-2">Service</th><th class="text-right px-3 py-2">Amount</th><th class="text-left px-3 py-2">Status</th><th class="px-3 py-2"></th></tr>
+                </thead>
+                <tbody>
+                <?php foreach ($linkedBookings as $lb):
+                    $ps = strtolower((string)($lb['payment_status'] ?? ''));
+                    $pill = $ps==='paid' ? 'bg-emerald-50 text-emerald-700' : ($ps==='refunded' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700');
+                ?>
+                    <tr class="border-t border-slate-50">
+                        <td class="px-3 py-2 font-mono text-[12px] text-slate-700"><?= htmlspecialchars((string)$lb['invoice_id']) ?></td>
+                        <td class="px-3 py-2 capitalize text-slate-600"><?= htmlspecialchars((string)($lb['module_type'] ?? '')) ?></td>
+                        <td class="px-3 py-2 text-right text-slate-600"><?= htmlspecialchars((string)($lb['currency_markup'] ?? '')) ?> <?= number_format((float)($lb['price_markup'] ?? 0), 2) ?></td>
+                        <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded text-[11px] <?= $pill ?>"><?= htmlspecialchars(str_replace('_',' ',(string)($lb['payment_status'] ?? ''))) ?></span></td>
+                        <td class="px-3 py-2 text-right">
+                            <?php if (!empty($canEdit)): ?>
+                            <form method="post" action="<?= root ?>agent/trips/<?= $ref ?>/unlink-booking" class="inline" onsubmit="return confirm('Unlink this booking from the trip?');">
+                                <?= CSRF::tokenField() ?>
+                                <input type="hidden" name="invoice_id" value="<?= htmlspecialchars((string)$lb['invoice_id']) ?>">
+                                <button class="text-xs text-red-600 hover:underline">Unlink</button>
+                            </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($canEdit)): ?>
+            <?php if (!empty($linkCandidates)): ?>
+            <form method="post" action="<?= root ?>agent/trips/<?= $ref ?>/link-booking" class="flex flex-wrap items-end gap-2">
+                <?= CSRF::tokenField() ?>
+                <div>
+                    <label class="block text-[11px] uppercase text-slate-400 mb-1">Link a booking</label>
+                    <select name="invoice_id" required class="rounded-lg border border-slate-300 px-3 py-2 text-sm min-w-[260px]">
+                        <option value="">Choose one of your bookings…</option>
+                        <?php foreach ($linkCandidates as $c): ?>
+                        <option value="<?= htmlspecialchars((string)$c['invoice_id']) ?>"><?= htmlspecialchars((string)$c['invoice_id']) ?> · <?= htmlspecialchars((string)($c['module_type'] ?? '')) ?> · <?= htmlspecialchars((string)($c['currency_markup'] ?? '')) ?> <?= number_format((float)($c['price_markup'] ?? 0), 2) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <button class="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700">Link</button>
+            </form>
+            <?php else: ?>
+            <p class="text-[12px] text-slate-400">No unlinked agency bookings to attach. Bookings you make from the Booking Centre will appear here.</p>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
 </div>
