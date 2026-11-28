@@ -2298,6 +2298,21 @@ function ensureFlightFareTimerSchema($db): void
             error_log('ensureFlightFareTimerSchema seed: ' . $e->getMessage());
         }
     }
+
+    // STAYS tolerance seed (2026-11-28) — runs on EVERY ensure pass, NOT just on
+    // column creation, because on an install where fare_tolerance_pct already exists
+    // the $added block above never fires. This is version-gated via
+    // APP_SCHEMA_ENSURE_VERSION (bumped to 24) so it applies once on the next deploy.
+    // ONLY stays/hotelbeds gets 2% — evidence-based: hotelbeds' OWN API payload uses
+    // tolerance 2.00 (modules/stays/hotelbeds/actions/issue.php), so it will honour a
+    // confirmed rate within 2% and we should not refund it. Every other stays supplier
+    // stays 0% (zero-loss) and is admin-tunable. GUARDED with `= 0` so we NEVER
+    // overwrite a value an admin deliberately set — idempotent + non-destructive.
+    try {
+        $db->pdo->exec("UPDATE `modules` SET `fare_tolerance_pct` = 2.00 WHERE `type` = 'stays' AND LOWER(`name`) = 'hotelbeds' AND `fare_tolerance_pct` = 0");
+    } catch (Throwable $e) {
+        error_log('ensureFlightFareTimerSchema stays-seed: ' . $e->getMessage());
+    }
 }
 
 /**

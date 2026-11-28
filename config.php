@@ -581,7 +581,11 @@ try {
         //      same action level, BEFORE routes re-gate onto those keys, so no staff loses access.
         // v23: flight change/no-show — widen bookings.booking_status ENUM to add 'no_show'
         //      (ensureBookingHoldSchema now also ensures that member). Re-run once to apply.
-        define('APP_SCHEMA_ENSURE_VERSION', 23);
+        // v24: money-path hardening (2026-11-28) — add modules.pay_deadline_minutes (generic
+        //      pre-payment deadline gate) + seed stays/hotelbeds fare_tolerance_pct=2.00
+        //      (its own API honours ~2%; guarded "=0" so an admin value is never clobbered).
+        //      Re-run once to add the column + apply the stays seed seamlessly on deploy.
+        define('APP_SCHEMA_ENSURE_VERSION', 24);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
